@@ -41,9 +41,19 @@ const BY_CARD: Record<string, Check[]> = {
     { label: "дыхание", topic: "breathing" },
     { label: "возраст", topic: "age" },
   ],
-  dtp: [
+  "102": [
+    { label: "оружие", topic: "weapon" },
+    { label: "сколько человек", topic: "people" },
+    { label: "приметы", topic: "object" },
+  ],
+  ДТП: [
     { label: "угроза людям", topic: "threat" },
     { label: "заблокированные", topic: "access" },
+    { label: "машины, номера", topic: "object" },
+  ],
+  Взрыв: [
+    { label: "угроза людям", topic: "threat" },
+    { label: "угроза обрушения", topic: "threat" },
   ],
 };
 
