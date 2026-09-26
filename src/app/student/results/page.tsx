@@ -4,10 +4,11 @@ import { Badge, Empty, PageHeader, Section, Stat } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { getStudentResults } from "@/lib/student/results";
+import { viewerSession } from "@/lib/student/viewer";
 
 export default async function MyResultsPage() {
   const user = await requireUser(["STUDENT"]);
-  const r = await getStudentResults(user.id);
+  const r = await getStudentResults(user.id, await viewerSession());
   const s = r.summary;
   const trend = s.lastLesson != null && s.prevLesson != null ? s.lastLesson - s.prevLesson : null;
 

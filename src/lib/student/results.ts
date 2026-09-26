@@ -19,7 +19,7 @@ const listSelect = {
   score: true,
   criteria: true,
   override: true,
-  lesson: { select: { id: true, title: true, startedAt: true } },
+  lesson: { select: { id: true, title: true, startedAt: true, settings: true } },
   scenario: { select: { title: true } },
   incident: { select: { number: true } },
 } satisfies Prisma.AttemptSelect;
@@ -114,9 +114,21 @@ export function buildStudentResults(rows: Row[]): StudentResults {
   };
 }
 
-export async function getStudentResults(studentId: string): Promise<StudentResults> {
+/** The login session asking: practice without a lesson belongs to one session (demo accounts are shared). */
+export type ViewerSession = { practiceKey: string; sessionId: string | null };
+
+/** Practice lesson started under another login session of the same account. */
+export function isOtherSessionPractice(settings: unknown, viewer?: ViewerSession): boolean {
+  if (!viewer) return false;
+  const s = (settings ?? {}) as { practice?: boolean; practiceKey?: string; sessionId?: string };
+  if (s.practiceKey) return s.practiceKey !== viewer.practiceKey;
+  if (s.sessionId) return s.sessionId !== viewer.sessionId;
+  return false;
+}
+
+export async function getStudentResults(studentId: string, viewer?: ViewerSession): Promise<StudentResults> {
   const rows = await db.attempt.findMany({ where: ownAttemptsWhere(studentId), orderBy: { createdAt: "asc" }, select: listSelect });
-  return buildStudentResults(rows);
+  return buildStudentResults(rows.filter((r) => !isOtherSessionPractice(r.lesson.settings, viewer)));
 }
 
 export type StudentAttemptDetail =
@@ -135,12 +147,12 @@ export type StudentAttemptDetail =
     };
 
 /** One own attempt; another student's id resolves to null (404), exactly like a missing one. */
-export async function getStudentAttempt(studentId: string, attemptId: string): Promise<StudentAttemptDetail | null> {
+export async function getStudentAttempt(studentId: string, attemptId: string, viewer?: ViewerSession): Promise<StudentAttemptDetail | null> {
   const a = await db.attempt.findFirst({
     where: { id: attemptId, ...ownAttemptsWhere(studentId) },
     select: { ...listSelect, teacherComment: true },
   });
-  if (!a) return null;
+  if (!a || isOtherSessionPractice(a.lesson.settings, viewer)) return null;
   const base = { id: a.id, kind: a.kind, createdAt: a.createdAt.toISOString(), lessonTitle: a.lesson.title, task: a.scenario?.title ?? null };
   if (a.reviewStatus === "PENDING") return { status: "PENDING", ...base };
   const raw = readCriteria(a.criteria);

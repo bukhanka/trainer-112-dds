@@ -3,12 +3,13 @@ import { Badge, PageHeader, Section } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
 import { getStudentAttempt } from "@/lib/student/results";
+import { viewerSession } from "@/lib/student/viewer";
 import { WEIGHT_GROUPS, type WeightGroup } from "@/lib/scoring/score";
 
 export default async function MyAttemptPage(props: PageProps<"/student/results/[id]">) {
   const user = await requireUser(["STUDENT"]);
   const { id } = await props.params;
-  const a = await getStudentAttempt(user.id, id);
+  const a = await getStudentAttempt(user.id, id, await viewerSession());
   if (!a) notFound();
   const title = a.task ?? "Попытка";
 
