@@ -7,11 +7,12 @@ import { audit } from "../audit";
 
 const run = promisify(execFile);
 
-export const BACKUP_DIR = process.env.BACKUP_DIR ?? path.join(process.cwd(), "backups");
+// Dumps live outside the traced server bundle.
+export const BACKUP_DIR = process.env.BACKUP_DIR ?? path.join(/*turbopackIgnore: true*/ process.cwd(), "backups");
 
 /** Database dump in pg_dump custom format. Restore: scripts/restore.sh <file> (see docs/admin.md). */
 export async function runBackup(kind: "manual" | "scheduled", actor?: { id: string; login: string }) {
-  await mkdir(BACKUP_DIR, { recursive: true });
+  await mkdir(/*turbopackIgnore: true*/ BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const fileName = `trainer-${stamp}.dump`;
   const row = await db.backup.create({ data: { kind, fileName, status: "running" } });
@@ -21,7 +22,7 @@ export async function runBackup(kind: "manual" | "scheduled", actor?: { id: stri
     await run("pg_dump", ["--format=custom", "--no-owner", `--file=${path.join(BACKUP_DIR, fileName)}`, url.toString()], {
       timeout: 10 * 60_000,
     });
-    const { size } = await stat(path.join(BACKUP_DIR, fileName));
+    const { size } = await stat(/*turbopackIgnore: true*/ path.join(BACKUP_DIR, fileName));
     await db.backup.update({ where: { id: row.id }, data: { status: "ok", sizeBytes: BigInt(size) } });
     await audit({ action: `backup.${kind}`, actorId: actor?.id, actor: actor?.login ?? "system", entity: "Backup", entityId: row.id });
   } catch (err) {
@@ -35,11 +36,11 @@ export async function runBackup(kind: "manual" | "scheduled", actor?: { id: stri
 /** Remove dump files and rows older than keepDays. */
 export async function pruneBackups(keepDays: number) {
   const cutoff = Date.now() - keepDays * 86_400_000;
-  const files = await readdir(BACKUP_DIR).catch(() => [] as string[]);
+  const files = await readdir(/*turbopackIgnore: true*/ BACKUP_DIR).catch(() => [] as string[]);
   for (const file of files.filter((f) => f.endsWith(".dump"))) {
-    const full = path.join(BACKUP_DIR, file);
-    const { mtimeMs } = await stat(full);
-    if (mtimeMs < cutoff) await unlink(full).catch(() => undefined);
+    const full = path.join(/*turbopackIgnore: true*/ BACKUP_DIR, file);
+    const { mtimeMs } = await stat(/*turbopackIgnore: true*/ full);
+    if (mtimeMs < cutoff) await unlink(/*turbopackIgnore: true*/ full).catch(() => undefined);
   }
   await db.backup.deleteMany({ where: { createdAt: { lt: new Date(cutoff) } } });
 }
