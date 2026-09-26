@@ -63,6 +63,8 @@ pnpm dev                                         # http://localhost:3100
 
 ## Документация
 
+Вся документация одним файлом: [PDF](docs/documentation.pdf) · [DOCX](docs/documentation.docx) (собирается командой `pnpm exec tsx scripts/build-docs.ts`).
+
 | Документ | О чём |
 |---|---|
 | [install.md](docs/install.md) | установка: Docker, HTTPS в классе, офлайн, модели |

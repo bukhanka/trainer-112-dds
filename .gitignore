@@ -45,3 +45,6 @@ next-env.d.ts
 
 # database dumps
 /backups/
+
+# intermediate documentation build
+/docs/build/
