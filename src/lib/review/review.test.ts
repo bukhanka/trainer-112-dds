@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CriterionResult } from "@/lib/scoring/score";
-import { DEFAULT_WEIGHTS } from "@/lib/scoring/weights";
+import { DEFAULT_WEIGHTS } from "@/lib/scoring/weight-config";
 import { planReview, type ReviewState } from "./review";
 
 const criteria: CriterionResult[] = [
