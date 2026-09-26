@@ -12,7 +12,8 @@ export async function GET() {
     .map((s) => ({ okrug: s.okrug ?? "", district: s.district! }))
     .sort((a, b) => a.district.localeCompare(b.district, "ru"));
   return Response.json({
-    services: services.map((s) => ({ id: s.id, shortName: s.shortName, fullName: s.fullName })),
+    // «Серые» плашки: службы, которые получают карточку только по телефону.
+    services: services.map((s) => ({ id: s.id, shortName: s.shortName, fullName: s.fullName, phoneOnly: s.delivery === "PHONE" })),
     okrugs: OKRUGS,
     districts,
   });

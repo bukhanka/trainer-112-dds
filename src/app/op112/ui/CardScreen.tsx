@@ -104,7 +104,7 @@ export function CardScreen(p: {
 
   const byId = new Map((dir?.services ?? []).map((s) => [s.id, s]));
   const plates: Plate[] = readOnly
-    ? incident.plates
+    ? incident.plates.map((pl) => ({ ...pl, phoneOnly: byId.get(pl.serviceId)?.phoneOnly }))
     : [
         ...autoPlates.map((r) => ({
           serviceId: r.serviceId,
@@ -112,10 +112,18 @@ export function CardScreen(p: {
           fullName: byId.get(r.serviceId)?.fullName,
           isMain: r.isMain,
           auto: true,
+          phoneOnly: byId.get(r.serviceId)?.phoneOnly,
         })),
         ...draft.manualServiceIds
           .filter((id) => !autoPlates.some((a) => a.serviceId === id))
-          .map((id) => ({ serviceId: id, shortName: byId.get(id)?.shortName ?? `#${id}`, fullName: byId.get(id)?.fullName, isMain: false, auto: false })),
+          .map((id) => ({
+            serviceId: id,
+            shortName: byId.get(id)?.shortName ?? `#${id}`,
+            fullName: byId.get(id)?.fullName,
+            isMain: false,
+            auto: false,
+            phoneOnly: byId.get(id)?.phoneOnly,
+          })),
       ];
 
   const warnings = [

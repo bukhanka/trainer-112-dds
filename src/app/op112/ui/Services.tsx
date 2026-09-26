@@ -3,8 +3,17 @@ import { useMemo, useState } from "react";
 import { hhmm } from "./format";
 import { IconAlert, IconBell, IconChevronUp, IconClose, IconHand, IconLink, IconPhone, IconPlus, IconStopwatch } from "./icons";
 
-export type Plate = { serviceId: number; shortName: string; fullName?: string | null; isMain: boolean; auto: boolean; status?: string; addedAt?: string };
-export type ServiceItem = { id: number; shortName: string; fullName: string | null };
+export type Plate = {
+  serviceId: number;
+  shortName: string;
+  fullName?: string | null;
+  isMain: boolean;
+  auto: boolean;
+  status?: string;
+  addedAt?: string;
+  phoneOnly?: boolean;
+};
+export type ServiceItem = { id: number; shortName: string; fullName: string | null; phoneOnly?: boolean };
 
 const STATUS_RU: Record<string, string> = {
   ADDED: "Добавлена",
@@ -40,8 +49,8 @@ export function ServicesBar(p: {
         {p.plates.map((s) => (
           <div
             key={s.serviceId}
-            className="relative flex w-[112px] shrink-0 flex-col items-center justify-center border-r border-white/25 px-1"
-            title={s.fullName ? `${s.shortName} (${s.fullName})` : s.shortName}
+            className={`relative flex w-[112px] shrink-0 flex-col items-center justify-center border-r border-white/25 px-1 ${s.phoneOnly ? "bg-arm-plate-gray" : ""}`}
+            title={`${s.fullName ? `${s.shortName} (${s.fullName})` : s.shortName}${s.phoneOnly ? " — оповещается по телефону" : ""}`}
           >
             {p.saved ? (
               <IconChevronUp className="absolute left-1 top-0.5 h-3.5 w-3.5 opacity-80" />
