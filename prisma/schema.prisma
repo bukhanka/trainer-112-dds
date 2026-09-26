@@ -143,7 +143,8 @@ model Service {
   district      String?
   selectRule    String?
   phone         String?
-  orderIdx      Int
+  orderIdx      Int // position in the plates strip of a card; the «Добавьте службы» window sorts by id
+  mainCodes     String[] // classifier «Главная служба» codes (MCHS, Police…) for which this plate goes first
 
   incidentServices IncidentService[]
   seats            Seat[]

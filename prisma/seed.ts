@@ -1,12 +1,11 @@
 /**
  * Demo data: accounts for every role, one group, default settings and weights.
- * Reference data (classifier, services, scenarios) is loaded by prisma/seed-reference.ts when present.
+ * Reference data (classifier, services, scenarios) is loaded by prisma/seed-reference.ts.
  * Idempotent: safe to run again.
  */
 import { PrismaClient, type Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { existsSync } from "node:fs";
-import path from "node:path";
+import { seedReference } from "./seed-reference";
 
 const db = new PrismaClient();
 
@@ -69,11 +68,7 @@ async function main() {
     await db.weightProfile.create({ data: { name: "По умолчанию", weights: DEFAULT_WEIGHTS, isActive: true } });
   }
 
-  const reference = path.join(__dirname, "seed-reference.ts");
-  if (existsSync(reference)) {
-    const mod = (await import(reference)) as { seedReference?: (client: PrismaClient) => Promise<void> };
-    await mod.seedReference?.(db);
-  }
+  await seedReference(db);
 
   console.log(`seed: ${DEMO_ACCOUNTS.length} accounts, group «${group.name}» with ${students.length} students`);
 }
