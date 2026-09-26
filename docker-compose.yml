@@ -1,8 +1,9 @@
 name: lct-trainer
 
 # Local development and single-host deployment.
-#   docker compose up -d db          — database only (for `pnpm dev`)
-#   docker compose --profile app up  — database + application
+#   docker compose up -d db                              — database only (for `pnpm dev`)
+#   docker compose --profile app up -d                   — database + application on :3000
+#   docker compose --profile app --profile https up -d   — plus HTTPS (Caddy), see deploy/Caddyfile
 services:
   db:
     image: postgres:16-alpine
@@ -21,5 +22,41 @@ services:
       timeout: 3s
       retries: 20
 
+  app:
+    profiles: ["app"]
+    build: .
+    image: trainer-112-dds:latest
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://trainer:trainer@db:5432/trainer?schema=public
+    ports:
+      - "3000:3000"
+    volumes:
+      - backups:/backups
+
+  caddy:
+    profiles: ["https"]
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      - app
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      TLS_MODE: ${TLS_MODE:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
 volumes:
   db-data:
+  backups:
+  caddy-data:
