@@ -65,6 +65,12 @@ describe("panel 101", () => {
     expect(resolveTree(fire, { ...base, placeStreet: ["Тоннель"] }).flags).toEqual({ tunnel: true });
   });
 
+  it("free-text rows go to texts, not to the tag line", () => {
+    const r = resolveTree(fire, { where: "Дом", signHouse: FLAME, houseKind: "Дом частный", floors: "2", description: "горит крыша" });
+    expect(r.texts).toEqual({ floors: "2", description: "горит крыша" });
+    expect(r.tags.map((t) => t.value)).toEqual(["Дом", FLAME, "Дом частный"]);
+  });
+
   it("запах гари on the street is a leaf of its own", () => {
     expect(resolveTree(fire, { where: "Улица", signStreet: "Запах гари" }).typeCodes).toEqual([1011100]);
   });

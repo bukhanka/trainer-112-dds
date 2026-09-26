@@ -157,8 +157,10 @@ export type ResolvedTags = {
   /** smoke twins, accepted by the checker as an equally correct classification */
   smokeTypeCodes: number[];
   flags: IncidentFlags;
-  /** chosen rows for Incident.tags */
+  /** chosen buttons for Incident.tags (free-text rows are not tags) */
   tags: TagChoice[];
+  /** free-text rows: floors, offense description, description */
+  texts: Record<string, string>;
   /** true when at least one leaf is chosen */
   complete: boolean;
 };
@@ -168,6 +170,7 @@ export function resolveTree(tree: TagTree, selection: TagSelection): ResolvedTag
   const rows = visibleRows(tree, selection);
   const flags: IncidentFlags = {};
   const tags: TagChoice[] = [];
+  const texts: Record<string, string> = {};
   const typeCodes: number[] = [];
   const smokeTypeCodes: number[] = [];
   let deepest: TagOption[] = [];
@@ -175,6 +178,10 @@ export function resolveTree(tree: TagTree, selection: TagSelection): ResolvedTag
   for (const row of rows) {
     const picked = values(selection, row.id);
     if (picked.length === 0) continue;
+    if (row.kind === "text") {
+      texts[row.id] = picked.join(" ");
+      continue;
+    }
     for (const value of picked) tags.push({ row: row.label, value });
 
     if (row.flag) {
@@ -194,7 +201,7 @@ export function resolveTree(tree: TagTree, selection: TagSelection): ResolvedTag
     }
   }
   if (tree.bySigns) for (const option of deepest) typeCodes.push(...(option.types ?? []));
-  return { typeCodes, smokeTypeCodes, flags, tags, complete: typeCodes.length > 0 };
+  return { typeCodes, smokeTypeCodes, flags, tags, texts, complete: typeCodes.length > 0 };
 }
 
 // ─── Generic panel: classifier signs of a group ─────────────────────────────
