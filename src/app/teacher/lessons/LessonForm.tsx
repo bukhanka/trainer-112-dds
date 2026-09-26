@@ -232,6 +232,16 @@ export function LessonForm({
                 <span className="block text-xs text-arm-desc">Старший бригады звонит диспетчеру ДДС о ходе работ</span>
               </span>
             </label>
+            <label className="flex items-start gap-2">
+              <input type="checkbox" className="mt-0.5" checked={settings.adaptive} onChange={(e) => set("adaptive", e.target.checked)} />
+              <span>
+                Адаптивная сложность
+                <span className="block text-xs text-arm-desc">
+                  Месту без заданий карточки подбираются по уровню ученика: справляется уверенно — сложнее, ошибается — проще. Задания, отмеченные
+                  вручную, и «одна карточка на всех» идут как есть
+                </span>
+              </span>
+            </label>
           </div>
         </div>
       </Section>

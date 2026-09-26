@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BarChart, niceMax } from "@/components/charts";
 import { Badge, LinkButton, PageHeader, Section, Stat } from "@/components/ui";
+import { loadRatingAttempts } from "@/lib/adaptive/levels";
+import { lessonLevels } from "@/lib/adaptive/report";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDelta, formatDuration, shortName } from "@/lib/format";
@@ -26,7 +28,14 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
   const lesson = await findLesson(user, id);
   if (!lesson) notFound();
   const group = lesson.groupId ? await db.group.findUnique({ where: { id: lesson.groupId }, select: { name: true } }) : null;
-  const report = buildLessonReport(await loadReportInput(lesson));
+  const input = await loadReportInput(lesson);
+  const report = buildLessonReport(input);
+  const levels = lessonLevels({
+    lessonId: lesson.id,
+    start: lesson.startedAt ?? new Date(),
+    seats: input.seats.map((x) => ({ studentId: x.studentId, name: x.studentName, seat: x.label, role: x.role })),
+    attempts: await loadRatingAttempts(input.seats.map((x) => x.studentId)),
+  });
   const s = report.summary;
   const duration = lesson.startedAt ? ((lesson.finishedAt ?? new Date()).getTime() - lesson.startedAt.getTime()) / 1000 : null;
   const withTime = report.students.filter((r) => r.avgTimeSec != null);
@@ -164,6 +173,59 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         </div>
         <p className="mt-2 text-xs text-arm-desc">
           Время: у места 112 — набор карточки до сохранения, у места ДДС — от «Добавлена» до «Принята / Не принята». «В тексте» — ошибки понятности текста.
+        </p>
+      </Section>
+
+      <Section title="Уровень учеников «как в шахматах»: до и после занятия">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
+            <thead className="text-left text-xs text-arm-desc">
+              <tr className="border-b border-arm-gray/60">
+                <th className="py-1.5 pr-3 font-medium">ФИО</th>
+                <th className="py-1.5 pr-3 font-medium">Место</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Уровень до</th>
+                <th className="py-1.5 pr-3 text-right font-medium">После</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Изменение</th>
+                <th className="py-1.5 pr-3 font-medium">Сложность заданий занятия</th>
+                <th className="py-1.5 font-medium">Дальше — задания сложности</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-arm-gray/50">
+              {levels.map((r) => (
+                <tr key={r.studentId}>
+                  <td className="py-1.5 pr-3 font-medium">{r.name}</td>
+                  <td className="py-1.5 pr-3">
+                    {r.seat} · {r.role === "OP112" ? "112" : "ДДС"}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right tabular-nums">
+                    {r.before}
+                    {r.newcomer && <span className="text-xs text-arm-desc"> новичок</span>}
+                  </td>
+                  <td className="py-1.5 pr-3 text-right font-semibold tabular-nums">{r.after}</td>
+                  <td className={`py-1.5 pr-3 text-right tabular-nums ${r.delta > 0 ? "text-emerald-700" : r.delta < 0 ? "text-red-700" : "text-arm-desc"}`}>
+                    {r.delta > 0 ? "+" : r.delta < 0 ? "−" : ""}
+                    {Math.abs(r.delta)}
+                  </td>
+                  <td className="py-1.5 pr-3 tabular-nums">
+                    {r.tasks ? (
+                      <>
+                        {r.tasks.min === r.tasks.max ? r.tasks.min : `${r.tasks.min}–${r.tasks.max}`}
+                        <span className="text-xs text-arm-desc"> · попыток {r.lessonAttempts}</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-arm-desc">попыток с баллом нет</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 tabular-nums">{r.difficulty} из 10</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-arm-desc">
+          Уровень — рейтинг Эло в роли места: задание сложности d «играет» с рейтингом 900 + 100·d, на задании своего уровня ожидаемый балл 70. Балл выше
+          ожидаемого поднимает уровень, ниже — опускает; черновик до подтверждения весит вдвое меньше. Место без заданий в адаптивном занятии получает
+          карточки рядом с рекомендуемой сложностью.
         </p>
       </Section>
 

@@ -119,6 +119,12 @@ function SeatTile({ seat, now, lessonId }: { seat: SeatState; now: number; lesso
         {seat.queue > 0 && <span className="ml-auto rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">в очереди {seat.queue}</span>}
       </header>
       <div className="text-base font-semibold leading-tight">{seat.studentName}</div>
+      {seat.level && (
+        <div className="-mt-1 text-xs text-arm-desc" title="Уровень ученика в роли этого места («как в шахматах») и сложность заданий, которую он подсказывает">
+          Уровень <span className="font-semibold tabular-nums text-arm-dark">{seat.level.rating}</span> · задания ≈ {seat.level.difficulty} из 10
+          {!seat.level.attempts && " · новичок"}
+        </div>
+      )}
 
       <div className="min-h-[3.25rem] rounded bg-arm-panel/70 p-2 text-sm">
         {seat.current ? (
@@ -127,6 +133,7 @@ function SeatTile({ seat, now, lessonId }: { seat: SeatState; now: number; lesso
               № {seat.current.number} · {seat.current.title}
             </div>
             <div className="truncate text-xs text-arm-desc" title={seat.current.address ?? ""}>
+              {seat.current.difficulty != null && <>сложность {seat.current.difficulty} · </>}
               {seat.current.address ?? "адрес ещё не указан"} · {seat.current.status}
             </div>
           </>

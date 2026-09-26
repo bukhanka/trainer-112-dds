@@ -11,6 +11,7 @@ type Client = PrismaClient | Prisma.TransactionClient;
 const ratingSelect = {
   id: true,
   studentId: true,
+  lessonId: true,
   kind: true,
   score: true,
   reviewStatus: true,
@@ -21,7 +22,15 @@ const ratingSelect = {
 type Row = Prisma.AttemptGetPayload<{ select: typeof ratingSelect }>;
 
 function toRatingAttempt(r: Row): RatingAttempt {
-  return { id: r.id, kind: r.kind, score: r.score, reviewStatus: r.reviewStatus, createdAt: r.createdAt, difficulty: r.scenario?.difficulty ?? null };
+  return {
+    id: r.id,
+    lessonId: r.lessonId,
+    kind: r.kind,
+    score: r.score,
+    reviewStatus: r.reviewStatus,
+    createdAt: r.createdAt,
+    difficulty: r.scenario?.difficulty ?? null,
+  };
 }
 
 /** Attempts of these students for the rating, grouped by student. */

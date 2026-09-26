@@ -49,12 +49,16 @@ export type BoardInput = {
     serviceId: number | null;
     serviceName: string | null;
     scenarioIds: string[];
+    /** The student's level in the role of this place (src/lib/adaptive/rating.ts). */
+    level?: SeatLevel | null;
   }[];
   incidents: {
     id: string;
     number: number;
     scenarioId: string | null;
     title: string;
+    /** Scenario difficulty 1–10. */
+    difficulty?: number | null;
     address: string | null;
     source: string;
     createdBySeatId: string | null;
@@ -95,6 +99,8 @@ export type BoardInput = {
 
 export type RedFlags = { notNotified: number; refused: number; notFinished: number };
 
+export type SeatLevel = { rating: number; difficulty: number; attempts: number };
+
 export type SeatTimer = {
   phase: "ack" | "dispatch" | "brigade" | "typing" | "ringing" | "call";
   label: string;
@@ -110,7 +116,8 @@ export type SeatState = {
   studentName: string;
   serviceName: string | null;
   tasks: number;
-  current: { number: number; title: string; address: string | null; status: string } | null;
+  level: SeatLevel | null;
+  current: { number: number; title: string; address: string | null; status: string; difficulty: number | null } | null;
   timer: SeatTimer | null;
   queue: number;
   counts: { opened: number; answered: number; submitted: number };
@@ -247,6 +254,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
       studentName: seat.studentName,
       serviceName: seat.serviceName,
       tasks: seat.scenarioIds.length,
+      level: seat.level ?? null,
       failedChecks: failed,
       topErrors: top,
       pendingReview: attempts.filter((a) => a.reviewStatus === "PENDING").length,
@@ -280,7 +288,9 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
       const red = sumFlags(mine.map(({ p }) => plateFlags(p, L, now)));
       return {
         ...common,
-        current: cur ? { number: cur.inc.number, title: cur.inc.title, address: cur.inc.address, status: PLATE_STATUS_LABEL[cur.p.status] } : null,
+        current: cur
+          ? { number: cur.inc.number, title: cur.inc.title, address: cur.inc.address, status: PLATE_STATUS_LABEL[cur.p.status], difficulty: cur.inc.difficulty ?? null }
+          : null,
         timer,
         queue: running ? Math.max(0, open.length - (cur ? 1 : 0)) : 0,
         counts: {
@@ -311,7 +321,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
     const saved = cards.filter((c) => c.savedAt);
     return {
       ...common,
-      current: draft ? { number: draft.number, title: draft.title, address: draft.address, status: "заполняется" } : null,
+      current: draft ? { number: draft.number, title: draft.title, address: draft.address, status: "заполняется", difficulty: draft.difficulty ?? null } : null,
       timer,
       queue: running ? Math.max(0, calls.filter((c) => c.status === "RINGING").length - (live?.status === "RINGING" ? 1 : 0)) : 0,
       counts: {

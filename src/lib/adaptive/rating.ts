@@ -43,6 +43,7 @@ const TARGET_ODDS = (1 - RATING.target) / RATING.target;
 
 export type RatingAttempt = {
   id: string;
+  lessonId?: string;
   kind: RatingRole;
   score: number | null;
   reviewStatus: "PENDING" | "CONFIRMED" | "OVERRIDDEN";

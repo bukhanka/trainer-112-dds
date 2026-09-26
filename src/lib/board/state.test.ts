@@ -266,3 +266,18 @@ describe("buildBoard: review fixes", () => {
     expect(board.seats[0].current).toBeNull();
   });
 });
+
+describe("buildBoard: level of the student", () => {
+  it("shows the level of the place's role and the difficulty of the current card", () => {
+    const board = buildBoard(
+      input({
+        seats: [seat("1", "DDS", { level: { rating: 1340, difficulty: 4, attempts: 6 } }), seat("2", "OP112")],
+        incidents: [incident("i1", [plate("p1", 10, "RECEIVED", [["RECEIVED", 8, "1"]])], { difficulty: 5 })],
+      }),
+      NOW,
+    );
+    expect(board.seats[0].level).toEqual({ rating: 1340, difficulty: 4, attempts: 6 });
+    expect(board.seats[0].current?.difficulty).toBe(5);
+    expect(board.seats[1].level).toBeNull();
+  });
+});

@@ -12,6 +12,7 @@ export const lessonSettingsSchema = z.object({
   hints: z.boolean().default(false), // «режим чайника»: tips on fields and next steps
   brigadeReports: z.boolean().default(true), // brigade leaders call the ДДС with progress
   practice: z.boolean().default(false), // a student's own lesson started from the workstation («Тренировка без занятия»)
+  adaptive: z.boolean().default(true), // a place without assigned tasks gets tasks near the student's level (src/lib/adaptive)
 });
 
 export type LessonSettings = z.infer<typeof lessonSettingsSchema>;

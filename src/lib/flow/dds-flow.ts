@@ -13,6 +13,8 @@ import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
 import { ddsCardOf, platesForPlace } from "@/lib/dds/scenario";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
+import { studentRating } from "@/lib/adaptive/levels";
+import { pickAdaptive } from "@/lib/adaptive/pick";
 
 type Tx = Prisma.TransactionClient;
 
@@ -85,6 +87,7 @@ const scenarioSelect = {
   id: true,
   title: true,
   category: true,
+  difficulty: true,
   caller: true,
   truth: true,
   ddsCard: true,
@@ -94,8 +97,9 @@ const scenarioSelect = {
 type PickedScenario = Prisma.ScenarioGetPayload<{ select: typeof scenarioSelect }>;
 
 /**
- * Tasks assigned to the place come first, in order; otherwise a random approved scenario of the
- * lesson's categories. Scenarios already shown at this place are used again only when the pool is exhausted.
+ * Tasks assigned to the place come first, in order; otherwise an approved scenario of the lesson's
+ * categories — near the student's level when the lesson is adaptive (src/lib/adaptive), at random
+ * when it is not. Scenarios already shown at this place are used again only when the pool is exhausted.
  */
 async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings): Promise<PickedScenario | null> {
   const where: Prisma.ScenarioWhereInput = { status: "APPROVED" };
@@ -104,9 +108,14 @@ async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings): Promi
 
   const pool = await tx.scenario.findMany({ where, select: scenarioSelect });
   if (!pool.length) return null;
-  const used = new Set(
-    (await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true } })).map((i) => i.scenarioId),
-  );
+  const feed = await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true, createdAt: true } });
+  if (!seat.scenarioIds.length && settings.adaptive) {
+    const lastUsed = new Map<string, number>();
+    for (const i of feed) if (i.scenarioId) lastUsed.set(i.scenarioId, Math.max(lastUsed.get(i.scenarioId) ?? 0, i.createdAt.getTime()));
+    const level = await studentRating(seat.studentId, "DDS", tx);
+    return pickAdaptive(pool, { target: level.difficulty, lastUsed });
+  }
+  const used = new Set(feed.map((i) => i.scenarioId));
   const fresh = pool.filter((s) => !used.has(s.id));
   if (seat.scenarioIds.length && fresh.length) {
     const order = new Map(seat.scenarioIds.map((id, i) => [id, i]));
