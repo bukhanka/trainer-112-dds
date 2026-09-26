@@ -114,3 +114,12 @@ describe("address suggestions keep the answer hidden", () => {
     expect(suggestAddress("электронный рай")).toEqual([]);
   });
 });
+
+describe("tag line for the ДДС", () => {
+  it("names the row of a yes/no answer", () => {
+    const answers = { "101": { where: ["Улица"], signStreet: [FLAME], streetObject: ["Мусор"], threat: ["Нет"] } };
+    const r = resolveCard(["101"], answers, {});
+    expect(r.tags.find((t) => t.rowId === "threat")).toMatchObject({ value: "Угроза людям: Нет", text: "Нет" });
+    expect(tagsToAnswers(r.tags).answers["101"].threat).toEqual(["Нет"]);
+  });
+});

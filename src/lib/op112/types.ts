@@ -9,8 +9,8 @@ export type CardAnswers = Record<string, string[]>;
 
 /**
  * Stored in Incident.tags: a flat list the ДДС card prints as «тег . тег . тег» (row + value as in
- * TagChoice). `card` and `rowId` let the workstation restore the panels; a free-text row keeps its
- * raw text in `text` and «Этажность здания: 14» in `value`.
+ * TagChoice). `card` and `rowId` let the workstation restore the panels; free-text and yes/no rows
+ * keep the raw answer in `text` and «Этажность здания: 14», «Угроза людям: Нет» in `value`.
  */
 export type StoredTag = { card: string; rowId: string; row: string; value: string; text?: string };
 

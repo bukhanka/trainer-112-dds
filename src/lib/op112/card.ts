@@ -47,6 +47,9 @@ export function resolveCard(
       if (row.kind === "text") {
         const text = values.join(" ").trim();
         tags.push({ card, rowId: row.id, row: row.label, value: `${row.label}: ${text}`, text });
+      } else if (row.kind === "yesno" || row.kind === "yesnounknown") {
+        // «Да» alone means nothing in the ДДС tag line: it reads «Угроза людям: Нет».
+        for (const v of values) tags.push({ card, rowId: row.id, row: row.label, value: `${row.label}: ${v}`, text: v });
       } else for (const value of values) tags.push({ card, rowId: row.id, row: row.label, value });
     }
     // A kind with nothing chosen yet still has to survive a reload of the draft.

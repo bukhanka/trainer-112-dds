@@ -191,7 +191,7 @@ function flagHolds(card: EvalCard, flag: keyof IncidentFlags, value: boolean): b
   const filled = card.flags[flag];
   if (value) return filled === true;
   if (TOP.has(flag)) return !filled;
-  if (flag === "gas" && card.tags.some((t) => t.row === "Проведена ли газификация" && t.value === "Нет данных")) return false;
+  if (flag === "gas" && card.tags.some((t) => t.row === "Проведена ли газификация" && (t.text ?? t.value) === "Нет данных")) return false;
   return filled === false;
 }
 
