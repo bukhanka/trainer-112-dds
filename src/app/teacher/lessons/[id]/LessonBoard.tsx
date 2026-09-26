@@ -106,7 +106,7 @@ function SeatTile({ seat, now, lessonId }: { seat: SeatState; now: number; lesso
   const border = t?.late ? "border-arm-late ring-2 ring-arm-late/40" : seat.current || seat.timer ? "border-arm-blue" : "border-arm-gray/70";
   const is112 = seat.role === "OP112";
   return (
-    <article className={`flex flex-col gap-2 rounded border-2 bg-white p-3 ${border}`} aria-label={`${seat.label}: ${seat.studentName}`}>
+    <article className={`flex min-w-0 flex-col gap-2 rounded border-2 bg-white p-3 ${border}`} aria-label={`${seat.label}: ${seat.studentName}`}>
       <header className="flex items-center gap-2">
         <span className="font-semibold">{seat.label}</span>
         <span className={`rounded px-1.5 py-0.5 text-xs font-semibold text-white ${is112 ? "bg-arm-orange" : "bg-arm-blue"}`}>{is112 ? "112" : "ДДС"}</span>
@@ -250,7 +250,7 @@ function Projector({ data, now, elapsed, running, offline }: { data: BoardRespon
           const t = timerText(seat, now);
           const red = seat.red.notNotified + seat.red.refused + seat.red.notFinished + seat.lateTyping + seat.missedCalls;
           return (
-            <div key={seat.id} className={`rounded-lg border-4 p-4 ${t?.late ? "border-arm-late bg-arm-late/15" : seat.timer ? "border-arm-blue bg-white/5" : "border-white/15 bg-white/5"}`}>
+            <div key={seat.id} className={`min-w-0 rounded-lg border-4 p-4 ${t?.late ? "border-arm-late bg-arm-late/15" : seat.timer ? "border-arm-blue bg-white/5" : "border-white/15 bg-white/5"}`}>
               <div className="flex items-center gap-2 text-xl font-bold">
                 {seat.label}
                 <span className={`rounded px-2 text-base ${seat.role === "OP112" ? "bg-arm-orange" : "bg-arm-blue"}`}>{seat.role === "OP112" ? "112" : "ДДС"}</span>

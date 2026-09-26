@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 
@@ -14,9 +15,12 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
     (await db.scenario.findMany({ where: { id: { in: seats.flatMap((s) => s.scenarioIds) }, status: "APPROVED" }, select: { id: true } })).map((s) => s.id),
   );
   const title = `${lesson.title} (копия)`.slice(0, 120);
+  // A copy is always a class lesson, even if made from a student's self-practice.
+  const settings = { ...((lesson.settings ?? {}) as Record<string, unknown>) };
+  delete settings.practice;
   const copy = await db.$transaction(async (tx) => {
     const created = await tx.lesson.create({
-      data: { title, groupId: lesson.groupId, settings: lesson.settings ?? {}, teacherId: user.id },
+      data: { title, groupId: lesson.groupId, settings: settings as Prisma.InputJsonValue, teacherId: user.id },
     });
     await tx.seat.createMany({
       data: seats.map((s) => ({
