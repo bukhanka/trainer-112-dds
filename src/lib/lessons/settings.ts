@@ -11,6 +11,7 @@ export const lessonSettingsSchema = z.object({
   typingSec: z.number().int().min(20).max(600).default(65), // 112 card typing timer turns red
   hints: z.boolean().default(false), // «режим чайника»: tips on fields and next steps
   brigadeReports: z.boolean().default(true), // brigade leaders call the ДДС with progress
+  practice: z.boolean().default(false), // a student's own lesson started from the workstation («Тренировка без занятия»)
 });
 
 export type LessonSettings = z.infer<typeof lessonSettingsSchema>;
