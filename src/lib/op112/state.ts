@@ -23,6 +23,7 @@ export type CallDto = {
   id: string;
   status: Call["status"];
   phone: string;
+  voice: "male" | "female";
   startedAt: string;
   answeredAt: string | null;
   endedAt: string | null;
@@ -67,11 +68,12 @@ export type Op112State = {
 };
 
 export function callDto(call: Call): CallDto {
-  const counterpart = (call.counterpart ?? {}) as { phone?: string };
+  const counterpart = (call.counterpart ?? {}) as { phone?: string; voice?: string };
   return {
     id: call.id,
     status: call.status,
     phone: counterpart.phone ?? "",
+    voice: counterpart.voice === "male" ? "male" : "female",
     startedAt: call.startedAt.toISOString(),
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,

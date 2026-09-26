@@ -151,7 +151,7 @@ const firstSentence = (s: string) => (s.match(/^[^.!?]+[.!?]?/)?.[0] ?? s).trim(
 function styled(p: Persona, text: string, opening = false): string {
   switch (p.temper) {
     case "panic":
-      return opening ? `Алло! 112?! ${text} Быстрее, пожалуйста!` : `${text}${/[!?]$/.test(text) ? "" : "!"} Быстрее!`;
+      return opening ? `Алло! 112?! ${text} Быстрее, пожалуйста!` : `${text.replace(/\.$/, "")}${/[!?…]$/.test(text) ? "" : "!"} Быстрее!`;
     case "elderly":
       return opening ? `Алло… Это сто двенадцать? ${p.voice === "male" ? "Дочка" : "Сынок"}, тут такое… ${text}` : `Ой… ${text}`;
     case "child":
@@ -217,6 +217,7 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
   if (topics.includes("addressExact") && p.hiddenAddress) topics = topics.filter((x) => x !== "address");
 
   const parts: string[] = [];
+  const unknown: string[] = [];
   const revealed: string[] = [];
   const say = (card: FactCard | undefined, text?: string) => {
     if (!card) return;
@@ -236,14 +237,16 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
     else {
       const facts = cards.filter((c) => c.topic === topic);
       if (facts.length) facts.forEach((f) => say(f));
-      else if (UNKNOWN[topic]) parts.push(UNKNOWN[topic]!);
+      else if (UNKNOWN[topic]) unknown.push(UNKNOWN[topic]!);
     }
   }
   // A question no topic covers («Какой номер маршрута?»): the ticket line with the same words.
-  if (!parts.length) {
+  if (!parts.length && !unknown.length) {
     const hit = bestFactByWords(operatorText, cards);
     if (hit) say(hit);
   }
+  // «Не знаю» only when nothing else was said: a caller does not mix it into a real answer.
+  if (!parts.length && unknown.length) return { text: styled(p, unknown.join(" ")), revealed: [] };
 
   if (!parts.length) {
     if (/выезжа|выехал|направ|высыла|передал|будут|едут|ожидайте|помощь (уже )?едет/.test(t)) {

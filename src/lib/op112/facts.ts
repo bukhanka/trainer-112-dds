@@ -139,7 +139,7 @@ export function topicsOfFact(text: string): Topic[] {
   const out: Topic[] = [];
   if (/газ(?!ел)|газиф|магистрал|баллон/.test(t)) out.push("gas");
   if (/\d+\s*-?\s*(этаж|эт(?![а-я]))|этажн[а-яa-z]*\s*[-–—:]?\s*\d/.test(t)) out.push("floors");
-  if (/пострадав|ранен|травм|ожог|кров|зовут на помощь|кричат о помощи|без сознан/.test(t)) out.push("victims");
+  if (/пострадав|ранен|травм|ожог|кров|без сознан/.test(t)) out.push("victims");
   if (/сознани|без сознан/.test(t)) out.push("consciousness");
   if (/доступ|заблок|ворота|не открыва|закрыт/.test(t)) out.push("access");
   if (/угроз|угрожа|перекидыва|распростран|зовут на помощь|кричат/.test(t)) out.push("threat");
@@ -185,7 +185,7 @@ export function expectationOfFact(topic: FactTopic, text: string): FactExpectati
     }
     case "victims":
       if (/других пострадавш/.test(t)) return undefined;
-      if (/пострадавш[^.,;]*\sнет|нет пострадавш|никто не пострадал|не пострадал|пострадавш[а-яa-z]*\s+не\s+(вид|было|знает)|без пострадавш/.test(t)) {
+      if (/пострадавш[^.,;]*\sнет|нет пострадавш|никто не пострадал|не пострадал|пострадавш[^.,;]*\sне\s+(вид|было|знает|замет)|без пострадавш/.test(t)) {
         return { kind: "flag", flag: "victims", value: false };
       }
       return { kind: "flag", flag: "victims", value: true };

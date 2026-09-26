@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { PushToTalk } from "@/components/voice/PushToTalk";
+import { useVoice } from "@/components/voice/useVoice";
 import { askedAbout } from "@/lib/op112/facts";
 import type { CallLine, FactTopic } from "@/lib/op112/types";
 import type { CallDto } from "@/lib/op112/state";
@@ -45,6 +47,22 @@ const BY_CARD: Record<string, Check[]> = {
   ],
 };
 
+const MUTE_KEY = "op112.voiceMuted";
+function readMuted(): boolean {
+  try {
+    return localStorage.getItem(MUTE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeMuted(v: boolean) {
+  try {
+    localStorage.setItem(MUTE_KEY, v ? "1" : "0");
+  } catch {
+    /* the choice is simply not remembered */
+  }
+}
+
 export function ChatPanel(p: {
   call: CallDto | null;
   lines: CallLine[];
@@ -56,8 +74,31 @@ export function ChatPanel(p: {
   onHangup: () => void;
 }) {
   const [text, setText] = useState("");
+  const [muted, setMuted] = useState(readMuted);
   const listRef = useRef<HTMLDivElement>(null);
+  const spoken = useRef<string | null>(null);
   const active = p.call?.status === "ACTIVE";
+  const voice = useVoice();
+  const { say, cancel, listen, stop } = voice;
+  const gender = p.call?.voice ?? "female";
+
+  // The caller's new line is also spoken aloud (server synthesis or the browser's voices).
+  const last = p.lines[p.lines.length - 1];
+  const lastKey = last ? `${last.at}|${last.text}` : null;
+  useEffect(() => {
+    if (!last || last.role !== "counterpart" || !active || muted || spoken.current === lastKey) return;
+    spoken.current = lastKey;
+    void say(last.text, gender);
+  }, [last, lastKey, active, muted, gender, say]);
+  useEffect(() => {
+    if (!active) cancel();
+  }, [active, cancel]);
+
+  const talk = async () => {
+    if (!active || p.pending) return;
+    const heard = await listen();
+    if (heard.trim()) p.onSend(heard.trim());
+  };
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
@@ -86,6 +127,20 @@ export function ChatPanel(p: {
             {p.call?.phone ? ` · ${p.call.phone}` : ""}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !muted;
+            setMuted(next);
+            writeMuted(next);
+            if (next) cancel();
+          }}
+          aria-pressed={!muted}
+          title={muted ? "Включить голос заявителя" : "Выключить голос заявителя"}
+          className="ml-auto mr-2 h-9 border border-white/30 px-2 text-[12px] text-white/85 hover:bg-white/10"
+        >
+          {muted ? "звук выкл" : "звук вкл"}
+        </button>
         <button
           type="button"
           onClick={p.onHangup}
@@ -135,6 +190,13 @@ export function ChatPanel(p: {
       )}
 
       <div className="border-t border-[#dde1e3] p-2">
+        <div className="mb-1.5 flex items-center gap-2">
+          <PushToTalk state={voice.state} onStart={talk} onStop={stop} disabled={!voice.canListen || !active || p.pending} />
+          <span className="text-[11px] leading-tight text-arm-desc">
+            {voice.canListen ? "или пробел, когда курсор не в поле" : "голосовой ввод недоступен — пишите текстом"}
+          </span>
+        </div>
+        {voice.error && <div className="mb-1 text-[12px] text-arm-late">{voice.error}</div>}
         <div className="mb-1.5 flex flex-wrap gap-1">
           {QUICK.map((q) => (
             <button
