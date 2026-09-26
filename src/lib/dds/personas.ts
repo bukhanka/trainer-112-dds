@@ -54,12 +54,18 @@ export function crewRoster(service: { id: number; shortName: string }): CrewMemb
   });
 }
 
+/** «Наряд № 23» → «23»: the dispatcher may type the word too. */
+export function crewNumberOf(value: string): string {
+  return value.trim().replace(/^наряд\s*№?\s*/i, "").trim();
+}
+
 /** A crew typed by hand in «Номер наряда» that is not in the book still answers. */
 export function crewByNumber(service: { id: number; shortName: string }, crew: string): CrewMember {
-  const known = crewRoster(service).find((c) => c.crew === crew.trim());
+  const number = crewNumberOf(crew);
+  const known = crewRoster(service).find((c) => c.crew === number);
   if (known) return known;
-  const leader = LEADERS[hash(`crew:${service.id}:${crew}`) % LEADERS.length];
-  return { crew: crew.trim(), title: "Наряд", leader, phone: "", voice: voiceOf(leader) };
+  const leader = LEADERS[hash(`crew:${service.id}:${number}`) % LEADERS.length];
+  return { crew: number, title: "Наряд", leader, phone: "", voice: voiceOf(leader) };
 }
 
 const surname = (fullName: string) => fullName.split(/\s+/)[0];
@@ -266,5 +272,31 @@ export function servicePrompt(ctx: ServiceContext): string {
       ? `Ваша служба уже работает по этой карточке, статус «${STATUS_LABEL[ctx.status]}»${ctx.crew ? `, наряд ${ctx.crew}` : ""}.`
       : "Эта информация для вас новая: прими её и пообещай передать мастеру.",
     "Отвечай одной короткой фразой, как на дежурстве. Не говори, что ты программа.",
+  ].join("\n");
+}
+
+// ─── Служба 112: the memo's call when the situation on site changed ──────────
+
+export const OPERATOR_112 = "Служба 112";
+
+export function operatorGreeting(): string {
+  return "Служба 112, оператор слушает. Представьтесь, пожалуйста.";
+}
+
+/** Offline 112 operator: wants the address, the card number and what changed, then takes the information. */
+export function operatorMockReply(said: string, turn: number): string {
+  const hasPlace = /(адрес|улиц|дом|пос\.|посёл|посел|мкр|д\.\s*\d)/i.test(said);
+  const hasCard = /(карточ|кп)\D{0,12}\d{5,}/i.test(said) || /\d{8}/.test(said);
+  if (hasPlace && hasCard) return "Информацию принял: дополню карточку и оповещу нужные службы. Что-то ещё?";
+  if (turn >= 3 && (hasPlace || hasCard)) return "Принял, передам старшему смены. Спасибо.";
+  if (!hasPlace) return "Назовите адрес происшествия и что изменилось на месте.";
+  return "Назовите номер карточки, по которой вы работаете.";
+}
+
+export function operatorPrompt(ownService: string): string {
+  return [
+    `Ты — оператор ${OPERATOR_112}. Тебе звонит диспетчер ДДС «${ownService}»: обстановка на месте изменилась, нужны другие службы.`,
+    "Как по памятке: попроси представиться, назвать адрес, повод, номер карточки, по которой работает служба, и что изменилось.",
+    "Когда всё названо — подтверди, что дополнишь карточку и оповестишь службы. Одна-две короткие фразы, не говори, что ты программа.",
   ].join("\n");
 }

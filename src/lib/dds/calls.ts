@@ -19,9 +19,14 @@ import {
   crewByNumber,
   crewGreeting,
   crewMockReply,
+  crewNumberOf,
   crewPrompt,
   crewRoster,
   mentionsCardNumber,
+  OPERATOR_112,
+  operatorGreeting,
+  operatorMockReply,
+  operatorPrompt,
   reportLine,
   serviceGreeting,
   serviceMockReply,
@@ -44,7 +49,7 @@ export type CallMessage = { role: "counterpart" | "trainee"; text: string; at: s
 export type Report = { status: ServiceStatus | "DISPATCHED"; at: string };
 
 export type Counterpart = {
-  kind: "crew" | "caller" | "service" | "contact";
+  kind: "crew" | "caller" | "service" | "contact" | "operator112";
   name: string;
   role: string;
   phone?: string;
@@ -316,11 +321,33 @@ export async function dial(seat: DdsSeat, number: string, incidentId?: string | 
     }
   }
 
-  // A crew of the place: by phone or by crew number.
+  // The 112 operator: the memo's call when the situation on site changed.
+  if (digits === "112") {
+    const counterpart: Counterpart = { kind: "operator112", name: OPERATOR_112, role: "оператор", phone: "112" };
+    return startCall(seat, "SERVICE_OUT", context?.id ?? null, counterpart, operatorGreeting(), now);
+  }
+
+  // Any other service of the list by its phone, even if it is not on the card.
+  const listed = await db.service.findMany({
+    where: { phone: { not: null }, NOT: { id: seat.serviceId! } },
+    select: { id: true, shortName: true, phone: true },
+  });
+  const byPhone = listed.find((sv) => normPhone(sv.phone!) === digits);
+  if (byPhone) {
+    const counterpart: Counterpart = { kind: "service", name: byPhone.shortName, role: "дежурный диспетчер", phone: byPhone.phone!, serviceId: byPhone.id };
+    return startCall(seat, "SERVICE_OUT", context?.id ?? null, counterpart, serviceGreeting({ name: byPhone.shortName, ownService: seat.service.shortName, address: "", what: "" }), now);
+  }
+
+  // A crew of the place: by phone, by a crew number from the book, or by a number already used on its cards.
   const roster = crewRoster(seat.service);
-  const member = roster.find((c) => normPhone(c.phone) === digits) ?? (/^\d{1,4}$/.test(typed) ? crewByNumber(seat.service, typed) : null);
+  const calls = await db.call.findMany({ where: { seatId: seat.id, kind: { in: ["BRIGADE_IN", "BRIGADE_OUT"] } } });
+  const usedCrews = new Set(
+    incidents.flatMap((i) => i.services.filter((p) => p.serviceId === seat.serviceId).flatMap((p) => p.events.map((e) => e.crewNumber).filter(Boolean) as string[])),
+  );
+  const asCrew = crewNumberOf(typed);
+  const member =
+    roster.find((c) => normPhone(c.phone) === digits || c.crew === asCrew) ?? (usedCrews.has(asCrew) ? crewByNumber(seat.service, asCrew) : null);
   if (member) {
-    const calls = await db.call.findMany({ where: { seatId: seat.id, kind: { in: ["BRIGADE_IN", "BRIGADE_OUT"] } } });
     // The crew talks about the card it works on; a free crew about the card the call is made from.
     const busyOn = incidents.find((i) => {
       const own = i.services.find((p) => p.serviceId === seat.serviceId);
@@ -459,6 +486,9 @@ export async function say(seat: DdsSeat, callId: string, text: string, now = new
     if (reply.reported) c.reports = [...(c.reports ?? []), { status: reply.reported, at: now.toISOString() }];
     prompt = crewPrompt(ctx);
     fallback = reply.text;
+  } else if (c.kind === "operator112") {
+    prompt = operatorPrompt(seat.service?.shortName ?? "");
+    fallback = operatorMockReply(line, turn);
   } else if (c.kind === "caller" && incident) {
     const persona = callerPersona(incident);
     if (mentionsCardNumber(line, incident.number)) c.namedCardNumber = true;
