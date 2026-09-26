@@ -7,12 +7,55 @@
  * wrong one is a critical mistake in the review.
  */
 import type { IncidentAddress } from "@/lib/incident/types";
+import addressesJson from "../../../data/addresses.json";
+import confusableJson from "../../../data/confusable-streets.json";
 
-type Place = { street: string; district?: string; okrug?: string; subject?: string; city?: string; source?: string };
+type Place = {
+  street: string;
+  house?: string;
+  building?: string;
+  structure?: string;
+  object?: string;
+  district?: string;
+  okrug?: string;
+  subject?: string;
+  city?: string;
+  source?: string;
+};
+
+type KnownAddress = {
+  street: string | null;
+  house: string | null;
+  building: string | null;
+  structure: string | null;
+  object: string | null;
+  district: string;
+  okrug: string;
+};
+type Pair = { a: string; aDistrict: string | null; aOkrug: string | null; b: string; bDistrict: string | null; bOkrug: string | null };
+
+/** Addresses of the training tickets with their district (reference data), then the look-alike streets. */
+const KNOWN: Place[] = [
+  ...(addressesJson as { addresses: KnownAddress[] }).addresses
+    .filter((a) => a.street)
+    .map((a) => ({
+      street: a.street!,
+      house: a.house ?? undefined,
+      building: a.building ?? undefined,
+      structure: a.structure ?? undefined,
+      object: a.object ?? undefined,
+      district: a.district,
+      okrug: a.okrug,
+    })),
+  ...(confusableJson as { pairs: Pair[] }).pairs.flatMap((p) => [
+    { street: p.a, district: p.aDistrict ?? undefined, okrug: p.aOkrug ?? undefined },
+    { street: p.b, district: p.bDistrict ?? undefined, okrug: p.bOkrug ?? undefined },
+  ]),
+];
 
 const MSK = (street: string, district: string, okrug: string): Place => ({ street, district, okrug });
 
-export const PLACES: Place[] = [
+const OWN: Place[] = [
   // ЦАО
   MSK("Тверская улица", "Тверской", "ЦАО"),
   MSK("Лесная улица", "Тверской", "ЦАО"),
@@ -98,6 +141,16 @@ export const PLACES: Place[] = [
   { street: "Мирской проезд", subject: "Московская область", city: "Балашиха", okrug: "МО" },
   { street: "микрорайон Подрезково", subject: "Московская область", city: "Химки", okrug: "МО" },
 ];
+
+let placesCache: Place[] | null = null;
+
+/** Reference addresses first; an own street is kept only when the reference does not know it. */
+export function places(): Place[] {
+  if (placesCache) return placesCache;
+  const known = new Set(KNOWN.map((k) => parseStreet(k.street).name));
+  placesCache = [...KNOWN, ...OWN.filter((o) => !known.has(parseStreet(o.street).name))];
+  return placesCache;
+}
 
 export const OKRUGS = ["ЦАО", "САО", "СВАО", "ВАО", "ЮВАО", "ЮАО", "ЮЗАО", "ЗАО", "СЗАО", "ЗелАО", "ТиНАО", "МО"];
 
@@ -217,30 +270,35 @@ export function suggestAddress(query: string, limit = 8): AddressSuggestion[] {
     words.push(t.replace(/\.$/, ""));
   }
   if (!words.length) return [];
-  const matches = PLACES.filter((p) => {
-    const hay = clean(`${p.street} ${p.city ?? ""}`);
+  const matches = places().filter((p) => {
+    const hay = clean(`${p.street} ${p.object ?? ""} ${p.city ?? ""}`);
     return words.every((w) => (TYPE_WORDS[w] ? hay.includes(TYPE_WORDS[w]) || hay.includes(w) : hay.includes(w)));
-  });
-  return matches.slice(0, limit).map((p) => {
+  }).filter((p) => !p.house || !house || normHouse(p.house) === normHouse(house));
+  const out: AddressSuggestion[] = [];
+  for (const p of matches) {
+    const h = house ?? p.house;
+    const b = building ?? p.building;
+    const st = structure ?? p.structure;
     const address: IncidentAddress = {
       country: "Россия",
       subject: p.subject ?? "Москва",
       city: p.city ?? "Москва",
       street: p.street,
-      house,
-      building,
-      structure,
+      house: h,
+      building: b,
+      structure: st,
+      object: p.object,
       okrug: p.okrug,
       district: p.district,
     };
-    const tail = [house && `д. ${house}`, building && `к. ${building}`, structure && `стр. ${structure}`].filter(Boolean).join(", ");
-    const where = p.district ? `${p.okrug}, р-н ${p.district}` : [p.subject, p.city].filter(Boolean).join(", ");
-    return {
-      label: `${p.city && p.city !== "Москва" ? `${p.city}, ` : ""}${p.street}${tail ? `, ${tail}` : ""} — ${where}`,
-      source: p.source ?? (p.subject && p.subject !== "Москва" ? "ФИАС" : "Яндекс"),
-      address,
-    };
-  });
+    const tail = [h && `д. ${h}`, b && `к. ${b}`, st && `стр. ${st}`, p.object].filter(Boolean).join(", ");
+    const where = p.district ? `${p.okrug}, р-н ${p.district}` : [p.subject, p.city, p.okrug].filter(Boolean).join(", ");
+    const label = `${p.city && p.city !== "Москва" ? `${p.city}, ` : ""}${p.street}${tail ? `, ${tail}` : ""} — ${where}`;
+    if (out.some((x) => x.label === label)) continue;
+    out.push({ label, source: p.source ?? (p.subject && p.subject !== "Москва" ? "ФИАС" : "Яндекс"), address });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 /** One line for the search field and the ДДС card: «улица Грина, д. 11, к. 1». */

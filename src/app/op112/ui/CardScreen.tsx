@@ -59,6 +59,7 @@ export function CardScreen(p: {
   const [call, setCall] = useState<CallDto | null>(p.call);
   const [pending, setPending] = useState(false);
   const [autoPlates, setAutoPlates] = useState<RoutedService[]>([]);
+  const [classes, setClasses] = useState<string[]>([]);
   const [lastSave, setLastSave] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>(null);
   const [busy, setBusy] = useState(false);
@@ -83,8 +84,11 @@ export function CardScreen(p: {
   useEffect(() => {
     if (readOnly) return;
     const t = setTimeout(() => {
-      send<{ services: RoutedService[] }>("/api/op112/route-preview", { cards, answers, flags, address })
-        .then((r) => setAutoPlates(r.services))
+      send<{ services: RoutedService[]; classes: string[] }>("/api/op112/route-preview", { cards, answers, flags, address })
+        .then((r) => {
+          setAutoPlates(r.services);
+          setClasses(r.classes);
+        })
         .catch(() => undefined);
     }, 200);
     return () => clearTimeout(t);
@@ -335,6 +339,7 @@ export function CardScreen(p: {
               cards={draft.cards}
               answers={draft.answers}
               readOnly={readOnly}
+              classes={classes}
               onCards={(c, a) => patch({ cards: c, answers: a })}
             />
             {saved && (

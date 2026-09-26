@@ -1,18 +1,19 @@
 import { jsonError, op112User, readJson } from "@/lib/op112/access";
-import { deriveFlags } from "@/lib/op112/card";
 import { draftSchema } from "@/lib/op112/draft";
-import { autoServices } from "@/lib/op112/services";
+import { resolveDraft, routeDraft, typeNames } from "@/lib/op112/panels";
 
 const bodySchema = draftSchema.pick({ cards: true, answers: true, flags: true, address: true });
 
-// Plates the system picks for the card as filled so far; the workstation calls it on every change.
+// Plates the system picks for the card as filled so far, and the «Класс.» it resolves to.
 export async function POST(req: Request) {
   const user = await op112User();
   if (user instanceof Response) return user;
   const body = bodySchema.safeParse(await readJson(req));
   if (!body.success) return jsonError("bad_request", 400);
-  const d = body.data;
-  const flags = deriveFlags(d.flags, d.cards, d.answers);
-  return Response.json({ services: await autoServices({ cards: d.cards, answers: d.answers, flags, address: d.address }) });
+  const resolved = await resolveDraft(body.data);
+  const names = await typeNames(resolved.typeCodes);
+  return Response.json({
+    services: await routeDraft(body.data, resolved),
+    classes: resolved.typeCodes.map((c) => names[c]).filter(Boolean),
+  });
 }
-

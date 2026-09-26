@@ -1,72 +1,97 @@
 import { describe, expect, it } from "vitest";
-import { deriveFlags } from "./card";
+import { selectServices } from "@/lib/routing/engine";
+import { loadJsonReference, readDataJson } from "@/lib/routing/reference-json";
+import { choiceOptions, panelFor, pruneAnswers, searchKinds, signsTree, visibleRows, type LeafType } from "./catalog";
+import { resolveCard, tagsToAnswers } from "./card";
 import { compareStreets, suggestAddress } from "./gazetteer";
-import { mergeManual, routeServices, type ServiceLite } from "./routing";
-import type { CardAnswers } from "./types";
-
-const CATALOG: ServiceLite[] = [
-  { id: 1, shortName: "Служба 101", kind: "центральная", orderIdx: 1 },
-  { id: 3, shortName: "ЦЭМП", kind: "центральная", orderIdx: 3 },
-  { id: 4, shortName: "Служба 103", kind: "центральная", orderIdx: 4 },
-  { id: 5, shortName: "Служба 104", kind: "центральная", orderIdx: 5 },
-  { id: 7, shortName: "ЦОДД", kind: "ведомственная", orderIdx: 7 },
-  { id: 33, shortName: "ОАТИ", kind: "ведомственная", orderIdx: 33 },
-  { id: 113, shortName: "Служба 102", kind: "центральная", orderIdx: 113 },
-  { id: 174, shortName: "Поселение Северное Бутово", kind: "территориальная", subtype: "район (ДДС управы района)", okrug: "ЮЗАО", district: "Северное Бутово", orderIdx: 174 },
-  { id: 71, shortName: "Поселение ЮЗАО", kind: "территориальная", subtype: "префектура (ДДС округа)", okrug: "ЮЗАО", district: "ЮЗАО", orderIdx: 71 },
-];
+import { mergeManual } from "./routing";
 
 const FLAME = "Открытое пламя / Дым";
-const names = (ids: { serviceId: number }[]) => ids.map((r) => CATALOG.find((c) => c.id === r.serviceId)?.shortName);
+const ref = loadJsonReference();
+const leaves = readDataJson<{ types: LeafType[] }>("classifier.json").types;
+const names = (list: { serviceId: number }[]) => list.map((s) => ref.services.find((x) => x.id === s.serviceId)?.shortName);
 
-function route(a: CardAnswers, district?: string) {
-  const answers = { "101": a };
-  const flags = deriveFlags({}, ["101"], answers);
-  return routeServices({ cards: ["101"], answers, flags, address: district ? { district, okrug: "ЮЗАО" } : {} }, CATALOG);
+function plates(cards: string[], answers: Record<string, Record<string, string[]>>, top = {}, district?: string) {
+  const trees = Object.fromEntries(cards.map((c) => [c, panelFor(c, leaves)]));
+  const r = resolveCard(cards, answers, top, trees);
+  return { r, services: selectServices({ typeCodes: r.typeCodes, flags: r.flags, district }, ref) };
 }
 
-describe("service routing (screenshots of the customer's workstation)", () => {
-  it("street fire without an object gives no plates yet", () => {
-    expect(route({ where: ["Улица"], fireStreet: [FLAME] })).toEqual([]);
+describe("«что случилось» and panels", () => {
+  it("finds 101 by «пожар» and ДТП by «авария»", () => {
+    expect(searchKinds("пожар")[0].name).toBe("101");
+    expect(searchKinds("авария").map((k) => k.name)).toContain("ДТП");
   });
 
-  it("street fire with rubbish: 101 (main), ЦОДД, ОАТИ", () => {
-    const r = route({ where: ["Улица"], fireStreet: [FLAME], streetObject: ["Мусор"] });
-    expect(names(r)).toEqual(["Служба 101", "ЦОДД", "ОАТИ"]);
-    expect(r[0].isMain).toBe(true);
+  it("street fire with rubbish: «пожар: мусор», 101 (main), ЦОДД, ОАТИ", () => {
+    const { r, services } = plates(["101"], { "101": { where: ["Улица"], signStreet: [FLAME], streetObject: ["Мусор"] } });
+    expect(r.typeCodes).toEqual([1010101]);
+    expect(names(services)).toEqual(["Служба 101", "ЦОДД", "ОАТИ"]);
+    expect(services[0].isMain).toBe(true);
   });
 
-  it("threat adds ЦЭМП, offence adds 102, gas adds 104", () => {
-    const r = route({ where: ["Улица"], fireStreet: [FLAME], streetObject: ["Мусор"], threatStreet: ["Да"], offense: ["Есть правонарушение"], gasStreet: ["Да"] });
-    expect(names(r)).toEqual(["Служба 101", "Служба 104", "Служба 102", "ЦЭМП", "ЦОДД", "ОАТИ"]);
+  it("threat adds ЦЭМП and the district adds the territorial ДДС", () => {
+    const { services } = plates(
+      ["101"],
+      { "101": { where: ["Улица"], signStreet: [FLAME], streetObject: ["Мусор"], threat: ["Да"] } },
+      {},
+      "Дорогомилово",
+    );
+    expect(names(services)).toEqual(expect.arrayContaining(["ЦЭМП", "Поселение Дорогомилово", "Поселение ЗАО"]));
   });
 
-  it("smell of burning on the street: only 101", () => {
-    expect(names(route({ where: ["Улица"], fireStreet: ["Запах гари"] }))).toEqual(["Служба 101"]);
+  it("top buttons become routing flags", () => {
+    const { r } = plates(["101"], { "101": { where: ["Улица"], signStreet: [FLAME], streetObject: ["Мусор"] } }, { victims: true });
+    expect(r.flags.victims).toBe(true);
   });
 
-  it("adds the district and prefecture ДДС once the district is known", () => {
-    const r = route({ where: ["Улица"], fireStreet: [FLAME], streetObject: ["Мусор"] }, "Северное Бутово");
-    expect(names(r).slice(-2)).toEqual(["Поселение Северное Бутово", "Поселение ЮЗАО"]);
+  it("a group without a hand-made panel gets the classifier signs G → H → I", () => {
+    const tree = signsTree({ name: "ДТП", groupId: 2 }, leaves);
+    const first = choiceOptions(tree, tree.rows[0], {});
+    expect(first.length).toBeGreaterThan(1);
+    const a = { sign1: [first[0]] };
+    expect(visibleRows(tree, a).map((r) => r.id)).toContain("sign2");
+    expect(tree.rows.some((r) => r.flag === "threat")).toBe(true);
+  });
+
+  it("drops answers of a branch the operator left", () => {
+    const tree = panelFor("101");
+    const pruned = pruneAnswers(tree, { where: ["Дом"], signStreet: [FLAME], streetObject: ["Мусор"] });
+    expect(pruned).toEqual({ where: ["Дом"] });
+  });
+
+  it("stores tags the ДДС can print and the workstation can restore", () => {
+    const answers = { "101": { where: ["Дом"], signHouse: [FLAME], houseKind: ["Дом многоквартирный"], floors: ["14"], houseInner: ["Балкон"] } };
+    const r = resolveCard(["101"], answers, {});
+    expect(r.tags.find((t) => t.rowId === "floors")).toMatchObject({ value: "Этажность здания: 14", text: "14" });
+    expect(tagsToAnswers(r.tags)).toEqual({ cards: ["101"], answers });
+    expect(r.typeCodes).toEqual([1050201]);
+  });
+
+  it("keeps a chosen kind without answers", () => {
+    const r = resolveCard(["Консультация"], {}, {});
+    expect(r.typeCodes).toEqual([23030000]);
+    expect(tagsToAnswers(r.tags).cards).toEqual(["Консультация"]);
   });
 
   it("keeps automatic plates and adds manual ones after them", () => {
-    const auto = route({ where: ["Улица"], fireStreet: ["Запах гари"] });
-    const all = mergeManual(auto, [113, 1, 999], CATALOG);
-    expect(names(all)).toEqual(["Служба 101", "Служба 102"]);
+    const catalog = ref.services.map((s) => ({ id: s.id, shortName: s.shortName, kind: "", orderIdx: s.orderIdx }));
+    const all = mergeManual([{ serviceId: 1, isMain: true, auto: true }], [113, 1, 99999], catalog);
+    expect(all.map((s) => s.serviceId)).toEqual([1, 113]);
     expect(all[1].auto).toBe(false);
   });
 });
 
 describe("address suggestions", () => {
-  it("fills street, house, district and okrug from one line", () => {
+  it("offers a ticket address with its district", () => {
     const [s] = suggestAddress("грина 11");
-    expect(s.address).toMatchObject({ street: "улица Грина", house: "11", district: "Северное Бутово", okrug: "ЮЗАО" });
+    expect(s.address).toMatchObject({ street: "ул. Грина", house: "11", district: "Северное Бутово", okrug: "ЮЗАО" });
   });
 
-  it("reads corpus and building", () => {
-    const [s] = suggestAddress("Берзарина д 21 к1");
-    expect(s.address).toMatchObject({ street: "улица Берзарина", house: "21", building: "1", district: "Щукино" });
+  it("offers both streets of a look-alike pair", () => {
+    const streets = suggestAddress("дубн").map((s) => s.address.street);
+    expect(streets.some((x) => /Дубнинская/.test(x ?? ""))).toBe(true);
+    expect(suggestAddress("дубин").some((s) => /Дубининская/.test(s.address.street ?? ""))).toBe(true);
   });
 
   it("tells look-alike streets from the same street written differently", () => {

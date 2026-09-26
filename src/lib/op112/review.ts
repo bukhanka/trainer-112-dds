@@ -6,8 +6,10 @@ import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incid
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
 import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, type EvalInput } from "./evaluate";
+import { regionOf, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
 import { serviceCatalog } from "./services";
+import { selectServicesFromDb } from "@/lib/routing/engine";
 import type { CallLine, StoredTag } from "./types";
 
 /** How an empty card is labelled in the journal, as on the customer's workstation. */
@@ -36,6 +38,22 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
   const { cards } = tagsToAnswers(incident.tags);
   const call = incident.calls[0];
   const flags = (incident.flags ?? {}) as IncidentFlags;
+  const catalog = await serviceCatalog();
+  const truth = normalizeTruth(incident.scenario?.truth, catalog);
+  // Reference plates: the scenario's own list, or what the engine picks for the reference card.
+  const expectedServices = truth?.services.length
+    ? truth.services
+    : truth?.typeCodes.length
+      ? (
+          await selectServicesFromDb({
+            typeCodes: truth.typeCodes,
+            flags: truth.flags,
+            district: truth.address.district ?? null,
+            okrug: truth.address.okrug ?? null,
+            region: regionOf(truth.address),
+          })
+        ).map((p) => p.serviceId)
+      : [];
   const input: EvalInput = {
     card: {
       caller: (incident.caller ?? {}) as IncidentCaller,
@@ -43,6 +61,7 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
       flags,
       tags: (Array.isArray(incident.tags) ? incident.tags : []) as StoredTag[],
       cards,
+      typeCodes: incident.typeCodes,
       description: incident.description ?? "",
       openedAt: incident.openedAt,
       savedAt: incident.savedAt,
@@ -50,10 +69,12 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
     },
     serviceIds: incident.services.map((s) => s.serviceId),
     persona: (incident.scenario?.caller ?? null) as Persona | null,
-    truth: normalizeTruth(incident.scenario?.truth),
+    truth,
+    expectedServices,
     messages: (Array.isArray(call?.messages) ? call.messages : []) as CallLine[],
     typingSec: lessonSettings(seat).typingSec,
-    catalog: await serviceCatalog(),
+    catalog,
+    typeNames: await typeNames([...incident.typeCodes, ...(truth?.typeCodes ?? [])]),
   };
   return { input, lessonId: incident.lessonId, seatId: seat.id, studentId: seat.studentId, scenarioId: incident.scenarioId };
 }

@@ -2,8 +2,8 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { jsonError, op112User, ownIncident, readJson } from "@/lib/op112/access";
-import { answersToTags, deriveFlags } from "@/lib/op112/card";
 import { draftSchema } from "@/lib/op112/draft";
+import { resolveDraft } from "@/lib/op112/panels";
 
 const patchSchema = z.object({ draft: draftSchema.optional(), important: z.boolean().optional() });
 
@@ -23,14 +23,16 @@ export async function PATCH(req: Request, ctx: RouteContext<"/api/op112/incident
   if (body.data.draft) {
     const d = body.data.draft;
     const aon = (own.incident.caller as { aon?: string } | null)?.aon;
+    const r = await resolveDraft(d);
     // Only while still a draft: an autosave arriving after «сохранить» must not overwrite the saved card.
     const done = await db.incident.updateMany({
       where: { id, status: "draft" },
       data: {
         caller: { ...d.caller, aon: aon ?? d.caller.aon },
         address: d.address,
-        flags: deriveFlags(d.flags, d.cards, d.answers),
-        tags: answersToTags(d.cards, d.answers) as unknown as Prisma.InputJsonValue,
+        flags: r.flags,
+        tags: r.tags as unknown as Prisma.InputJsonValue,
+        typeCodes: r.typeCodes,
         description: d.description,
       },
     });

@@ -9,13 +9,14 @@
 import { z } from "zod";
 import { aiMode, chatJson } from "@/lib/ai/provider";
 import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller, type IncidentFlags } from "@/lib/incident/types";
+import { compareStreets as compareKnownStreets } from "@/lib/routing/address";
 import type { CriterionResult, WeightGroup } from "@/lib/scoring/score";
-import { questionCard, whatHappened } from "./catalog";
-import { askedAbout, factCards, low, normalizeQuestion } from "./facts";
-import { compareStreets, normHouse, addressLine } from "./gazetteer";
+import { findKind, kindTitle } from "./catalog";
+import { factCards, findAsked, low, normalizeQuestion } from "./facts";
+import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./gazetteer";
 import type { Persona } from "./caller";
-import { routeServices, type RoutingInput, type ServiceLite } from "./routing";
-import type { CallLine, CardAnswers, FactCard, ScenarioTruth, StoredTag } from "./types";
+import type { ServiceLite } from "./routing";
+import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
 
 export type EvalCard = {
   caller: IncidentCaller;
@@ -23,6 +24,7 @@ export type EvalCard = {
   flags: IncidentFlags;
   tags: StoredTag[];
   cards: string[];
+  typeCodes: number[];
   description: string;
   openedAt: Date | null;
   savedAt: Date | null;
@@ -33,65 +35,91 @@ export type EvalInput = {
   card: EvalCard;
   serviceIds: number[];
   persona: Persona | null;
-  truth: NormalizedTruth | null;
+  truth: ScenarioTruth | null;
+  /** reference plates: the scenario's list, or what the engine picks for the reference card */
+  expectedServices: number[];
   messages: CallLine[];
   typingSec: number;
   catalog: ServiceLite[];
+  /** «Класс.» names for the leaves on the card and in the reference */
+  typeNames: Record<number, string>;
 };
 
 // ─── Reference answer ────────────────────────────────────────────────────────
 
-const flagsSchema = z.record(z.string(), z.boolean()).catch({});
+const ids = z.array(z.number()).catch([]);
 const truthSchema = z.object({
-  cards: z.array(z.string()).catch([]),
-  typeCodes: z.array(z.number()).catch([]),
-  tags: z.array(z.object({ card: z.string().optional(), row: z.string(), value: z.string() })).catch([]),
-  flags: flagsSchema,
-  address: z.record(z.string(), z.string()).catch({}),
-  services: z.array(z.union([z.number(), z.string()])).catch([]),
+  kind: z.string().optional().catch(undefined),
+  cards: z.array(z.string()).optional().catch(undefined),
+  typeCodes: ids,
+  acceptableTypeCodes: ids,
+  finalType: z.string().optional().catch(undefined),
+  tags: z.array(z.unknown()).catch([]),
+  flags: z.record(z.string(), z.boolean()).catch({}),
+  address: z.record(z.string(), z.string().nullable()).catch({}),
+  services: z.array(z.union([z.number(), z.string(), z.object({ serviceId: z.number() }).passthrough()])).catch([]),
   requiredQuestions: z
     .array(z.union([z.string(), z.object({ text: z.string(), topic: z.string().optional(), keywords: z.array(z.string()).optional() })]))
     .catch([]),
   callerStatus: z.enum(CALLER_STATUSES).optional().catch(undefined),
-  descriptionKeywords: z.array(z.string()).catch([]),
+  descriptionKeywords: z.array(z.string()).optional().catch(undefined),
+  traps: z.array(z.string()).catch([]),
   emptyCall: z.enum(["noContact", "dropped"]).optional().catch(undefined),
 });
 
-export type NormalizedTruth = ScenarioTruth & { emptyCall?: "noContact" | "dropped" };
+// What the gist of a kind sounds like in the first 100 characters of the description.
+const KIND_GIST: Record<string, string> = {
+  "101": "гор|пожар|пламя|дым|задым|возгоран|огон|сигнализац",
+  "104": "газ",
+  ДТП: "дтп|авари|столкн|наезд|сбил|врезал",
+  Взрыв: "взрыв|взорв|хлоп",
+};
+const TAG_GIST: [RegExp, string][] = [
+  [/общественн|автобус/, "автобус|троллейбус|трамва|маршрут|транспорт"],
+  [/автомашин|автомобил/, "машин|автомоб|а/м|авто|тойот|ваз|иномарк"],
+  [/драк/, "драк|дерут|дерет|избива"],
+  [/хулиган/, "хулиган|громят|разбил|бит"],
+  [/подозрит|предмет/, "предмет|коробк|сумк|пакет|подозрит"],
+];
+const GENERIC_TAGS = /^(на улице|жилой дом|транспорт|открытое пламя|дым|пламя|сигнализация|квартира)$/;
+
+function gistFromTags(tags: unknown[]): string | undefined {
+  for (const raw of tags) {
+    if (typeof raw !== "string") continue;
+    const t = low(raw).trim();
+    if (GENERIC_TAGS.test(t)) continue;
+    const mapped = TAG_GIST.find(([re]) => re.test(t));
+    if (mapped) return mapped[1];
+    const word = t.split(/[^а-яa-z]+/).sort((a, b) => b.length - a.length)[0];
+    if (word && word.length >= 4) return word.slice(0, Math.min(5, word.length));
+  }
+  return undefined;
+}
 
 /** Scenario.truth from any editor → the shape the checks use; unknown or broken parts become empty. */
-export function normalizeTruth(raw: unknown): NormalizedTruth | null {
+export function normalizeTruth(raw: unknown, catalog: ServiceLite[] = []): ScenarioTruth | null {
   if (!raw || typeof raw !== "object") return null;
   const t = truthSchema.parse(raw);
+  const kind = t.kind ?? t.cards?.[0];
+  const services = t.services
+    .map((s) => (typeof s === "number" ? s : typeof s === "string" ? catalog.find((c) => c.shortName === s)?.id : s.serviceId))
+    .filter((id): id is number => typeof id === "number");
+  const address = Object.fromEntries(Object.entries(t.address).filter(([, v]) => typeof v === "string" && v)) as IncidentAddress;
+  const keywords = t.descriptionKeywords ?? [kind ? KIND_GIST[kind] : undefined, gistFromTags(t.tags)].filter((k): k is string => Boolean(k));
   return {
-    ...t,
+    kind,
+    typeCodes: t.typeCodes,
+    acceptableTypeCodes: t.acceptableTypeCodes,
+    finalType: t.finalType,
     flags: t.flags as IncidentFlags,
-    address: t.address as IncidentAddress,
+    address,
+    services,
     requiredQuestions: t.requiredQuestions.map((q) => normalizeQuestion(q as never)),
+    callerStatus: t.callerStatus,
+    descriptionKeywords: keywords,
+    traps: t.traps,
+    emptyCall: t.emptyCall,
   };
-}
-
-/** Reference tags → questionnaire answers, so the routing engine can compute the reference services. */
-export function truthRoutingInput(truth: ScenarioTruth): RoutingInput {
-  const answers: Record<string, CardAnswers> = {};
-  for (const tag of truth.tags) {
-    const cardKey = tag.card ?? truth.cards[0];
-    if (!cardKey) continue;
-    const row = questionCard(cardKey).rows.find((r) => r.label === tag.row);
-    if (!row) continue;
-    const a = (answers[cardKey] ??= {});
-    (a[row.id] ??= []).push(tag.value.split("|")[0]);
-  }
-  return { cards: truth.cards, answers, flags: truth.flags, address: truth.address };
-}
-
-export function expectedServiceIds(truth: ScenarioTruth, catalog: ServiceLite[]): number[] {
-  if (truth.services.length) {
-    return truth.services
-      .map((s) => (typeof s === "number" ? s : catalog.find((c) => c.shortName === s)?.id))
-      .filter((id): id is number => typeof id === "number");
-  }
-  return routeServices(truthRoutingInput(truth), catalog).map((r) => r.serviceId);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -100,42 +128,47 @@ const yesNo = (v: boolean | undefined) => (v ? "да" : "нет");
 const quote = (s: string, max = 140) => `«${s.length > max ? `${s.slice(0, max - 1)}…` : s}»`;
 const digits = (s: string | undefined) => (s ?? "").replace(/\D/g, "").slice(-10);
 const same = (a: string | undefined, b: string | undefined) => low(a ?? "").trim() === low(b ?? "").trim();
-const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+const mmss = (sec: number) => `${Math.floor(sec / 60)}:${sec % 60 < 10 ? "0" : ""}${sec % 60}`;
 
 const FLAG_TITLE: Record<string, string> = {
   victims: "Пострадавшие",
   refusedAmbulance: "Нет на месте / Отказ от скорой",
   noAccess: "Нет доступа / Заблокированные",
   threat: "Угроза людям",
-  gas: "Газификация",
+  gas: "Проведена ли газификация",
   offense: "Правонарушение",
   med: "Медицинская помощь",
-  evac: "Эвакуация",
+  evac: "Требуется эвакуация",
   traffic: "Перекрытие движения",
 };
+
+/** A look-alike street is critical; a street written differently («ул. Грина» / «улица Грина») is fine. */
+export function streetVerdict(filled: string | undefined, truth: string): "same" | "lookalike" | "other" | "empty" {
+  if (!filled?.trim()) return "empty";
+  const known = compareKnownStreets(filled, truth);
+  if (known.verdict === "same") return "same";
+  if (known.verdict === "confusable") return "lookalike";
+  const own = compareOwnStreets(filled, truth);
+  return own === "empty" ? "other" : own;
+}
 
 function tagMatches(card: EvalCard, row: string, value: string): boolean {
   const options = value.split("|").map((v) => low(v).trim());
   return card.tags.some((t) => {
     if (t.row !== row) return false;
-    const v = low(t.value).trim();
-    return options.some((o) => v === o || (o.length >= 2 && /^\d+$/.test(o) ? v.replace(/\D/g, "") === o : v.includes(o)));
+    const v = low(t.text ?? t.value).trim();
+    return options.some((o) => v === o || (/^\d+$/.test(o) ? v.replace(/\D/g, "") === o : v.includes(o)));
   });
 }
 
 function filledTag(card: EvalCard, row: string): string {
   return card.tags
     .filter((t) => t.row === row)
-    .map((t) => t.value)
+    .map((t) => t.text ?? t.value)
     .join(", ");
 }
 
-/** Caller lines where a fact was said, earliest first. */
-function whereSaid(messages: CallLine[], key: string): CallLine | undefined {
-  return messages.find((m) => m.role === "counterpart" && m.revealed?.includes(key));
-}
-
-function descriptionHas(description: string, keywords: string[]): string[] {
+function descriptionMisses(description: string, keywords: string[]): string[] {
   const d = low(description);
   return keywords.filter((k) => !new RegExp(k, "i").test(d));
 }
@@ -152,7 +185,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   const facts = persona ? factCards(persona) : [];
   const revealed = new Map<string, { fact: FactCard; line: CallLine }>();
   for (const f of facts) {
-    const line = whereSaid(messages, f.key);
+    const line = messages.find((m) => m.role === "counterpart" && m.revealed?.includes(f.key));
     if (line) revealed.set(f.key, { fact: f, line });
   }
 
@@ -184,12 +217,12 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     const exact = revealed.get("addressExact");
     const said = exact ? `Заявитель уточнил: ${quote(exact.line.text)}` : persona?.hiddenAddress ? `Адрес не уточнён: заявитель назвал только ${quote(persona.visibleAddress)}` : "";
     if (t.street) {
-      const cmp = compareStreets(f.street, t.street);
-      add("op112.address.street", "address", "Улица совпадает с местом происшествия", cmp === "same", {
-        critical: cmp === "lookalike",
+      const verdict = streetVerdict(f.street, t.street);
+      add("op112.address.street", "address", "Улица совпадает с местом происшествия", verdict === "same", {
+        critical: verdict === "lookalike",
         evidence: [
-          cmp === "empty" ? "Улица не заполнена" : `В карточке: ${quote(f.street ?? "")}`,
-          cmp === "lookalike" ? "Похожее название, но это другая улица — бригада уедет не туда" : "",
+          verdict === "empty" ? "Улица не заполнена" : `В карточке: ${quote(f.street ?? "")}`,
+          verdict === "lookalike" ? "Похожее название, но это другая улица — бригада уедет не туда" : "",
           said,
         ]
           .filter(Boolean)
@@ -213,7 +246,8 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
       });
     }
     if (t.district) {
-      add("op112.address.district", "address", "Район определён верно", same(f.district?.replace(/ё/g, "е"), t.district.replace(/ё/g, "е")), {
+      const ok = same(f.district?.replace(/ё/g, "е"), t.district.replace(/ё/g, "е"));
+      add("op112.address.district", "address", "Район определён верно", ok, {
         evidence: f.district ? `В карточке: ${f.okrug ?? ""} ${f.district}`.trim() : "Район не определён — территориальные службы не подтянутся",
         expected: `${t.okrug ?? ""} ${t.district}`.trim(),
       });
@@ -239,32 +273,29 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     }
   }
 
-  // Incident type, tags, flags.
-  if (truth?.cards.length) {
-    const missing = truth.cards.filter((c) => !card.cards.includes(c));
-    const chip = (k: string) => whatHappened(k)?.chip ?? k;
-    add("op112.type", "services", "Тип происшествия («что случилось»)", missing.length === 0, {
-      evidence: card.cards.length ? `Выбрано: ${card.cards.map(chip).join(", ")}` : "Тип не выбран",
-      expected: truth.cards.map(chip).join(", "),
+  // «Что случилось» and the classification it leads to.
+  if (truth?.kind) {
+    const expected = findKind(truth.kind)?.name ?? truth.kind;
+    const ok = card.cards.some((c) => same(findKind(c)?.name ?? c, expected));
+    add("op112.type", "services", "Тип происшествия («что случилось»)", ok, {
+      evidence: card.cards.length ? `Выбрано: ${card.cards.map(kindTitle).join(", ")}` : "Тип не выбран",
+      expected: kindTitle(expected),
     });
   }
-  const saidRows = new Set(
-    [...revealed.values()].filter((r) => r.fact.expect?.kind === "tag").map((r) => (r.fact.expect as { row: string }).row),
-  );
+  if (truth?.typeCodes.length) {
+    const accepted = new Set([...truth.typeCodes, ...truth.acceptableTypeCodes]);
+    const ok = card.typeCodes.some((c) => accepted.has(c));
+    const name = (c: number) => input.typeNames[c] ?? String(c);
+    add("op112.class", "services", "Классификация по опросной карте («Класс.»)", ok, {
+      evidence: card.typeCodes.length ? `В карточке: ${card.typeCodes.map(name).join("; ")}` : "Опросная карта не доведена до вида происшествия",
+      expected: truth.finalType ?? truth.typeCodes.map(name).join("; "),
+    });
+  }
+
+  // Flags of the reference the caller did not speak about (what was said is checked below).
   const saidFlags = new Set(
     [...revealed.values()].filter((r) => r.fact.expect?.kind === "flag").map((r) => (r.fact.expect as { flag: string }).flag),
   );
-  if (truth?.tags.length) {
-    const checked = truth.tags.filter((t) => !saidRows.has(t.row));
-    if (checked.length) {
-      const missing = checked.filter((t) => !tagMatches(card, t.row, t.value));
-      add("op112.tags", "services", "Признаки в опросной карте", missing.length === 0, {
-        evidence: missing.length
-          ? `Не выбрано: ${missing.map((m) => `«${m.row}: ${m.value.split("|")[0]}»${filledTag(card, m.row) ? ` (выбрано «${filledTag(card, m.row)}»)` : ""}`).join("; ")}`
-          : "Все признаки выбраны",
-      });
-    }
-  }
   for (const [key, value] of Object.entries(truth?.flags ?? {})) {
     if (typeof value !== "boolean" || saidFlags.has(key)) continue;
     const filled = Boolean(card.flags[key as keyof IncidentFlags]);
@@ -276,13 +307,15 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
 
   // Services against the reference list.
   if (truth) {
-    const expected = expectedServiceIds(truth, input.catalog);
+    const expected = input.expectedServices;
     const name = (id: number) => input.catalog.find((c) => c.id === id)?.shortName ?? `#${id}`;
-    const missing = expected.filter((id) => !input.serviceIds.includes(id));
+    const visible = new Set(input.catalog.map((c) => c.id));
+    const shown = expected.filter((id) => visible.has(id));
+    const missing = shown.filter((id) => !input.serviceIds.includes(id));
     const extra = input.serviceIds.filter((id) => !expected.includes(id));
-    add("op112.services.missing", "services", "Оповещены все нужные службы", expected.length ? missing.length === 0 : null, {
+    add("op112.services.missing", "services", "Оповещены все нужные службы", shown.length ? missing.length === 0 : null, {
       evidence: missing.length ? `Не хватает: ${missing.map(name).join(", ")}` : "Все нужные службы в карточке",
-      expected: expected.map(name).join(", "),
+      expected: shown.map(name).join(", "),
     });
     add("op112.services.extra", "services", "Нет лишних служб", extra.length === 0, {
       evidence: extra.length ? `Лишние: ${extra.map(name).join(", ")}` : "Лишних нет",
@@ -308,10 +341,8 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
 
   // Required questions, judged by the operator's own lines.
   (truth?.requiredQuestions ?? []).forEach((q, i) => {
-    const topic = q.topic ?? "other";
-    const asked = askedAbout(topic, operatorLines, q.keywords);
-    const line = asked ? operatorLines.find((l) => askedAbout(topic, [l], q.keywords)) : undefined;
-    add(`op112.question.${i + 1}`, "completeness", `Задан вопрос: ${q.text}`, asked, {
+    const line = findAsked(q, operatorLines);
+    add(`op112.question.${i + 1}`, "completeness", `Задан вопрос: ${q.text}`, Boolean(line), {
       evidence: line ? `Оператор: ${quote(line)}` : "Вопрос не прозвучал",
     });
   });
@@ -319,9 +350,9 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   // The first 100 characters go to service 103: the gist, and victims if any.
   const first = card.description.trim().slice(0, 100);
   const need = [...(truth?.descriptionKeywords ?? [])];
-  if (card.flags.victims || truth?.flags.victims) need.push("пострадав|сознан|травм|ранен|плохо|больн");
+  if (card.flags.victims || truth?.flags.victims) need.push("пострадав|сознан|травм|ранен|плохо|ожог|кров");
   if (need.length) {
-    const miss = descriptionHas(first, need);
+    const miss = descriptionMisses(first, need);
     add("op112.description.first100", "literacy", "Суть и пострадавшие — в первых 100 символах описания", first ? miss.length === 0 : false, {
       evidence: first ? `В 103 уйдёт: ${quote(first, 110)}` : "Описание пустое",
       expected: miss.length ? `Добавить в начало: ${miss.map((m) => m.split("|")[0]).join(", ")}` : undefined,
@@ -330,25 +361,27 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
 
   // «Сказал ↔ заполнил»: every fact the caller said must be in the card.
   for (const { fact, line } of revealed.values()) {
-    const said = `Заявитель: ${quote(line.text)}`;
     const e = fact.expect;
     if (!e || e.kind === "address") continue;
+    const said = `Заявитель: ${quote(line.text)}`;
     const title = `Сказал ↔ заполнил: ${fact.label}`;
+    const code = `op112.said.${fact.key}`;
     if (e.kind === "flag") {
       const filled = Boolean(card.flags[e.flag]);
-      add(`op112.said.${fact.key}`, "services", title, filled === e.value, {
+      add(code, "services", title, filled === e.value, {
         evidence: `${said} → в карточке «${FLAG_TITLE[e.flag] ?? e.flag}»: ${yesNo(filled)}`,
         expected: `«${FLAG_TITLE[e.flag] ?? e.flag}»: ${yesNo(e.value)}`,
       });
     } else if (e.kind === "tag") {
-      const ok = tagMatches(card, e.row, e.value);
-      add(`op112.said.${fact.key}`, "services", title, ok, {
+      // A panel row, or the same words in the description when the panel has no such row.
+      const ok = tagMatches(card, e.row, e.value) || descriptionMisses(card.description, [low(e.value)]).length === 0;
+      add(code, "services", title, ok, {
         evidence: `${said} → «${e.row}»: ${filledTag(card, e.row) || "не заполнено"}`,
         expected: `«${e.row}»: ${e.value.split("|")[0]}`,
       });
     } else if (e.kind === "description") {
-      const miss = descriptionHas(card.description, e.keywords);
-      add(`op112.said.${fact.key}`, "literacy", title, miss.length === 0, {
+      const miss = descriptionMisses(card.description, e.keywords);
+      add(code, "literacy", title, miss.length === 0, {
         evidence: `${said} → ${miss.length ? "в описании этого нет" : "есть в описании"}`,
         expected: miss.length ? `Записать в описание: ${fact.text}` : undefined,
       });
@@ -379,9 +412,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
 // ─── Model checks ────────────────────────────────────────────────────────────
 
 const aiSchema = z.object({
-  discrepancies: z
-    .array(z.object({ field: z.string(), said: z.string(), filled: z.string(), critical: z.boolean().optional() }))
-    .default([]),
+  discrepancies: z.array(z.object({ field: z.string(), said: z.string(), filled: z.string() })).default([]),
   descriptionClear: z.boolean(),
   descriptionComment: z.string().default(""),
 });
@@ -406,8 +437,8 @@ function cardSummary(card: EvalCard): string {
   return [
     `Заявитель: ${card.caller.fullName || "—"}, статус: ${card.caller.status || "—"}, предоставленный телефон: ${card.caller.provided || "—"}`,
     `Адрес: ${addressLine(card.address) || "—"}; район: ${card.address.district || "—"}; описательный адрес: ${card.address.descriptive || "—"}`,
-    `Тип: ${card.cards.map((c) => whatHappened(c)?.chip ?? c).join(", ") || "—"}`,
-    `Признаки: ${card.tags.filter((t) => t.rowId !== "_type").map((t) => `${t.row}: ${t.value}`).join("; ") || "—"}`,
+    `Тип: ${card.cards.map(kindTitle).join(", ") || "—"}`,
+    `Опросная карта: ${card.tags.filter((t) => t.rowId !== "_kind").map((t) => `${t.row}: ${t.text ?? t.value}`).join("; ") || "—"}`,
     `Флаги: ${flags.join(", ") || "нет"}`,
     `Описание со слов заявителя: ${card.description || "—"}`,
   ].join("\n");
@@ -428,7 +459,7 @@ export async function evaluateOp112Ai(input: EvalInput): Promise<CriterionResult
             "Даны расшифровка разговора с заявителем и карточка происшествия, которую оператор заполнил.",
             "1) Найди расхождения «сказал ↔ заполнил»: заявитель ясно сообщил сведение (адрес, пострадавшие, газ, этажность, доступ, угроза, имя, телефон, что произошло), а в карточке его нет или записано иначе. Сведения, которых заявитель не говорил, не считай. Пересказ своими словами — не ошибка.",
             "2) Оцени описание со слов заявителя: поймёт ли следующий диспетчер, что случилось, где и есть ли пострадавшие.",
-            'Верни JSON: {"discrepancies":[{"field":"поле карточки","said":"точная цитата заявителя","filled":"что в карточке","critical":true|false}],"descriptionClear":true|false,"descriptionComment":"одно предложение"}',
+            'Верни JSON: {"discrepancies":[{"field":"поле карточки","said":"точная цитата заявителя","filled":"что в карточке"}],"descriptionClear":true|false,"descriptionComment":"одно предложение"}',
           ].join("\n"),
         },
         { role: "user", content: `Разговор:\n${transcript || "(пусто)"}\n\nКарточка:\n${cardSummary(input.card)}` },

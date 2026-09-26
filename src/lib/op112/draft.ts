@@ -2,7 +2,7 @@
 import { z } from "zod";
 import type { Incident } from "@prisma/client";
 import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller, type IncidentFlags } from "@/lib/incident/types";
-import { deriveFlags, tagsToAnswers, TOP_FLAGS } from "./card";
+import { rowFlagIds, tagsToAnswers, TOP_FLAGS } from "./card";
 import type { Op112CardDraft } from "./types";
 
 const text = (max: number) => z.string().trim().max(max).optional();
@@ -41,7 +41,7 @@ export const draftSchema = z.object({
   flags: z
     .object({ victims: z.boolean().optional(), refusedAmbulance: z.boolean().optional(), noAccess: z.boolean().optional() })
     .default({}),
-  cards: z.array(z.string().max(40)).max(8).default([]),
+  cards: z.array(z.string().max(120)).max(8).default([]),
   answers: z.record(z.string(), z.record(z.string(), z.array(z.string().max(300)).max(30))).default({}),
   description: z.string().max(1999).default(""),
   manualServiceIds: z.array(z.number().int().positive()).max(250).default([]),
@@ -53,10 +53,10 @@ export type DraftInput = z.infer<typeof draftSchema>;
 export function draftFromIncident(incident: Pick<Incident, "caller" | "address" | "flags" | "tags" | "description">): Op112CardDraft {
   const { cards, answers } = tagsToAnswers(incident.tags);
   const stored = (incident.flags ?? {}) as IncidentFlags;
-  // A top button is on when its flag is stored but no questionnaire row explains it.
-  const fromRows = deriveFlags({}, cards, answers);
+  // A top button is on when its flag is stored but no panel row explains it.
+  const fromRows = rowFlagIds(answers);
   const top: IncidentFlags = {};
-  for (const k of TOP_FLAGS) if (stored[k] && !fromRows[k]) top[k] = true;
+  for (const k of TOP_FLAGS) if (stored[k] && !fromRows.has(k)) top[k] = true;
   return {
     caller: (incident.caller ?? {}) as IncidentCaller,
     address: (incident.address ?? {}) as IncidentAddress,

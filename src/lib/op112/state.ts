@@ -2,7 +2,7 @@
 import type { Call, Incident, IncidentService, Service } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth/session";
-import { whatHappened } from "./catalog";
+import { kindTitle } from "./catalog";
 import { tagsToAnswers } from "./card";
 import { draftFromIncident } from "./draft";
 import { addressLine } from "./gazetteer";
@@ -161,7 +161,7 @@ export async function buildState(user: SessionUser): Promise<Op112State> {
 
 export function journalRow(i: Incident, score: number | null): JournalRow {
   const { cards } = tagsToAnswers(i.tags);
-  const chips = cards.map((c) => whatHappened(c)?.chip ?? c).join(", ");
+  const chips = cards.map(kindTitle).join(", ");
   const typing = i.openedAt && i.savedAt ? Math.round((i.savedAt.getTime() - i.openedAt.getTime()) / 1000) : null;
   return {
     id: i.id,

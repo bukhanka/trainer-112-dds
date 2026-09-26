@@ -1,9 +1,9 @@
 import { db } from "@/lib/db";
 import { jsonError, op112User, ownIncident } from "@/lib/op112/access";
-import { whatHappened } from "@/lib/op112/catalog";
-import { expectedServiceIds, normalizeTruth } from "@/lib/op112/evaluate";
+import { kindTitle } from "@/lib/op112/catalog";
+import { normalizeTruth } from "@/lib/op112/evaluate";
 import { addressLine } from "@/lib/op112/gazetteer";
-import { activeWeights } from "@/lib/op112/review";
+import { activeWeights, loadEvalInput } from "@/lib/op112/review";
 import { serviceCatalog } from "@/lib/op112/services";
 import { computeScore, type CriterionResult, type Overrides } from "@/lib/scoring/score";
 
@@ -21,16 +21,19 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
   const overrides = (attempt.override ?? null) as Overrides | null;
   const score = computeScore(criteria, await activeWeights(), overrides);
   const scenario = own.incident.scenarioId ? await db.scenario.findUnique({ where: { id: own.incident.scenarioId } }) : null;
-  const truth = normalizeTruth(scenario?.truth);
   const catalog = await serviceCatalog();
+  const truth = normalizeTruth(scenario?.truth, catalog);
+  const loaded = truth ? await loadEvalInput(id) : null;
   const reference = truth
     ? {
-        cards: truth.cards.map((c) => whatHappened(c)?.chip ?? c),
+        cards: truth.kind ? [kindTitle(truth.kind)] : [],
+        finalType: truth.finalType ?? null,
         address: [addressLine(truth.address), truth.address.district ? `${truth.address.okrug ?? ""} ${truth.address.district}`.trim() : ""]
           .filter(Boolean)
           .join(" — "),
-        services: expectedServiceIds(truth, catalog).map((sid) => catalog.find((c) => c.id === sid)?.shortName ?? `#${sid}`),
+        services: (loaded?.input.expectedServices ?? truth.services).map((sid) => catalog.find((c) => c.id === sid)?.shortName ?? `#${sid}`),
         questions: truth.requiredQuestions.map((q) => q.text),
+        traps: truth.traps,
       }
     : null;
   return Response.json({

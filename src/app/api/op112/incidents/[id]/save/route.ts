@@ -3,10 +3,11 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { jsonError, op112User, ownIncident, readJson } from "@/lib/op112/access";
-import { answersToTags, deriveFlags } from "@/lib/op112/card";
 import { draftSchema } from "@/lib/op112/draft";
+import { resolveDraft, routeDraft } from "@/lib/op112/panels";
 import { gradeIncident, runAiReview } from "@/lib/op112/review";
-import { finalServices } from "@/lib/op112/services";
+import { mergeManual } from "@/lib/op112/routing";
+import { serviceCatalog } from "@/lib/op112/services";
 import { buildState } from "@/lib/op112/state";
 
 // «оповестить и сохранить карточку»: the card is registered, service plates get «Добавлена», the
@@ -22,9 +23,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
   if (!body.success) return jsonError("bad_request", 400);
 
   const d = body.data;
-  const flags = deriveFlags(d.flags, d.cards, d.answers);
-  const tags = answersToTags(d.cards, d.answers);
-  const plates = await finalServices({ cards: d.cards, answers: d.answers, flags, address: d.address }, d.manualServiceIds);
+  const resolved = await resolveDraft(d);
+  const plates = mergeManual(await routeDraft(d, resolved), d.manualServiceIds, await serviceCatalog());
   const now = new Date();
   const operator = `оп. ${own.incident.operatorNo ?? ""}`.trim();
   const aon = (own.incident.caller as { aon?: string } | null)?.aon;
@@ -36,8 +36,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
       savedAt: now,
       caller: { ...d.caller, aon: aon ?? d.caller.aon },
       address: d.address,
-      flags,
-      tags: tags as unknown as Prisma.InputJsonValue,
+      flags: resolved.flags,
+      tags: resolved.tags as unknown as Prisma.InputJsonValue,
+      typeCodes: resolved.typeCodes,
       description: d.description,
       descriptionLog: d.description.trim() ? [{ at: now.toISOString(), author: operator, text: d.description.trim() }] : [],
     },

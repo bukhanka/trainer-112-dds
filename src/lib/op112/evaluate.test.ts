@@ -1,75 +1,83 @@
 import { describe, expect, it } from "vitest";
 import { computeScore, type Weights } from "@/lib/scoring/score";
 import type { Persona } from "./caller";
-import { answersToTags, deriveFlags } from "./card";
-import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, type EvalInput } from "./evaluate";
+import { resolveCard } from "./card";
+import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, streetVerdict, type EvalInput } from "./evaluate";
+import { factCards } from "./facts";
 import type { ServiceLite } from "./routing";
 import type { CallLine, CardAnswers } from "./types";
 
 const CATALOG: ServiceLite[] = [
   { id: 1, shortName: "Служба 101", kind: "центральная", orderIdx: 1 },
-  { id: 3, shortName: "ЦЭМП", kind: "центральная", orderIdx: 3 },
-  { id: 4, shortName: "Служба 103", kind: "центральная", orderIdx: 4 },
-  { id: 5, shortName: "Служба 104", kind: "центральная", orderIdx: 5 },
   { id: 7, shortName: "ЦОДД", kind: "ведомственная", orderIdx: 7 },
   { id: 33, shortName: "ОАТИ", kind: "ведомственная", orderIdx: 33 },
   { id: 113, shortName: "Служба 102", kind: "центральная", orderIdx: 113 },
-  { id: 60, shortName: "Поселение Дорогомилово", kind: "территориальная", subtype: "район (ДДС управы района)", okrug: "ЗАО", district: "Дорогомилово", orderIdx: 60 },
-  { id: 156, shortName: "Поселение ЗАО", kind: "территориальная", subtype: "префектура (ДДС округа)", okrug: "ЗАО", district: "ЗАО", orderIdx: 156 },
+  { id: 60, shortName: "Поселение Дорогомилово", kind: "территориальная", orderIdx: 60 },
+  { id: 156, shortName: "Поселение ЗАО", kind: "территориальная", orderIdx: 156 },
 ];
 
 const WEIGHTS: Weights = { timeliness: 3, statusOrder: 2, comments: 2, address: 3, services: 3, completeness: 1, literacy: 1 };
 const FLAME = "Открытое пламя / Дым";
 
+// The reference data format (data/scenarios.json).
 const persona: Persona = {
   fullName: "Сидоров Иван Сергеевич",
   role: "очевидец",
   phone: "+7 (916) 126-34-71",
   visibleAddress: "депо у Киевского вокзала",
-  hiddenAddress: "МЖД Киевское направление, 1-й километр, дом 2, строение 2",
-  situation: "Горит мусорный контейнер возле депо.",
-  facts: [],
-  factCards: [
-    { key: "victims", topic: "victims", text: "Пострадавших нет.", label: "пострадавшие", expect: { kind: "flag", flag: "victims", value: false } },
-    { key: "gas", topic: "gas", text: "Рядом газовая труба, газ подведён.", label: "газификация", expect: { kind: "flag", flag: "gas", value: true } },
+  hiddenAddress: "МЖД Киевская 1 км, стр. 2",
+  situation: "Алло, тут мусорный контейнер горит, у депо возле Киевского вокзала.",
+  facts: [
+    "Горит один контейнер с мусором, огонь видно, дым чёрный",
+    "Пострадавших нет, рядом никого",
+    "Рядом жилой дом, он газифицирован (сообщает только на вопрос)",
   ],
   temper: "calm",
+  voice: "male",
 };
 
-const truth = normalizeTruth({
-  cards: ["101"],
-  tags: [
-    { card: "101", row: "Где", value: "Улица" },
-    { card: "101", row: "Признак пожара (улица)", value: FLAME },
-    { card: "101", row: "Улица (пламя, дым)", value: "Мусор" },
-  ],
-  flags: { victims: false },
-  address: { street: "МЖД Киевское направление 1-й км", house: "2", structure: "2", okrug: "ЗАО", district: "Дорогомилово" },
-  services: [],
-  requiredQuestions: [
-    { text: "Уточнить адрес", topic: "addressExact" },
-    { text: "Есть ли пострадавшие", topic: "victims" },
-  ],
-  callerStatus: "очевидец",
-  descriptionKeywords: ["мусор|контейнер", "гор|пожар"],
-})!;
+const truth = normalizeTruth(
+  {
+    kind: "101",
+    typeCodes: [1010101],
+    acceptableTypeCodes: [1010101, 1010102],
+    finalType: "пожар: мусор",
+    tags: ["на улице", "мусор", "открытое пламя"],
+    flags: {},
+    address: { subject: "Москва", city: "Москва", okrug: "ЗАО", district: "Дорогомилово", street: "МЖД Киевская 1 км", structure: "2" },
+    services: [
+      { serviceId: 1, shortName: "Служба 101", isMain: true },
+      { serviceId: 7, shortName: "ЦОДД" },
+      { serviceId: 33, shortName: "ОАТИ" },
+      { serviceId: 60, shortName: "Поселение Дорогомилово" },
+      { serviceId: 156, shortName: "Поселение ЗАО" },
+    ],
+    requiredQuestions: [
+      "Уточнить адрес: первый ответ заявителя неполный или неточный",
+      "Есть ли пострадавшие",
+      "ФИО и статус заявителя, контактный телефон",
+    ],
+    traps: ["Ориентир «депо у вокзала» — не адрес"],
+  },
+  CATALOG,
+)!;
 
 const at = "2026-09-26T10:00:00.000Z";
 const line = (role: CallLine["role"], text: string, revealed?: string[]): CallLine => ({ role, text, at, revealed });
 
 const goodMessages: CallLine[] = [
-  line("counterpart", "Здравствуйте. Горит мусорный контейнер возле депо.", ["situation"]),
+  line("counterpart", "Алло, тут мусорный контейнер горит, у депо возле Киевского вокзала.", ["situation"]),
   line("trainee", "Назовите адрес"),
   line("counterpart", "депо у Киевского вокзала", ["address"]),
-  line("trainee", "Уточните номер дома"),
-  line("counterpart", "МЖД Киевское направление, 1-й километр, дом 2, строение 2", ["addressExact"]),
+  line("trainee", "Уточните адрес, номер строения"),
+  line("counterpart", "Сейчас… точнее так: МЖД Киевская 1 км, стр. 2", ["addressExact"]),
   line("trainee", "Как вас зовут?"),
   line("counterpart", "Сидоров Иван Сергеевич.", ["name"]),
   line("trainee", "Есть пострадавшие?"),
-  line("counterpart", "Пострадавших нет.", ["victims"]),
+  line("counterpart", "Пострадавших нет, рядом никого", ["fact2"]),
 ];
 
-function input(over: {
+type Over = {
   answers?: CardAnswers;
   top?: Partial<Record<"victims" | "noAccess" | "refusedAmbulance", boolean>>;
   street?: string;
@@ -79,23 +87,20 @@ function input(over: {
   messages?: CallLine[];
   savedAfterSec?: number;
   empty?: "noContact";
-}): EvalInput {
-  const answers = { "101": over.answers ?? { where: ["Улица"], fireStreet: [FLAME], streetObject: ["Мусор"] } };
-  const flags = deriveFlags(over.top ?? {}, ["101"], answers);
+};
+
+function input(over: Over = {}): EvalInput {
+  const answers = { "101": over.answers ?? { where: ["Улица"], signStreet: [FLAME], streetObject: ["Мусор"] } };
+  const r = resolveCard(["101"], answers, over.top ?? {});
   const opened = new Date(at);
   return {
     card: {
       caller: { fullName: "Сидоров Иван", status: "очевидец", provided: "+7 (916) 126-34-71", aon: "+7 (916) 126-34-71" },
-      address: {
-        street: over.street ?? "МЖД Киевское направление 1-й км",
-        house: "2",
-        structure: "2",
-        okrug: "ЗАО",
-        district: over.district ?? "Дорогомилово",
-      },
-      flags,
-      tags: answersToTags(["101"], answers),
+      address: { street: over.street ?? "МЖД Киевская 1 км", structure: "2", okrug: "ЗАО", district: over.district ?? "Дорогомилово" },
+      flags: r.flags,
+      tags: r.tags,
       cards: ["101"],
+      typeCodes: r.typeCodes,
       description: over.description ?? "Горит мусорный контейнер у депо Киевского вокзала, пострадавших нет.",
       openedAt: opened,
       savedAt: new Date(opened.getTime() + (over.savedAfterSec ?? 50) * 1000),
@@ -104,9 +109,11 @@ function input(over: {
     serviceIds: over.services ?? [1, 7, 33, 60, 156],
     persona,
     truth,
+    expectedServices: truth.services,
     messages: over.messages ?? goodMessages,
     typingSec: 65,
     catalog: CATALOG,
+    typeNames: { 1010101: "пожар: мусор", 1010102: "пожар: мусор (задымление)" },
   };
 }
 
@@ -114,14 +121,13 @@ const byCode = (list: ReturnType<typeof evaluateOp112Rules>, code: string) => li
 
 describe("evaluateOp112Rules", () => {
   it("gives full marks to a card that matches the reference and the conversation", () => {
-    const res = evaluateOp112Rules(input({}));
-    const failed = res.filter((c) => c.ok === false);
-    expect(failed).toEqual([]);
+    const res = evaluateOp112Rules(input());
+    expect(res.filter((c) => c.ok === false)).toEqual([]);
     expect(computeScore(res, WEIGHTS)).toBe(100);
   });
 
   it("marks a look-alike street as a critical mistake and caps the score", () => {
-    const res = evaluateOp112Rules(input({ street: "МЖД Киевское направление 2-й км" }));
+    const res = evaluateOp112Rules(input({ street: "МЖД Киевская 2 км" }));
     const street = byCode(res, "op112.address.street");
     expect(street?.ok).toBe(false);
     expect(street?.critical).toBe(true);
@@ -129,32 +135,34 @@ describe("evaluateOp112Rules", () => {
   });
 
   it("quotes the caller when a said fact is missing from the card", () => {
-    const messages = [...goodMessages, line("trainee", "Газ есть?"), line("counterpart", "Рядом газовая труба, газ подведён.", ["gas"])];
+    const gasFact = factCards(persona).find((f) => f.topic === "gas")!;
+    const messages = [...goodMessages, line("trainee", "Газ в доме есть?"), line("counterpart", gasFact.text, [gasFact.key])];
     const res = evaluateOp112Rules(input({ messages }));
-    const gas = byCode(res, "op112.said.gas");
+    const gas = byCode(res, `op112.said.${gasFact.key}`);
     expect(gas?.ok).toBe(false);
-    expect(gas?.evidence).toContain("«Рядом газовая труба, газ подведён.»");
+    expect(gas?.evidence).toContain("«Рядом жилой дом, он газифицирован»");
     expect(gas?.expected).toContain("да");
   });
 
   it("does not blame the operator for a fact the caller never said", () => {
-    const res = evaluateOp112Rules(input({}));
-    expect(byCode(res, "op112.said.gas")).toBeUndefined();
+    const res = evaluateOp112Rules(input());
+    expect(res.some((c) => c.code.startsWith("op112.said.fact3"))).toBe(false);
   });
 
-  it("checks a reference flag directly when the caller did not speak about it", () => {
-    const messages = goodMessages.filter((m) => !m.revealed?.includes("victims") && m.text !== "Есть пострадавшие?");
-    const res = evaluateOp112Rules(input({ messages, top: { victims: true } }));
-    expect(byCode(res, "op112.said.victims")).toBeUndefined();
-    expect(byCode(res, "op112.flag.victims")?.ok).toBe(false);
-    expect(byCode(res, "op112.question.2")?.ok).toBe(false);
+  it("checks the classification against the reference leaves", () => {
+    const res = evaluateOp112Rules(input({ answers: { where: ["Улица"], signStreet: ["Запах гари"] } }));
+    const cls = byCode(res, "op112.class");
+    expect(cls?.ok).toBe(false);
+    expect(cls?.expected).toBe("пожар: мусор");
   });
 
-  it("checks required questions by the operator's own lines", () => {
-    const res = evaluateOp112Rules(input({}));
-    const q = byCode(res, "op112.question.1");
-    expect(q?.ok).toBe(true);
-    expect(q?.evidence).toContain("Уточните номер дома");
+  it("finds required questions in the operator's own words", () => {
+    const res = evaluateOp112Rules(input());
+    expect(byCode(res, "op112.question.1")?.evidence).toContain("Уточните адрес");
+    expect(byCode(res, "op112.question.2")?.ok).toBe(true);
+    expect(byCode(res, "op112.question.3")?.ok).toBe(true);
+    const silent = evaluateOp112Rules(input({ messages: goodMessages.filter((m) => m.role === "counterpart") }));
+    expect(byCode(silent, "op112.question.2")?.ok).toBe(false);
   });
 
   it("lists missing and extra services", () => {
@@ -164,21 +172,19 @@ describe("evaluateOp112Rules", () => {
   });
 
   it("fails the typing time after the norm", () => {
-    const res = evaluateOp112Rules(input({ savedAfterSec: 95 }));
-    expect(byCode(res, "op112.typing_time")?.ok).toBe(false);
+    expect(byCode(evaluateOp112Rules(input({ savedAfterSec: 95 })), "op112.typing_time")?.ok).toBe(false);
   });
 
-  it("wants victims in the first 100 characters when there are victims", () => {
-    const description = `${"Горит мусорный контейнер у депо, огонь сильный, чёрный дым, видно издалека, горит уже минут десять."} Есть пострадавший.`;
+  it("wants the gist and victims in the first 100 characters", () => {
+    const description = `${"Звонит очевидец, говорит что у депо Киевского вокзала что-то случилось, просит приехать поскорее."} Горит мусор, есть пострадавший.`;
     const res = evaluateOp112Rules(input({ description, top: { victims: true } }));
     const first = byCode(res, "op112.description.first100");
     expect(first?.ok).toBe(false);
-    expect(first?.expected).toContain("пострадав");
+    expect(first?.expected).toContain("гор");
   });
 
   it("flags a wrong district, which loses the territorial services", () => {
-    const res = evaluateOp112Rules(input({ district: "Арбат" }));
-    expect(byCode(res, "op112.address.district")?.ok).toBe(false);
+    expect(byCode(evaluateOp112Rules(input({ district: "Арбат" })), "op112.address.district")?.ok).toBe(false);
   });
 
   it("treats an empty card for a live caller as a critical mistake", () => {
@@ -188,16 +194,21 @@ describe("evaluateOp112Rules", () => {
   });
 });
 
-describe("normalizeTruth", () => {
-  it("accepts plain-string questions and ignores broken parts", () => {
-    const t = normalizeTruth({ cards: ["104"], requiredQuestions: ["Уточнить газификацию"], flags: "oops", services: [5, "ЦЭМП"] });
-    expect(t?.flags).toEqual({});
-    expect(t?.requiredQuestions[0].topic).toBe("gas");
-    expect(t?.services).toEqual([5, "ЦЭМП"]);
+describe("reference answer", () => {
+  it("reads the data format: services as objects, questions as text, gist from tags", () => {
+    expect(truth.services).toEqual([1, 7, 33, 60, 156]);
+    expect(truth.requiredQuestions[0].topic).toBe("addressExact");
+    expect(truth.descriptionKeywords.join(" ")).toContain("мусор");
   });
 
-  it("returns null without a reference", () => {
+  it("returns null without a reference and survives broken parts", () => {
     expect(normalizeTruth(null)).toBeNull();
+    expect(normalizeTruth({ flags: "oops", services: "x" })?.services).toEqual([]);
+  });
+
+  it("knows look-alike streets from the reference list", () => {
+    expect(streetVerdict("Дубнинская ул.", "Дубининская ул.")).toBe("lookalike");
+    expect(streetVerdict("улица Грина", "ул. Грина")).toBe("same");
   });
 });
 
@@ -205,9 +216,8 @@ describe("evaluateOp112Ai", () => {
   it("leaves the model checks «не применимо» when no model is configured", async () => {
     const prev = process.env.LLM_BASE_URL;
     delete process.env.LLM_BASE_URL;
-    const res = await evaluateOp112Ai(input({}));
+    const res = await evaluateOp112Ai(input());
     process.env.LLM_BASE_URL = prev;
     expect(res.map((c) => c.ok)).toEqual([null, null]);
-    expect(res.every((c) => c.source === "ai")).toBe(true);
   });
 });

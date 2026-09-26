@@ -17,7 +17,7 @@ type ReviewData =
       teacherComment: string | null;
       scenarioTitle: string | null;
       ticketRef: string | null;
-      reference: { cards: string[]; address: string; services: string[]; questions: string[] } | null;
+      reference: { cards: string[]; finalType: string | null; address: string; services: string[]; questions: string[]; traps: string[] } | null;
     };
 
 const AI_NOTE: Record<string, string> = {
@@ -107,13 +107,22 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
               <h3 className="mb-1.5 text-[15px] font-bold text-arm-dark">Эталон</h3>
               <dl className="grid grid-cols-[160px_1fr] gap-x-3 gap-y-1">
                 <dt className="text-arm-desc">Тип</dt>
-                <dd>{ready.reference.cards.join(", ") || "—"}</dd>
+                <dd>
+                  {ready.reference.cards.join(", ") || "—"}
+                  {ready.reference.finalType ? ` · Класс.: ${ready.reference.finalType}` : ""}
+                </dd>
                 <dt className="text-arm-desc">Адрес</dt>
                 <dd>{ready.reference.address || "—"}</dd>
                 <dt className="text-arm-desc">Службы</dt>
                 <dd>{ready.reference.services.join(", ") || "—"}</dd>
                 <dt className="text-arm-desc">Обязательные вопросы</dt>
                 <dd>{ready.reference.questions.join("; ") || "—"}</dd>
+                {ready.reference.traps.length > 0 && (
+                  <>
+                    <dt className="text-arm-desc">Ловушки задания</dt>
+                    <dd>{ready.reference.traps.join("; ")}</dd>
+                  </>
+                )}
               </dl>
             </section>
           )}

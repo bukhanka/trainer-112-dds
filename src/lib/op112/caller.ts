@@ -10,7 +10,7 @@
 import { z } from "zod";
 import type { CallerPersona } from "@/lib/incident/types";
 import { chat, chatJson, type ChatMessage } from "@/lib/ai/provider";
-import { askedTopics, factCards, low } from "./facts";
+import { askedTopics, bestFactByWords, expandRevealed, factCards, low } from "./facts";
 import type { CallLine, FactCard, FactTopic } from "./types";
 
 export type Persona = CallerPersona & { factCards?: FactCard[] };
@@ -29,9 +29,16 @@ const TEMPER: Record<NonNullable<CallerPersona["temper"]>, string> = {
 };
 
 function systemPrompt(p: Persona, cards: FactCard[]): string {
+  const seen = new Set<string>();
   const facts = cards
     .filter((c) => !["situation", "address", "addressExact", "name", "status", "phone"].includes(c.key))
-    .map((c) => `- [${c.key}] ${c.text}`)
+    .filter((c) => {
+      const id = c.group ?? c.key;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .map((c) => `- [${c.group ?? c.key}] ${c.text}`)
     .join("\n");
   return [
     "Это учебный тренажёр службы 112. Ты играешь заявителя — человека, который сам позвонил на 112. На линии обучающийся оператор, он заполняет карточку происшествия по твоим словам.",
@@ -117,8 +124,9 @@ function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): 
   const keys = new Set(cards.map((c) => c.key));
   const text = out.reply.replace(/^\s*["«]|["»]\s*$/g, "").trim();
   // A model that ignored the «revealed» field gets its disclosures guessed from the words it used.
-  if (!out.revealed) return { text, revealed: guessRevealed(text, cards) };
-  return { text, revealed: out.revealed.filter((k) => keys.has(k)) };
+  if (!out.revealed) return { text, revealed: expandRevealed(guessRevealed(text, cards), cards) };
+  const groups = new Set(cards.map((c) => c.group).filter(Boolean));
+  return { text, revealed: expandRevealed(out.revealed.filter((k) => keys.has(k) || groups.has(k)), cards) };
 }
 
 /** Fallback when the model does not list what it said: distinctive words of a fact in the reply. */
@@ -169,6 +177,9 @@ const UNKNOWN: Partial<Record<FactTopic, string>> = {
   consciousness: "Не знаю.",
   age: "Не знаю точно.",
   breathing: "Не могу понять.",
+  weapon: "Оружия не видел.",
+  people: "Точно не скажу.",
+  object: "Не разглядел(а).",
 };
 
 const TOPIC_ORDER: FactTopic[] = [
@@ -179,6 +190,7 @@ const TOPIC_ORDER: FactTopic[] = [
   "status",
   "phone",
   "victims",
+  "people",
   "fire",
   "floors",
   "gas",
@@ -187,6 +199,8 @@ const TOPIC_ORDER: FactTopic[] = [
   "consciousness",
   "breathing",
   "age",
+  "weapon",
+  "object",
 ];
 
 export function mockReply(p: Persona, history: CallLine[], operatorText: string): CallerReply {
@@ -206,7 +220,8 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
   const revealed: string[] = [];
   const say = (card: FactCard | undefined, text?: string) => {
     if (!card) return;
-    parts.push(text ?? card.text);
+    const line = text ?? card.text;
+    if (!parts.includes(line)) parts.push(line);
     revealed.push(card.key);
   };
   const byKey = (k: string) => cards.find((c) => c.key === k);
@@ -224,6 +239,11 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
       else if (UNKNOWN[topic]) parts.push(UNKNOWN[topic]!);
     }
   }
+  // A question no topic covers («Какой номер маршрута?»): the ticket line with the same words.
+  if (!parts.length) {
+    const hit = bestFactByWords(operatorText, cards);
+    if (hit) say(hit);
+  }
 
   if (!parts.length) {
     if (/выезжа|выехал|направ|высыла|передал|будут|едут|ожидайте|помощь (уже )?едет/.test(t)) {
@@ -239,5 +259,5 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
     };
     return { text: filler[p.temper ?? ""] ?? "Не поняла вопрос. Что мне сказать?", revealed: [] };
   }
-  return { text: styled(p, parts.join(" ")), revealed: [...new Set(revealed)] };
+  return { text: styled(p, parts.join(" ")), revealed: expandRevealed([...new Set(revealed)], cards) };
 }
