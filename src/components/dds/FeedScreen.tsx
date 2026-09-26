@@ -330,11 +330,26 @@ function SeatStrip() {
   const { seat, flow } = state;
   const [busy, setBusy] = useState(false);
 
+  async function startAgain() {
+    setBusy(true);
+    await postJson("/api/dds/practice");
+    setBusy(false);
+    refresh();
+  }
+
   if (seat.readOnly) {
+    const again = seat.mine && seat.lessonStatus === "FINISHED";
     return (
-      <div className="mt-3 bg-arm-dark/60 px-3 py-2 text-[13px]">
-        {seat.lessonStatus === "FINISHED" ? "Занятие завершено — карточки открыты только для просмотра." : "Просмотр места обучающегося: изменения недоступны."}{" "}
-        <span className="text-white/70">{seat.lessonTitle}</span>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 bg-arm-dark/60 px-3 py-2 text-[13px]">
+        <span>
+          {seat.lessonStatus === "FINISHED" ? "Занятие завершено — карточки открыты только для просмотра." : "Просмотр места обучающегося: изменения недоступны."}{" "}
+          <span className="text-white/70">{seat.lessonTitle}</span>
+        </span>
+        {again ? (
+          <button onClick={startAgain} disabled={busy} className="ml-auto border border-white/60 px-2 py-0.5 hover:bg-white/10 disabled:opacity-50">
+            {seat.practice ? "Новая тренировка" : "Тренировка без занятия"}
+          </button>
+        ) : null}
       </div>
     );
   }

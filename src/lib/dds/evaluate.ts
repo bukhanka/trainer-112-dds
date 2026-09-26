@@ -51,7 +51,8 @@ const RANK: Record<ServiceStatus, number> = {
 };
 
 const TRANSFER = /(переда[нл]|передаю|сообщ(ено|ил|или|ила)|проинформ|направлен[ао]? в|дубл|кп\s*№?\s*\d|по карточке|реагировани[ея] по|ук\s|ооо|гбу|ддс|служб[аеуы]\s*10\d|«[^»]+»|"[^"]+")/i;
-const REFUSAL_WORDS = /(не обслужива|не наш|не в компетенц|не наша территор|не относится|нет договора|не будем|работы не провод|не проводил)/i;
+// «не наш…» only as a whole word: «не нашли утечку» is not a refusal.
+const REFUSAL_WORDS = /(не обслужива|не наш(?:а|е|и|его|ей|у|ему|им)?(?![а-яё])|не в компетенц|не относится|нет договора|не будем|работы не провод|не проводил)/i;
 const GENERIC_FINAL = /^(работы завершены|завершено|выполнено|готово|ок|сделано|всё|все|закрыто)[.!]?$/i;
 
 const quote = (s: string | null) => (s ? `«${s.length > 120 ? `${s.slice(0, 117)}…` : s}»` : "без комментария");
@@ -104,13 +105,18 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
       source: "rule",
     });
   } else {
+    // A card that came in just before the end still had time left: nothing to judge yet.
+    const waited = secBetween(f.addedAt, f.now);
+    const expired = waited > f.ackSec;
     out.push({
       code: "dds.ack_in_time",
       group: "timeliness",
       title: `Ответ «Принята / Не принята» за ${f.ackSec} с`,
-      ok: false,
-      critical: true,
-      evidence: `Ответа нет: карточка получает статус «Не оповещено» (прошло ${fmtDuration(secBetween(f.addedAt, f.now))})`,
+      ok: expired ? false : null,
+      critical: expired,
+      evidence: expired
+        ? `Ответа нет: карточка получает статус «Не оповещено» (прошло ${fmtDuration(waited)})`
+        : `Карточка пришла за ${fmtDuration(waited)} до конца — норматив ещё не истёк`,
       expected: "Поставить «Принята» или «Не принята» в течение норматива",
       source: "rule",
     });
@@ -118,11 +124,12 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
 
   if (decision === "accept" && !noCrewClose && crewExpected(ref)) {
     const sent = f.dispatch ? secBetween(f.addedAt, f.dispatch.at) : null;
+    const stillTime = sent === null && secBetween(f.addedAt, f.now) <= f.workSec;
     out.push({
       code: "dds.crew_in_time",
       group: "timeliness",
       title: `Наряд направлен в пределах отработки (${fmtDuration(f.workSec)})`,
-      ok: sent !== null && sent <= f.workSec,
+      ok: stillTime ? null : sent !== null && sent <= f.workSec,
       evidence:
         sent === null
           ? "Наряд не назначен: номер наряда не указан, по телефону наряд не направлен"
@@ -151,10 +158,13 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     .filter((r, i, all) => all.findIndex((x) => x.status === r.status) === i);
   if (reports.length) {
     const late: string[] = [];
+    let judged = 0;
     for (const r of reports) {
       const done = own.find((e) => RANK[e.status] >= RANK[r.status] && e.status !== "REJECTED" && e.at.getTime() >= r.at.getTime() - 5_000);
       const before = own.find((e) => RANK[e.status] >= RANK[r.status] && e.status !== "REJECTED" && e.at < r.at);
       if (before) continue; // already set earlier (checked by «по факту докладов»)
+      if (!done && secBetween(r.at, f.now) <= REPORT_REACT_SEC) continue; // the report came just before the end
+      judged++;
       if (!done || secBetween(r.at, done.at) > REPORT_REACT_SEC) {
         late.push(`доклад «${STATUS_LABEL[r.status]}» в ${fmtDateTime(r.at).slice(11)} — ${done ? `статус через ${fmtDuration(secBetween(r.at, done.at))}` : "статус не поставлен"}`);
       }
@@ -163,8 +173,12 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
       code: "dds.status_after_report",
       group: "timeliness",
       title: "Статус поставлен сразу после доклада наряда",
-      ok: late.length === 0,
-      evidence: late.length ? late.join("; ") : `Все доклады (${reports.length}) отражены статусами в течение ${REPORT_REACT_SEC} с`,
+      ok: judged === 0 ? null : late.length === 0,
+      evidence: late.length
+        ? late.join("; ")
+        : judged
+          ? `Все доклады (${judged}) отражены статусами в течение ${REPORT_REACT_SEC} с`
+          : "Доклад пришёл перед самым концом — время на статус ещё было",
       expected: `Не позже ${REPORT_REACT_SEC} с после доклада поставить соответствующий статус с комментарием`,
       source: "rule",
     });

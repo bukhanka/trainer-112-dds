@@ -115,12 +115,15 @@ export async function startPractice(user: SessionUser): Promise<PracticeResult> 
   return { ok: true, seat };
 }
 
+/** Ends the user's own practice; false when it is not theirs, not a practice, or already finished (a second click). */
 export async function finishPractice(user: SessionUser, seat: DdsSeat): Promise<boolean> {
   const settings = lessonSettingsSchema.safeParse(seat.lesson.settings);
-  if (seat.studentId !== user.id || !settings.success || !settings.data.practice || seat.lesson.status !== "RUNNING") {
-    return false;
-  }
-  await db.lesson.update({ where: { id: seat.lessonId }, data: { status: "FINISHED", finishedAt: new Date() } });
+  if (seat.studentId !== user.id || !settings.success || !settings.data.practice) return false;
+  const done = await db.lesson.updateMany({
+    where: { id: seat.lessonId, status: "RUNNING" },
+    data: { status: "FINISHED", finishedAt: new Date() },
+  });
+  if (!done.count) return false;
   await audit({ action: "dds.practice.finish", actorId: user.id, actor: user.login, entity: "Lesson", entityId: seat.lessonId });
   return true;
 }
@@ -137,6 +140,8 @@ export type SeatInfo = {
   lessonStatus: Lesson["status"];
   practice: boolean;
   readOnly: boolean;
+  /** The place belongs to the viewer (a student at their own place, not a watching teacher). */
+  mine: boolean;
   ackSec: number;
   workSec: number;
   tempoSec: number;
@@ -144,7 +149,7 @@ export type SeatInfo = {
   hints: boolean;
 };
 
-export function seatInfo({ seat, readOnly }: SeatAccess): SeatInfo {
+export function seatInfo({ seat, readOnly }: SeatAccess, viewerId: string): SeatInfo {
   const parsed = lessonSettingsSchema.safeParse(seat.lesson.settings ?? {});
   const settings = parsed.success ? parsed.data : lessonSettingsSchema.parse({});
   return {
@@ -159,6 +164,7 @@ export function seatInfo({ seat, readOnly }: SeatAccess): SeatInfo {
     lessonStatus: seat.lesson.status,
     practice: settings.practice,
     readOnly,
+    mine: seat.studentId === viewerId,
     ackSec: settings.ackSec,
     workSec: settings.workSec,
     tempoSec: settings.tempoSec,

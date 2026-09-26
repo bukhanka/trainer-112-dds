@@ -233,3 +233,40 @@ describe("phraseCovered", () => {
     expect(list["dds.progress_statuses"]).toBeUndefined();
   });
 });
+
+describe("end of the lesson", () => {
+  it("does not judge deadlines that had not run out when the lesson ended", () => {
+    const fresh = byCode(evaluateDdsPlate(facts({ now: at(10) })));
+    expect(fresh["dds.ack_in_time"].ok).toBeNull();
+    expect(fresh["dds.ack_in_time"].critical).toBe(false);
+    const accepted = byCode(evaluateDdsPlate(facts({ status: "ACCEPTED", events: [ev("ADDED", 0), ev("ACCEPTED", 8)], now: at(60) })));
+    expect(accepted["dds.crew_in_time"].ok).toBeNull();
+    const reported = byCode(
+      evaluateDdsPlate(
+        facts({
+          status: "ACCEPTED",
+          events: [ev("ADDED", 0), ev("ACCEPTED", 8, "Направлен наряд", "23")],
+          dispatch: { crew: "23", at: at(8), via: "status" },
+          reports: [{ status: "STARTED", at: at(40) }],
+          now: at(70),
+        }),
+      ),
+    );
+    expect(reported["dds.status_after_report"].ok).toBeNull();
+  });
+
+  it("does not read «не нашли» as a refusal", () => {
+    const list = byCode(
+      evaluateDdsPlate(
+        facts({
+          status: "FINISHED",
+          events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, "Проверили, утечку газа не нашли, газ подан")],
+          dispatch: { crew: "23", at: at(10), via: "status" },
+        }),
+      ),
+    );
+    expect(list["dds.status_meaning"].ok).toBe(true);
+    const refusal = byCode(evaluateDdsPlate(facts({ status: "ACCEPTED", events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Это не наша территория")] })));
+    expect(refusal["dds.status_meaning"].ok).toBe(false);
+  });
+});

@@ -183,6 +183,7 @@ async function advanceBots(tx: Tx, seat: SeatRef, now: Date) {
       service: { delivery: { not: "PHONE" } },
     },
     include: { service: { select: { shortName: true, delivery: true } }, incident: { select: { ddsSeatId: true } } },
+    orderBy: { id: "asc" }, // the same order in every place's transaction: no deadlocks on shared cards
   });
 
   for (const plate of plates) {

@@ -48,7 +48,8 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   const ringing = phone?.ringing ?? [];
   const current = phone?.current ?? null;
   const live = state.seat.lessonStatus === "RUNNING" && !state.seat.readOnly;
-  const visible = open || ringing.length > 0 || !!current;
+  // The panel pops up by itself only on a live place; a watcher or a finished lesson opens it by hand.
+  const visible = open || (live && (ringing.length > 0 || !!current));
 
   // The card open on the screen gives the context of calls from the keypad.
   const cardNumber = /\/dds\/incident\/(\d+)/.exec(pathname)?.[1];
@@ -58,7 +59,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   );
 
   // Ring while an incoming call waits.
-  const ringingId = ringing[0]?.id;
+  const ringingId = live ? ringing[0]?.id : undefined;
   useEffect(() => {
     if (!ringingId) return;
     beep(660, 2, 220);
@@ -81,11 +82,11 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     if (spoken.current.callId !== current.id) spoken.current = { callId: current.id, count: 0 };
     const fresh = current.messages.slice(spoken.current.count).filter((m) => m.role === "counterpart");
     spoken.current.count = current.messages.length;
-    if (!voiceOn || !fresh.length) return;
+    if (!voiceOn || !live || !fresh.length) return;
     void (async () => {
       for (const m of fresh) await say(m.text, current.voice);
     })();
-  }, [current, voiceOn, say]);
+  }, [current, voiceOn, live, say]);
 
   async function run(url: string, body?: unknown) {
     setBusy(true);
@@ -165,7 +166,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
             >
               {voiceOn ? "голос вкл." : "голос выкл."}
             </button>
-            {!current && !ringing.length ? (
+            {!live || (!current && !ringing.length) ? (
               <button onClick={() => setOpen(false)} aria-label="Свернуть телефон" className="text-white/80 hover:text-white">
                 <Close className="h-4 w-4" />
               </button>
@@ -219,29 +220,36 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 ))}
                 {busy ? <div className="text-[11px] text-arm-desc">…</div> : null}
               </div>
-              {voice.canListen ? (
+              {live && voice.canListen ? (
                 <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-2 pt-2">
                   <PushToTalk state={voice.state} onStart={() => void talk()} onStop={voice.stop} disabled={busy} />
                   {voice.error ? <span className="text-[11px] text-arm-late">{voice.error}</span> : null}
                 </div>
               ) : null}
-              <form onSubmit={send} className="flex shrink-0 gap-2 border-t px-2 py-2">
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Что вы говорите в трубку…"
-                  aria-label="Реплика в разговоре"
-                  maxLength={600}
-                  className="min-w-0 flex-1 border-b border-arm-dark/40 py-1 outline-none"
-                />
-                <button disabled={busy || !draft.trim()} className="bg-arm-blue px-2 text-white disabled:opacity-50">
-                  Сказать
-                </button>
-              </form>
-              <button onClick={() => hangUp(current.id)} className="flex shrink-0 items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110">
-                <HandsetDown className="h-4 w-4" /> Положить трубку
-              </button>
+              {live ? (
+                <>
+                  <form onSubmit={send} className="flex shrink-0 gap-2 border-t px-2 py-2">
+                    <input
+                      autoFocus
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      placeholder="Что вы говорите в трубку…"
+                      aria-label="Реплика в разговоре"
+                      maxLength={600}
+                      className="min-w-0 flex-1 border-b border-arm-dark/40 py-1 outline-none"
+                    />
+                    <button disabled={busy || !draft.trim()} className="bg-arm-blue px-2 text-white disabled:opacity-50">
+                      Сказать
+                    </button>
+                  </form>
+                  <button
+                    onClick={() => hangUp(current.id)}
+                    className="flex shrink-0 items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110"
+                  >
+                    <HandsetDown className="h-4 w-4" /> Положить трубку
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : !ringing.length ? (
             <div className="flex min-h-0 flex-1 flex-col">

@@ -303,9 +303,7 @@ async function reload(id: string): Promise<CallBrief> {
 export async function dial(seat: DdsSeat, number: string, incidentId?: string | null, now = new Date()): Promise<CallResult> {
   if (seat.lesson.status !== "RUNNING") return fail("Занятие завершено", 409);
   if (!seat.service) return fail("У места не выбрана служба", 409);
-  if (await db.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" }, select: { id: true } })) {
-    return fail("Сначала положите трубку текущего разговора", 409);
-  }
+  if (await db.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" }, select: { id: true } })) return fail(BUSY, 409);
   const typed = number.trim();
   const digits = normPhone(typed);
   if (!digits) return fail("Наберите номер");
@@ -391,21 +389,34 @@ export async function dial(seat: DdsSeat, number: string, incidentId?: string | 
   return fail("Абонент не найден: наберите номер из карточки или из телефонной книжки", 404);
 }
 
+/** One line per place: taking the handset (dialling or answering) is serialised by this lock. */
+async function lockLine(tx: Prisma.TransactionClient, seatId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-line:${seatId}`}))`;
+  return !!(await tx.call.findFirst({ where: { seatId, status: "ACTIVE" }, select: { id: true } }));
+}
+
+const BUSY = "Сначала положите трубку текущего разговора";
+
 async function startCall(seat: DdsSeat, kind: CallKind, incidentId: string | null, counterpart: Counterpart, greeting: string, now: Date): Promise<CallResult> {
-  const call = await db.call.create({
-    data: {
-      lessonId: seat.lessonId,
-      seatId: seat.id,
-      incidentId,
-      kind,
-      status: "ACTIVE",
-      counterpart: counterpart as Prisma.InputJsonValue,
-      messages: [{ role: "counterpart", text: greeting, at: now.toISOString() }],
-      startedAt: now,
-      answeredAt: now,
-    },
+  const id = await db.$transaction(async (tx) => {
+    if (await lockLine(tx, seat.id)) return null;
+    const call = await tx.call.create({
+      data: {
+        lessonId: seat.lessonId,
+        seatId: seat.id,
+        incidentId,
+        kind,
+        status: "ACTIVE",
+        counterpart: counterpart as Prisma.InputJsonValue,
+        messages: [{ role: "counterpart", text: greeting, at: now.toISOString() }],
+        startedAt: now,
+        answeredAt: now,
+      },
+    });
+    return call.id;
   });
-  return { ok: true, call: await reload(call.id) };
+  if (!id) return fail(BUSY, 409);
+  return { ok: true, call: await reload(id) };
 }
 
 async function ownCall(seat: DdsSeat, callId: string) {
@@ -422,9 +433,6 @@ export async function answer(seat: DdsSeat, callId: string, now = new Date()): P
   const call = await ownCall(seat, callId);
   if (!call) return fail("Звонок не найден", 404);
   if (call.status !== "RINGING") return fail("Звонок уже завершён", 409);
-  if (await db.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" }, select: { id: true } })) {
-    return fail("Сначала положите трубку текущего разговора", 409);
-  }
   const c = cp(call);
   const incident = await incidentFor(seat, call.incidentId);
   let text = "Диспетчер, слушаю.";
@@ -437,16 +445,20 @@ export async function answer(seat: DdsSeat, callId: string, now = new Date()): P
     text = reportLine(stage, ctx);
     if (stage) reports.push({ status: stage, at: now.toISOString() });
   }
-  const moved = await db.call.updateMany({
-    where: { id: call.id, status: "RINGING" },
-    data: {
-      status: "ACTIVE",
-      answeredAt: now,
-      counterpart: { ...c, reports } as Prisma.InputJsonValue,
-      messages: [...msgs(call), { role: "counterpart", text, at: now.toISOString() }],
-    },
+  const result = await db.$transaction(async (tx) => {
+    if (await lockLine(tx, seat.id)) return BUSY;
+    const moved = await tx.call.updateMany({
+      where: { id: call.id, status: "RINGING" },
+      data: {
+        status: "ACTIVE",
+        answeredAt: now,
+        counterpart: { ...c, reports } as Prisma.InputJsonValue,
+        messages: [...msgs(call), { role: "counterpart", text, at: now.toISOString() }],
+      },
+    });
+    return moved.count ? null : "Звонок уже завершён";
   });
-  if (!moved.count) return fail("Звонок уже завершён", 409);
+  if (result) return fail(result, 409);
   return { ok: true, call: await reload(call.id) };
 }
 
@@ -510,8 +522,31 @@ export async function say(seat: DdsSeat, callId: string, text: string, now = new
   }
 
   const answerText = await speakAs(prompt, history, line, fallback);
-  const updated = [...history, { role: "trainee" as const, text: line, at: now.toISOString() }, { role: "counterpart" as const, text: answerText, at: new Date().toISOString() }];
-  await db.call.update({ where: { id: call.id }, data: { messages: updated, counterpart: c as Prisma.InputJsonValue } });
+  const said: CallMessage[] = [
+    { role: "trainee", text: line, at: now.toISOString() },
+    { role: "counterpart", text: answerText, at: new Date().toISOString() },
+  ];
+  // The model may take seconds: append to the call as it is now, and only while it is still going.
+  const before = cp(call);
+  const newReports = (c.reports ?? []).slice((before.reports ?? []).length);
+  const saved = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-call:${call.id}`}))`;
+    const fresh = await tx.call.findUnique({ where: { id: call.id } });
+    if (!fresh || fresh.status !== "ACTIVE") return false;
+    const cur = cp(fresh);
+    const merged: Counterpart = {
+      ...cur,
+      reports: [...(cur.reports ?? []), ...newReports],
+      dispatch: cur.dispatch ?? c.dispatch,
+      namedCardNumber: cur.namedCardNumber || c.namedCardNumber,
+    };
+    await tx.call.update({
+      where: { id: call.id },
+      data: { messages: [...msgs(fresh), ...said] as Prisma.InputJsonValue, counterpart: merged as Prisma.InputJsonValue },
+    });
+    return true;
+  });
+  if (!saved) return fail("Разговор уже завершён", 409);
   return { ok: true, call: await reload(call.id) };
 }
 
@@ -534,7 +569,8 @@ async function speakAs(prompt: string, history: CallMessage[], line: string, fal
 export async function hangUp(seat: DdsSeat, callId: string, now = new Date()): Promise<CallResult> {
   const call = await ownCall(seat, callId);
   if (!call) return fail("Звонок не найден", 404);
-  if (call.status === "ACTIVE") await db.call.update({ where: { id: call.id }, data: { status: "ENDED", endedAt: now } });
-  else if (call.status === "RINGING") await db.call.update({ where: { id: call.id }, data: { status: "MISSED", endedAt: now } });
+  // Conditional steps: a call answered a moment ago must not turn into a missed one.
+  const ended = await db.call.updateMany({ where: { id: call.id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+  if (!ended.count) await db.call.updateMany({ where: { id: call.id, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
   return { ok: true, call: await reload(call.id) };
 }
