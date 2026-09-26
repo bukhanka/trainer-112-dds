@@ -1,0 +1,78 @@
+# Установка и запуск
+
+Три способа: для разработки, в Docker на одном сервере, офлайн в изолированном контуре учебного класса. Во всех случаях модели ИИ подключаются настройкой в `.env`, код менять не нужно.
+
+## Требования
+
+| Что | Минимум |
+|---|---|
+| Сервер | Ubuntu 20.04+ или Windows 10/11 с Docker Desktop; 4 ядра, 8 ГБ ОЗУ, 20 ГБ диска (без локальных моделей) |
+| Локальные модели (по желанию) | + 16 ГБ ОЗУ для языковой модели 7B на процессоре или видеокарта от 8 ГБ |
+| Рабочие места | Chrome, Firefox или Яндекс.Браузер; для голоса — гарнитура и HTTPS |
+
+## 1. Разработка
+
+```bash
+cp .env.example .env
+pnpm install
+pnpm db:up && pnpm db:migrate && pnpm db:seed
+pnpm dev                      # http://localhost:3100
+```
+
+## 2. Docker на одном сервере
+
+```bash
+cp .env.example .env          # при необходимости задайте адреса моделей
+docker compose --profile app up -d --build
+# приложение: http://<сервер>:3000, демо-учётки — в README
+```
+
+При старте контейнер сам применяет миграции и загружает демо-учётки и справочники (повторный запуск ничего не дублирует). У всех сервисов `restart: always` и проверка здоровья: после сбоя или перезагрузки сервера всё поднимается само.
+
+### HTTPS
+
+Браузер даёт доступ к микрофону только по HTTPS, поэтому для голосовых звонков нужен профиль `https` (Caddy перед приложением):
+
+```bash
+# публичный стенд с доменом — сертификат Let's Encrypt выпускается автоматически
+SITE_ADDRESS=trainer.example.ru docker compose --profile app --profile https up -d
+
+# учебный класс без интернета — собственный центр сертификации Caddy
+SITE_ADDRESS=192.168.1.10 TLS_MODE="tls internal" docker compose --profile app --profile https up -d
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./root.crt
+```
+
+`root.crt` один раз устанавливается на компьютеры класса в «Доверенные корневые центры сертификации» (Windows: двойной щелчок → «Установить сертификат» → «Локальный компьютер»). После этого адрес `https://192.168.1.10` открывается без предупреждений и с микрофоном.
+
+## 3. Офлайн-установка (без интернета)
+
+На машине с интернетом:
+
+```bash
+docker compose --profile app build
+docker pull postgres:16-alpine && docker pull caddy:2-alpine
+docker save trainer-112-dds:latest postgres:16-alpine caddy:2-alpine | gzip > trainer-images.tar.gz
+```
+
+Перенести в контур `trainer-images.tar.gz` и папку проекта, затем:
+
+```bash
+gunzip -c trainer-images.tar.gz | docker load
+docker compose --profile app --profile https up -d
+```
+
+## Модели ИИ
+
+Все три сервиса говорят на OpenAI-совместимом HTTP API, поэтому облачный и локальный вариант отличаются только строками в `.env`:
+
+| Назначение | Переменные | Облако (стенд) | Локально (контур) |
+|---|---|---|---|
+| Языковая модель | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | любой OpenAI-совместимый API | Ollama или llama.cpp: `http://<хост>:11434/v1`, модель Qwen2.5 7B Instruct |
+| Распознавание речи | `STT_BASE_URL`, `STT_MODEL` | облачный STT | faster-whisper-server |
+| Синтез речи | `TTS_BASE_URL`, `TTS_MODEL` | облачный TTS | Piper через OpenAI-совместимый сервер |
+
+Без `LLM_BASE_URL` приложение работает в режиме заглушки: заявитель отвечает по фактам сценария правилами, проверки, которым нужна модель, помечаются «не применимо». Текущие адреса видны администратору на странице «Состояние».
+
+## Резервные копии и восстановление
+
+См. [admin.md](admin.md).
