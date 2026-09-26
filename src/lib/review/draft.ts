@@ -30,8 +30,8 @@ const draftSchema = z.object({
 export function readDraft(raw: unknown): AiDraft | null {
   if (!raw || typeof raw !== "object") return null;
   const parsed = draftSchema.safeParse(raw);
-  if (parsed.success) return parsed.data.summary || parsed.data.recommendations?.length ? parsed.data : null;
-  const text = (raw as { text?: unknown; summary?: unknown }).summary ?? (raw as { text?: unknown }).text;
+  if (parsed.success && (parsed.data.summary || parsed.data.recommendations?.length)) return parsed.data;
+  const text = (raw as { text?: unknown }).text;
   return typeof text === "string" && text ? { summary: text } : null;
 }
 
@@ -99,8 +99,8 @@ export function ruleDraft(criteria: CriterionResult[], overrides?: Overrides | n
   if (!failed.length) parts.push(passed.length ? `Все проверки пройдены (${passed.length}).` : "Проверок, которые можно применить, нет.");
   else {
     parts.push(`Ошибок: ${failed.length} из ${failed.length + passed.length}.`);
-    if (critical.length) parts.push(`Критично: ${critical.map((c) => c.title.toLowerCase()).join(", ")} — балл ограничен.`);
-    parts.push(`Главное: ${failed.slice(0, 3).map((c) => c.title.toLowerCase()).join("; ")}.`);
+    if (critical.length) parts.push(`Критичная ошибка: ${critical.map((c) => `«${c.title}»`).join(", ")} — балл ограничен.`);
+    parts.push(`Не выполнено: ${failed.slice(0, 3).map((c) => `«${c.title}»`).join(", ")}${failed.length > 3 ? " и другие" : ""}.`);
   }
   const comments: Record<string, string> = {};
   for (const c of failed) {
