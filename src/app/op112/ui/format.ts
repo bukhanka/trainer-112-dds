@@ -21,9 +21,12 @@ export function capitalizeWords(s: string): string {
   return s.replace(/(^|[\s-])([a-zа-яё])/g, (_m, p: string, c: string) => p + c.toUpperCase());
 }
 
+const two = (n: number) => (n < 10 ? `0${n}` : String(n));
+
+/** Timer text «мм:сс». */
 export function mmss(totalSec: number): string {
-  const s = Math.max(0, Math.floor(totalSec));
-  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  const whole = Math.max(0, Math.floor(totalSec));
+  return `${two(Math.floor(whole / 60))}:${two(whole % 60)}`;
 }
 
 export function hhmm(iso: string | null | undefined): string {

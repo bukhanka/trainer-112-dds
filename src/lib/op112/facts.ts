@@ -149,6 +149,24 @@ export function normalizeQuestion(q: RequiredQuestion | string): RequiredQuestio
   const item = typeof q === "string" ? { text: q } : q;
   if (item.topic || item.keywords?.length) return item;
   const t = low(item.text);
-  const topic = (Object.keys(ASK) as Exclude<FactTopic, "other">[]).find((k) => ASK[k].test(t)) ?? topicOfFact(item.text);
+  // «Уточнить газификацию» is about gas, not about the address: specific topics win over the verb.
+  const order: Exclude<FactTopic, "other">[] = [
+    "gas",
+    "floors",
+    "victims",
+    "access",
+    "threat",
+    "consciousness",
+    "breathing",
+    "age",
+    "fire",
+    "name",
+    "phone",
+    "status",
+    "addressExact",
+    "address",
+    "what",
+  ];
+  const topic = order.find((k) => ASK[k].test(t)) ?? topicOfFact(item.text);
   return { ...item, topic };
 }
