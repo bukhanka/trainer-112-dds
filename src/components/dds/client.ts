@@ -4,10 +4,11 @@ import { useSyncExternalStore } from "react";
 
 /** JSON fetch that remembers the difference between the server clock and this browser. */
 export async function getJson<T>(url: string): Promise<T & { clientOffset: number }> {
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store" }).catch(() => null);
+  if (!res) throw new Error("Нет связи с сервером — повторяем…");
   if (res.status === 401) throw new Error("Сессия истекла — войдите снова");
-  const data = (await res.json()) as T & { serverNow?: string; message?: string };
-  if (!res.ok) throw new Error(data.message ?? `HTTP ${res.status}`);
+  const data = (await res.json().catch(() => ({}))) as T & { serverNow?: string; message?: string };
+  if (!res.ok) throw new Error(data.message ?? "Сервер временно недоступен — повторяем…");
   const clientOffset = data.serverNow ? Date.parse(data.serverNow) - Date.now() : 0;
   return { ...data, clientOffset };
 }
