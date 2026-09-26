@@ -109,7 +109,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () => string): Promise<CallerReply | null> {
   if (Date.now() < modelDownUntil) return null;
   try {
-    return clean(await withTimeout(chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, mock }), REPLY_TIMEOUT_MS), cards);
+    return clean(await withTimeout(chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, tier: "fast", mock }), REPLY_TIMEOUT_MS), cards);
   } catch (err) {
     // A model that answers but cannot keep to JSON still gets a plain reply; its disclosures are guessed.
     if (err instanceof Error && /invalid JSON/i.test(err.message)) {

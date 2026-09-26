@@ -62,6 +62,8 @@ export type Counterpart = {
   reports?: Report[];
   /** The crew was sent to the card by this call. */
   dispatch?: { incidentId: string; at: string };
+  /** Persona temper of an applicant, for the manner of the voice. */
+  temper?: string;
   serviceId?: number;
   /** Callback: the dispatcher said the card number (the applicant must not hear it, #740). */
   namedCardNumber?: boolean;
@@ -197,6 +199,8 @@ export type CallBrief = {
   phone: string | null;
   /** Voice of the counterpart for speech synthesis. */
   voice: "male" | "female";
+  /** Speaking manner: a crew leader reports briskly, the applicant keeps the persona's temper. */
+  manner: string;
   startedAt: string;
   answeredAt: string | null;
   endedAt: string | null;
@@ -220,6 +224,7 @@ function brief(call: Call & { incident: { number: number } | null }): CallBrief 
     role: c.role ?? "",
     phone: c.phone ?? null,
     voice: c.voice ?? (c.kind === "crew" ? "male" : "female"),
+    manner: c.kind === "crew" ? "brigade" : (c.temper ?? "calm"),
     startedAt: call.startedAt.toISOString(),
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
@@ -374,7 +379,7 @@ export async function dial(seat: DdsSeat, number: string, incidentId?: string | 
   });
   if (byCaller) {
     const persona = callerPersona(byCaller);
-    const counterpart: Counterpart = { kind: "caller", name: persona.fullName, role: persona.role, phone: typed, voice: persona.voice };
+    const counterpart: Counterpart = { kind: "caller", name: persona.fullName, role: persona.role, phone: typed, voice: persona.voice, temper: persona.temper };
     return startCall(seat, "CALLER_OUT", byCaller.id, counterpart, callerGreeting(persona), now);
   }
 

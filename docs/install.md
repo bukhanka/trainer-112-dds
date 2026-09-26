@@ -67,9 +67,11 @@ docker compose --profile app --profile https up -d
 
 | Назначение | Переменные | Облако (стенд) | Локально (контур) |
 |---|---|---|---|
-| Языковая модель | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | любой OpenAI-совместимый API | Ollama или llama.cpp: `http://<хост>:11434/v1`, модель Qwen2.5 7B Instruct |
-| Распознавание речи | `STT_BASE_URL`, `STT_MODEL` | облачный STT | faster-whisper-server |
-| Синтез речи | `TTS_BASE_URL`, `TTS_MODEL` | облачный TTS | Piper через OpenAI-совместимый сервер |
+| Языковая модель | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_MODEL_SMART`, `LLM_API_KEY` или `LLM_AUTH=google` | Gemini через OpenAI-совместимый вход Vertex AI | Ollama или llama.cpp: `http://<хост>:11434/v1`, модель Qwen2.5 7B Instruct |
+| Распознавание речи | `STT_PROVIDER`, `STT_BASE_URL`, `STT_MODEL` | Google Speech-to-Text (Chirp 3) | faster-whisper-server |
+| Синтез речи | `TTS_PROVIDER`, `TTS_BASE_URL`, `TTS_VOICE_*` | голос Gemini Live потоком, запасной — Google Text-to-Speech | Piper через OpenAI-совместимый сервер |
+
+Для Google Cloud нужен ключ сервисного аккаунта с ролями «Vertex AI User» и «Speech Client» (`GOOGLE_APPLICATION_CREDENTIALS`); пример всех строк — в `.env.example`. Ключ хранится только на сервере и в репозиторий не попадает.
 
 Без `LLM_BASE_URL` приложение работает в режиме заглушки: заявитель отвечает по фактам сценария правилами, проверки, которым нужна модель, помечаются «не применимо». Текущие адреса видны администратору на странице «Состояние».
 

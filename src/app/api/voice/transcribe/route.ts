@@ -1,4 +1,4 @@
-import { transcribe } from "@/lib/ai/provider";
+import { sttConfigured, transcribe } from "@/lib/ai/provider";
 import { apiUser } from "@/lib/auth/session";
 
 const MAX_BYTES = 4 * 1024 * 1024; // ~1 minute of opus speech
@@ -7,7 +7,7 @@ const MAX_BYTES = 4 * 1024 * 1024; // ~1 minute of opus speech
 export async function POST(request: Request) {
   const user = await apiUser();
   if (user instanceof Response) return user;
-  if (!process.env.STT_BASE_URL) return new Response(null, { status: 204 });
+  if (!sttConfigured()) return new Response(null, { status: 204 });
 
   const form = await request.formData();
   const audio = form.get("audio");

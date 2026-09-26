@@ -84,7 +84,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     spoken.current.count = current.messages.length;
     if (!voiceOn || !live || !fresh.length) return;
     void (async () => {
-      for (const m of fresh) await say(m.text, current.voice);
+      for (const m of fresh) await say(m.text, current.voice, current.manner);
     })();
   }, [current, voiceOn, live, say]);
 

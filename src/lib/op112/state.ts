@@ -25,6 +25,8 @@ export type CallDto = {
   status: Call["status"];
   phone: string;
   voice: "male" | "female";
+  /** Speaking manner for the voice: the persona's temper. */
+  manner: string;
   startedAt: string;
   answeredAt: string | null;
   endedAt: string | null;
@@ -68,12 +70,13 @@ export type Op112State = {
 };
 
 export function callDto(call: Call): CallDto {
-  const counterpart = (call.counterpart ?? {}) as { phone?: string; voice?: string };
+  const counterpart = (call.counterpart ?? {}) as { phone?: string; voice?: string; persona?: { temper?: string } };
   return {
     id: call.id,
     status: call.status,
     phone: counterpart.phone ?? "",
     voice: counterpart.voice === "male" ? "male" : "female",
+    manner: counterpart.persona?.temper ?? "calm",
     startedAt: call.startedAt.toISOString(),
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,

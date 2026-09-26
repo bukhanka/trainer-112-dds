@@ -7,8 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *  listen() / stop(): push-to-talk. With an STT server configured, records with MediaRecorder and sends the
  *                     clip to /api/voice/transcribe; otherwise uses the browser's own recogniser (Chrome,
  *                     Яндекс.Браузер). Resolves with the recognised text.
- *  say():             speaks a counterpart line via /api/voice/speak; without a TTS server uses speechSynthesis
- *                     with a Russian voice of the right gender (Windows has Irina and Pavel offline).
+ *  say():             speaks a counterpart line via /api/voice/speak — a streamed voice (raw PCM, played as it
+ *                     arrives) or an mp3; without a speech service uses the browser's own Russian voices.
  * The microphone needs HTTPS (or localhost).
  */
 
@@ -52,6 +52,9 @@ export function useVoice() {
   const recognition = useRef<RecognitionLike | null>(null);
   const resolveText = useRef<((text: string) => void) | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
+  const audioCtx = useRef<AudioContext | null>(null);
+  const sources = useRef<AudioBufferSourceNode[]>([]);
+  const streamReader = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   useEffect(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.getVoices(); // Chrome loads voices lazily
@@ -137,7 +140,7 @@ export function useVoice() {
   }, []);
 
   const say = useCallback(
-    async (text: string, gender: VoiceGender = "female") => {
+    async (text: string, gender: VoiceGender = "female", manner = "calm") => {
       if (!text) return;
       setState("speaking");
       try {
@@ -145,8 +148,13 @@ export function useVoice() {
           const res = await fetch("/api/voice/speak", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, voice: gender }),
+            body: JSON.stringify({ text, voice: gender, manner }),
           });
+          const type = res.headers.get("content-type") ?? "";
+          if (res.status === 200 && type.startsWith("audio/pcm") && res.body) {
+            await playPcmStream(res.body, Number(/rate=(\d+)/.exec(type)?.[1] ?? 24000));
+            return;
+          }
           if (res.status === 200) {
             const url = URL.createObjectURL(await res.blob());
             const el = new Audio(url);
@@ -178,9 +186,54 @@ export function useVoice() {
     [caps],
   );
 
+  /** Plays 16-bit mono PCM as it arrives: the first words sound while the rest is still generated. */
+  async function playPcmStream(body: ReadableStream<Uint8Array>, rate: number) {
+    const ctx = (audioCtx.current ??= new AudioContext());
+    await ctx.resume().catch(() => undefined);
+    const reader = body.getReader();
+    streamReader.current = reader;
+    let playhead = ctx.currentTime + 0.05;
+    let carry = new Uint8Array(0);
+    for (;;) {
+      const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true as const }));
+      if (done || !value) break;
+      const bytes = new Uint8Array(carry.length + value.length);
+      bytes.set(carry);
+      bytes.set(value, carry.length);
+      const even = bytes.length - (bytes.length % 2);
+      carry = bytes.slice(even);
+      if (!even) continue;
+      const view = new DataView(bytes.buffer, 0, even);
+      const samples = new Float32Array(even / 2);
+      for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+      const buffer = ctx.createBuffer(1, samples.length, rate);
+      buffer.copyToChannel(samples, 0);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      playhead = Math.max(playhead, ctx.currentTime + 0.02);
+      source.start(playhead);
+      playhead += buffer.duration;
+      sources.current.push(source);
+    }
+    streamReader.current = null;
+    const left = playhead - ctx.currentTime;
+    if (left > 0) await new Promise((r) => setTimeout(r, left * 1000));
+    sources.current = [];
+  }
+
   const cancel = useCallback(() => {
     stop();
     player.current?.pause();
+    void streamReader.current?.cancel().catch(() => undefined);
+    for (const source of sources.current) {
+      try {
+        source.stop();
+      } catch {
+        /* not started yet */
+      }
+    }
+    sources.current = [];
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     setState("idle");
   }, [stop]);

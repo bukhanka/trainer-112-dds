@@ -91,6 +91,7 @@ export function ChatPanel(p: {
   const voice = useVoice();
   const { say, cancel, listen, stop } = voice;
   const gender = p.call?.voice ?? "female";
+  const manner = p.call?.manner ?? "calm";
 
   // The caller's new line is also spoken aloud (server synthesis or the browser's voices).
   const last = p.lines[p.lines.length - 1];
@@ -98,8 +99,8 @@ export function ChatPanel(p: {
   useEffect(() => {
     if (!last || last.role !== "counterpart" || !active || muted || spoken.current === lastKey) return;
     spoken.current = lastKey;
-    void say(last.text, gender);
-  }, [last, lastKey, active, muted, gender, say]);
+    void say(last.text, gender, manner);
+  }, [last, lastKey, active, muted, gender, manner, say]);
   useEffect(() => {
     if (!active) cancel();
   }, [active, cancel]);
