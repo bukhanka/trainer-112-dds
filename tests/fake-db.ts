@@ -9,6 +9,7 @@ export function matches(row: Row, where: Where | undefined): boolean {
   if (!where) return true;
   return Object.entries(where).every(([key, cond]) => {
     const value = row[key];
+    if (cond === null) return value == null; // a field the fixture leaves out is null, as in the database
     if (cond && typeof cond === "object" && !Array.isArray(cond) && !(cond instanceof Date)) {
       const c = cond as Record<string, unknown>;
       if ("in" in c) return (c.in as unknown[]).includes(value);

@@ -81,6 +81,8 @@ model Group {
   members   GroupMember[]
   lessons   Lesson[]
   createdAt DateTime      @default(now())
+  /// A finished course: hidden from new lessons and forecasts, its history stays in the reports
+  archivedAt DateTime?
 }
 
 model GroupMember {

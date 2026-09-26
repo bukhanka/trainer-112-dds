@@ -20,7 +20,7 @@ export type LessonFormOptions = {
 export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFormOptions> {
   const [groups, services, scenarios, categoryRows] = await Promise.all([
     db.group.findMany({
-      where: groupScope(user),
+      where: { ...groupScope(user), archivedAt: null },
       orderBy: { name: "asc" },
       select: {
         id: true,
