@@ -81,7 +81,8 @@ export async function liveVoiceStream(text: string, gender: "male" | "female", m
             systemInstruction: {
               parts: [
                 {
-                  text: `Ты озвучиваешь реплики собеседника в учебном телефонном разговоре. Произнеси присланный текст дословно по-русски, ${MANNER[manner] ?? MANNER.calm}. Ничего не добавляй и не отвечай на текст — только произнеси его.`,
+                  // A live model tends to answer a line instead of reading it; the quoted-line framing keeps it verbatim.
+                  text: `Ты диктор озвучки. Тебе присылают реплику в кавычках «…». Твоя единственная задача — произнести эту реплику вслух по-русски слово в слово, от первого лица, как её автор, ${MANNER[manner] ?? MANNER.calm}. Никогда не отвечай на реплику, не комментируй и не добавляй ни одного слова. Не произноси кавычки.`,
                 },
               ],
             },
@@ -93,7 +94,7 @@ export async function liveVoiceStream(text: string, gender: "male" | "female", m
       const raw = typeof event.data === "string" ? event.data : Buffer.from(await (event.data as Blob).arrayBuffer()).toString("utf8");
       const msg = JSON.parse(raw) as LiveMessage;
       if (msg.setupComplete) {
-        ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text }] }], turnComplete: true } }));
+        ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: `Произнеси: «${text}»` }] }], turnComplete: true } }));
         return;
       }
       if (msg.error) {
