@@ -77,3 +77,15 @@ export const IconTranslate = svg(
 export const IconCheck = svg(<path d="M5 12.5l4.5 4.5L19 7.5" />);
 export const IconChevronUp = svg(<path d="M6 15l6-6 6 6" />);
 export const IconSend = svg(<path d="M4 12l16-8-6 16-2.5-6.5z" />);
+export const IconSpeaker = svg(
+  <>
+    <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="none" />
+    <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
+  </>,
+);
+export const IconSpeakerOff = svg(
+  <>
+    <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="none" />
+    <path d="M16 9l5 6M21 9l-5 6" />
+  </>,
+);

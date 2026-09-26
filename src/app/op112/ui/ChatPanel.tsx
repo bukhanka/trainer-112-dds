@@ -5,7 +5,7 @@ import { useVoice } from "@/components/voice/useVoice";
 import { askedAbout } from "@/lib/op112/facts";
 import type { CallLine, FactTopic } from "@/lib/op112/types";
 import type { CallDto } from "@/lib/op112/state";
-import { IconCheck, IconHangup, IconSend } from "./icons";
+import { IconCheck, IconHangup, IconSend, IconSpeaker, IconSpeakerOff } from "./icons";
 import { hhmm, mmss } from "./format";
 
 const QUICK = [
@@ -120,12 +120,12 @@ export function ChatPanel(p: {
   return (
     <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#b9c0c5] bg-white xl:w-[340px] 2xl:w-[390px]" aria-label="Разговор с заявителем">
       <div className="flex items-center justify-between bg-arm-dark px-3 py-2 text-white">
-        <div className="leading-tight">
+        <div className="min-w-0 leading-tight">
           <div className="text-[14px] font-semibold">Разговор с заявителем</div>
-          <div className="text-[12px] text-white/75">
+          <div className="truncate text-[12px] text-white/75">
             {p.call ? (active ? `на линии · ${mmss(talkSec)}` : `звонок завершён · ${mmss(talkSec)}`) : "нет вызова"}
-            {p.call?.phone ? ` · ${p.call.phone}` : ""}
           </div>
+          {p.call?.phone && <div className="truncate text-[12px] text-white/75">{p.call.phone}</div>}
         </div>
         <button
           type="button"
@@ -136,10 +136,11 @@ export function ChatPanel(p: {
             if (next) cancel();
           }}
           aria-pressed={!muted}
-          title={muted ? "Включить голос заявителя" : "Выключить голос заявителя"}
-          className="ml-auto mr-2 h-9 border border-white/30 px-2 text-[12px] text-white/85 hover:bg-white/10"
+          aria-label={muted ? "Включить голос заявителя" : "Выключить голос заявителя"}
+          title={muted ? "Голос заявителя выключен — включить" : "Голос заявителя включён — выключить"}
+          className="ml-auto mr-2 flex h-9 w-9 shrink-0 items-center justify-center border border-white/30 text-white/85 hover:bg-white/10"
         >
-          {muted ? "звук выкл" : "звук вкл"}
+          {muted ? <IconSpeakerOff className="h-5 w-5" /> : <IconSpeaker className="h-5 w-5" />}
         </button>
         <button
           type="button"
