@@ -64,11 +64,14 @@ export async function typeInfos(incidents: IncidentFull[]): Promise<Map<string, 
   const byCode = new Map(types.map((t) => [t.code, t]));
   const out = new Map<string, TypeInfo>();
   for (const i of incidents) {
-    const spec = i.scenario ? ddsCardOf(i.scenario) : null;
+    // A card saved at a 112 place shows what the operator chose, mistakes included — as in real work.
+    const byOperator = i.source === "op112";
+    const spec = i.scenario && !byOperator ? ddsCardOf(i.scenario) : null;
     const known = i.typeCodes.map((c) => byCode.get(c)).filter((t): t is NonNullable<typeof t> => !!t);
     const finalTypes = known.length ? known.map((t) => t.finalType) : (spec?.finalTypes ?? []);
+    const chosenCard = byOperator ? (i.tags as { card?: string }[] | null)?.find((t) => t.card)?.card : undefined;
     const cardType =
-      spec?.cardType ?? (known[0]?.mainService ? MAIN_TO_CARD[known[0].mainService] : undefined) ?? finalTypes[0] ?? "Происшествие";
+      spec?.cardType ?? chosenCard ?? (known[0]?.mainService ? MAIN_TO_CARD[known[0].mainService] : undefined) ?? finalTypes[0] ?? "Происшествие";
     out.set(i.id, { cardType, finalTypes });
   }
   return out;
