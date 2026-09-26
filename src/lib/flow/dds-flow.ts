@@ -1,53 +1,22 @@
 /**
  * Card flow of a ДДС place. There are no background workers: every poll of the feed calls
  * ensureDdsFlow(seatId), which brings the place up to date — a new card when the tempo allows,
- * the other services' plates moving, brigade calls (see crew.ts).
+ * the other services' plates moving, crew reports ringing in (see calls.ts).
  *
  * Cards arrive at the same time, as in real work: the queue may hold up to maxQueue open cards, and
  * the 30-second norm ticks for every one of them (customer's answer #709).
  */
 import type { Prisma, Seat } from "@prisma/client";
 import { db } from "@/lib/db";
-import { lessonSettingsSchema, type LessonSettings } from "@/lib/lessons/settings";
+import type { LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
+import { phoneTick } from "@/lib/dds/calls";
 import { ddsCardOf } from "@/lib/dds/scenario";
+import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 
 type Tx = Prisma.TransactionClient;
 
-/** Author of generated descriptions, as on the customer's training stand. */
-export const TRAINING_OPERATOR = "0 УМЦ О.п.";
-export const SYSTEM_ACTOR = "оп. 0";
-
-/** Statuses after which the card no longer waits for this place. */
-export const DONE_STATUSES = ["FINISHED", "REFUSED", "REJECTED"] as const;
-
-export function settingsOf(raw: unknown): LessonSettings {
-  const parsed = lessonSettingsSchema.safeParse(raw ?? {});
-  return parsed.success ? parsed.data : lessonSettingsSchema.parse({});
-}
-
-type SeatRef = Pick<Seat, "id" | "lessonId" | "serviceId">;
-
-/**
- * Cards shown at a ДДС place: cards generated for it, plus cards saved at the 112 places of the same
- * lesson that carry its service. The same rule serves every ДДС (#684: one algorithm for all).
- */
-export function seatFeedWhere(seat: SeatRef): Prisma.IncidentWhereInput {
-  const own: Prisma.IncidentWhereInput = { ddsSeatId: seat.id };
-  if (!seat.serviceId) return own;
-  return {
-    OR: [
-      own,
-      {
-        lessonId: seat.lessonId,
-        ddsSeatId: null,
-        source: { not: "generated" },
-        NOT: { status: "draft" },
-        services: { some: { serviceId: seat.serviceId } },
-      },
-    ],
-  };
-}
+export { DONE_STATUSES, SYSTEM_ACTOR, TRAINING_OPERATOR, seatFeedWhere, settingsOf } from "@/lib/dds/scope";
 
 export type FlowInfo = {
   running: boolean;
@@ -63,7 +32,7 @@ export async function ensureDdsFlow(seatId: string, now = new Date()): Promise<F
     async (tx) => {
       // One flow step per place at a time: two open tabs must not create two cards.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-flow:${seatId}`}))`;
-      const seat = await tx.seat.findUnique({ where: { id: seatId }, include: { lesson: true } });
+      const seat = await tx.seat.findUnique({ where: { id: seatId }, include: { lesson: true, service: true } });
       const idle: FlowInfo = { running: false, queue: 0, maxQueue: 0, nextCardInSec: null, noScenarios: false };
       if (!seat || seat.role !== "DDS" || !seat.serviceId) return idle;
       const settings = settingsOf(seat.lesson.settings);
@@ -71,6 +40,7 @@ export async function ensureDdsFlow(seatId: string, now = new Date()): Promise<F
 
       const info = await maybeGenerate(tx, seat, settings, now);
       await advanceBots(tx, seat, now);
+      await phoneTick(tx, seat, settings, now);
       return info;
     },
     { timeout: 15_000, maxWait: 10_000 },

@@ -6,7 +6,9 @@ import { createContext, useContext, useRef, useState } from "react";
 import useSWR from "swr";
 import type { SeatInfo } from "@/lib/dds/seat";
 import type { FlowInfo } from "@/lib/flow/dds-flow";
+import type { PhoneState } from "@/lib/dds/calls";
 import { beep, getJson, postJson, withSeat } from "./client";
+import { SoftphoneLayer } from "./Softphone";
 
 export type StateBody = {
   serverNow: string;
@@ -14,6 +16,7 @@ export type StateBody = {
   op112Running?: boolean;
   flow?: FlowInfo;
   waiting?: number;
+  phone?: PhoneState;
 };
 
 type Ctx = {
@@ -69,7 +72,7 @@ export function DdsShell({ children }: { children: React.ReactNode }) {
   const state = data as Ctx["state"];
   return (
     <DdsContext.Provider value={{ state, seatParam, offset: data.clientOffset, refresh: () => void mutate() }}>
-      {children}
+      <SoftphoneLayer>{children}</SoftphoneLayer>
     </DdsContext.Provider>
   );
 }

@@ -110,6 +110,12 @@ function areaPart(a: IncidentAddress): string | undefined {
   return a.okrug || a.district ? `(${a.okrug ?? a.district})` : undefined;
 }
 
+/** What a crew or a caller says aloud: «пос. ЛМС, мкр. Солнечный, д. 12» (no country and city). */
+export function addressShort(a: IncidentAddress | null | undefined): string {
+  if (!a) return "";
+  return streetPart(a) || a.descriptive || a.district || a.city || "";
+}
+
 /** Bold line of the card: «Россия, Москва, (ТАО, Вороновское), пос. ЛМС, д. 20». */
 export function addressTitle(a: IncidentAddress | null | undefined): string {
   if (!a) return "";
