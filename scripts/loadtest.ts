@@ -4,6 +4,8 @@
  *
  *   pnpm exec tsx scripts/loadtest.ts --base http://localhost:3000 --users 100 --duration 60 \
  *     --paths /student,/api/dds/feed
+ *   pnpm exec tsx scripts/loadtest.ts --users 30 --setup dds --think 1000 --paths /api/dds/state,/api/dds/feed
+ *                                                          # a class of ДДС places, each with its own card flow
  *   pnpm exec tsx scripts/loadtest.ts --db-writes 5000      # database insert throughput (rows/s)
  *
  * Virtual users reuse the demo student accounts, each with its own session.
@@ -18,6 +20,8 @@ const USERS = Number(args.get("users") ?? 100);
 const DURATION_S = Number(args.get("duration") ?? 60);
 const THINK_MS = Number(args.get("think") ?? 1000);
 const PATHS = (args.get("paths") ?? "/student,/api/voice/capabilities").split(",").filter(Boolean);
+// --setup dds|op112: each virtual user first starts its own practice place, like a pupil at the workstation.
+const SETUP = args.get("setup");
 const TARGET_MS = 2000;
 
 type Sample = { path: string; ms: number; ok: boolean };
@@ -42,6 +46,11 @@ async function loginCookie(n: number): Promise<string> {
 
 async function virtualUser(n: number, until: number, samples: Sample[]) {
   const cookie = await loginCookie(n);
+  if (SETUP === "dds" || SETUP === "op112") {
+    const path = SETUP === "dds" ? "/api/dds/practice" : "/api/op112/training";
+    const res = await fetch(`${BASE}${path}`, { method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: "{}" });
+    await res.arrayBuffer();
+  }
   await new Promise((r) => setTimeout(r, Math.random() * THINK_MS)); // spread the start
   while (Date.now() < until) {
     for (const path of PATHS) {

@@ -7,6 +7,27 @@ import { closeLessonCalls, evaluateSeatPlates } from "@/lib/dds/review";
 import { seatForUser, seatInfo } from "@/lib/dds/seat";
 import { ensureDdsFlow, seatFeedWhere, settingsOf, type FlowInfo } from "@/lib/flow/dds-flow";
 
+// The flow (new cards, other plates, crew calls) needs a resolution of seconds, not of every poll:
+// each place moves it at most once per FLOW_TICK_MS; counters and the phone are still read fresh.
+const FLOW_TICK_MS = Number(process.env.DDS_FLOW_TICK_MS ?? 2000);
+const lastFlow = new Map<string, { at: number; info: FlowInfo }>();
+
+async function throttledFlow(seatId: string): Promise<FlowInfo> {
+  const now = Date.now();
+  const cached = lastFlow.get(seatId);
+  if (cached && now - cached.at < FLOW_TICK_MS) {
+    const passed = Math.floor((now - cached.at) / 1000);
+    const next = cached.info.nextCardInSec;
+    return { ...cached.info, nextCardInSec: next == null ? null : Math.max(0, next - passed) };
+  }
+  const info = await ensureDdsFlow(seatId);
+  lastFlow.set(seatId, { at: now, info });
+  if (lastFlow.size > 2000) {
+    for (const [id, v] of lastFlow) if (now - v.at > 600_000) lastFlow.delete(id);
+  }
+  return info;
+}
+
 /**
  * Heartbeat of the ДДС workstation, polled about once a second by the open screen: moves the flow
  * forward (new cards, other plates, crew calls) and returns the place, the clock, the counters and the phone.
@@ -29,7 +50,7 @@ export async function GET(request: NextRequest) {
     noScenarios: false,
   };
   // The flow moves only from the owner's screen: a watching teacher must not deal cards.
-  if (!readOnly) flow = await ensureDdsFlow(seat.id);
+  if (!readOnly) flow = await throttledFlow(seat.id);
   // A finished lesson gets its calls closed and its review even if the teacher's side did not trigger it.
   if (seat.lesson.status === "FINISHED" && seat.studentId === user.id) {
     await closeLessonCalls(seat.lessonId);
