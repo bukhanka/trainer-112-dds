@@ -386,8 +386,9 @@ function StatusLine(props: {
 
   return (
     <>
-      <div className="fixed inset-x-0 top-0 bottom-[64px] z-10 bg-black/35" onClick={props.onCancel} />
-      <div className={`fixed left-2 right-2 z-30 sm:left-[120px] sm:right-auto sm:w-[min(1060px,calc(100vw-140px))] ${bottom}`}>
+      {/* Above the softphone button (z-30): the ✓ of the status row sits in the same bottom-right corner. */}
+      <div className="fixed inset-x-0 top-0 bottom-[64px] z-[35] bg-black/35" onClick={props.onCancel} />
+      <div className={`fixed left-2 right-2 z-40 sm:left-[120px] sm:right-auto sm:w-[min(1060px,calc(100vw-140px))] ${bottom}`}>
         {error ? <div className="mb-1 border border-arm-late bg-[#fff1f0] px-3 py-1 text-[13px] text-arm-late">{error}</div> : null}
         {props.hints && hint ? <div className="mb-1 bg-arm-dark/90 px-3 py-1 text-[12px] text-white">{hint}</div> : null}
         <form
