@@ -124,3 +124,45 @@ export async function finishPractice(user: SessionUser, seat: DdsSeat): Promise<
   await audit({ action: "dds.practice.finish", actorId: user.id, actor: user.login, entity: "Lesson", entityId: seat.lessonId });
   return true;
 }
+
+export type SeatInfo = {
+  id: string;
+  label: string | null;
+  serviceId: number | null;
+  serviceShort: string;
+  serviceFull: string;
+  studentName: string;
+  lessonId: string;
+  lessonTitle: string;
+  lessonStatus: Lesson["status"];
+  practice: boolean;
+  readOnly: boolean;
+  ackSec: number;
+  workSec: number;
+  tempoSec: number;
+  maxQueue: number;
+  hints: boolean;
+};
+
+export function seatInfo({ seat, readOnly }: SeatAccess): SeatInfo {
+  const parsed = lessonSettingsSchema.safeParse(seat.lesson.settings ?? {});
+  const settings = parsed.success ? parsed.data : lessonSettingsSchema.parse({});
+  return {
+    id: seat.id,
+    label: seat.label,
+    serviceId: seat.serviceId,
+    serviceShort: seat.service?.shortName ?? "",
+    serviceFull: seat.service?.fullName ?? seat.service?.shortName ?? "",
+    studentName: seat.student.fullName,
+    lessonId: seat.lessonId,
+    lessonTitle: seat.lesson.title,
+    lessonStatus: seat.lesson.status,
+    practice: settings.practice,
+    readOnly,
+    ackSec: settings.ackSec,
+    workSec: settings.workSec,
+    tempoSec: settings.tempoSec,
+    maxQueue: settings.maxQueue,
+    hints: settings.hints || settings.practice,
+  };
+}

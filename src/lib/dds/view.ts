@@ -39,6 +39,7 @@ export type PlateView = {
   delivery: ServiceDelivery;
   phone: string | null;
   own: boolean;
+  main: boolean;
   vis: boolean;
   status: ServiceStatus;
   label: string;
@@ -110,6 +111,7 @@ export function plateView(plate: PlateFull, ownServiceId: number | null): PlateV
     delivery: plate.service.delivery,
     phone: plate.service.phone,
     own: plate.serviceId === ownServiceId,
+    main: plate.isMain,
     vis: plate.addedBy === "vis",
     status: plate.status,
     label: STATUS_LABEL[plate.status],

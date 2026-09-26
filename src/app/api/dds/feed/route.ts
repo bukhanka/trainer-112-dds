@@ -3,7 +3,7 @@ import { apiUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { seatForUser } from "@/lib/dds/seat";
 import { feedRow, incidentInclude, typeInfos, type FeedRow } from "@/lib/dds/view";
-import { ensureDdsFlow, seatFeedWhere, settingsOf, type FlowInfo } from "@/lib/flow/dds-flow";
+import { seatFeedWhere } from "@/lib/flow/dds-flow";
 
 const SHOW: Record<string, (r: FeedRow) => boolean> = {
   all: () => true,
@@ -12,23 +12,18 @@ const SHOW: Record<string, (r: FeedRow) => boolean> = {
   closed: (r) => r.closed,
 };
 
-/** Feed of the ДДС place. Each poll also moves the place's flow forward (new cards, other plates, crew calls). */
+/** Feed of the ДДС place: newest first, filtered and paged. The flow itself moves in /api/dds/state. */
 export async function GET(request: NextRequest) {
   const user = await apiUser();
   if (user instanceof Response) return user;
   const params = request.nextUrl.searchParams;
-  const serverNow = new Date();
 
   const access = await seatForUser(user, params.get("seat"));
   if (!access) {
     const op112 = await db.seat.count({ where: { studentId: user.id, role: "OP112", lesson: { status: "RUNNING" } } });
-    return Response.json({ serverNow: serverNow.toISOString(), seat: null, op112Running: op112 > 0 });
+    return Response.json({ serverNow: new Date().toISOString(), seat: null, op112Running: op112 > 0 });
   }
-  const { seat, readOnly } = access;
-  const settings = settingsOf(seat.lesson.settings);
-
-  let flow: FlowInfo = { running: seat.lesson.status === "RUNNING", queue: 0, maxQueue: settings.maxQueue, nextCardInSec: null, noScenarios: false };
-  if (!readOnly) flow = await ensureDdsFlow(seat.id, serverNow);
+  const { seat } = access;
 
   const incidents = await db.incident.findMany({
     where: seatFeedWhere(seat),
@@ -55,27 +50,8 @@ export async function GET(request: NextRequest) {
 
   return Response.json({
     serverNow: new Date().toISOString(),
-    seat: {
-      id: seat.id,
-      label: seat.label,
-      serviceId: seat.serviceId,
-      serviceShort: seat.service?.shortName ?? "",
-      serviceFull: seat.service?.fullName ?? seat.service?.shortName ?? "",
-      studentName: seat.student.fullName,
-      lessonId: seat.lessonId,
-      lessonTitle: seat.lesson.title,
-      lessonStatus: seat.lesson.status,
-      practice: settings.practice,
-      readOnly,
-      ackSec: settings.ackSec,
-      workSec: settings.workSec,
-      tempoSec: settings.tempoSec,
-      hints: settings.hints || settings.practice,
-    },
-    flow,
     rows: filtered.slice((page - 1) * size, page * size),
     total: filtered.length,
-    waiting: rows.filter((r) => SHOW.waiting(r)).length,
     page,
     pages,
     size,
