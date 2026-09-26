@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { parseTeacherSettings } from "@/lib/lessons/form";
 import { findLesson } from "@/lib/teacher/access";
+import { LessonBoard } from "./LessonBoard";
 import { LessonControls } from "./LessonControls";
 
 const SOURCE_LABEL = { generated: "сгенерированные", students: "сформированные учениками", mixed: "смешанные" } as const;
@@ -14,6 +15,8 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
   const { id } = await props.params;
   const lesson = await findLesson(user, id);
   if (!lesson) notFound();
+  const { projector } = await props.searchParams;
+  if (projector === "1" && lesson.status !== "DRAFT") return <LessonBoard lessonId={id} status={lesson.status} projector />;
 
   const [group, seats] = await Promise.all([
     lesson.groupId ? db.group.findUnique({ where: { id: lesson.groupId }, select: { name: true } }) : null,
@@ -48,16 +51,23 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
         actions={<LessonControls id={id} status={lesson.status} />}
       />
 
-      <div className="flex flex-wrap gap-2 text-sm">
-        <LinkButton size="sm" href={`/teacher/lessons/${id}/attempts`}>
-          Проверка попыток
-        </LinkButton>
-        <LinkButton size="sm" href={`/teacher/lessons/${id}/report`}>
-          Отчёт
-        </LinkButton>
-      </div>
+      {lesson.status !== "DRAFT" && (
+        <div className="flex flex-wrap gap-2 text-sm">
+          <LinkButton size="sm" href={`/teacher/lessons/${id}/attempts`}>
+            Проверка попыток
+          </LinkButton>
+          <LinkButton size="sm" href={`/teacher/lessons/${id}/report`}>
+            Отчёт
+          </LinkButton>
+          <LinkButton size="sm" href={`/teacher/lessons/${id}?projector=1`}>
+            ⛶ Режим проектора
+          </LinkButton>
+        </div>
+      )}
 
-      <Section title="Места и задания">
+      {lesson.status !== "DRAFT" && <LessonBoard key={lesson.status} lessonId={id} status={lesson.status} />}
+
+      <Section title={lesson.status === "DRAFT" ? "Места и задания" : "План занятия: места и задания"}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
             <thead className="text-left text-xs text-arm-desc">

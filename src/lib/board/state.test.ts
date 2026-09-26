@@ -1,0 +1,183 @@
+import { describe, expect, it } from "vitest";
+import type { CriterionResult } from "@/lib/scoring/score";
+import { buildBoard, type BoardInput } from "./state";
+
+const NOW = new Date("2026-09-29T10:10:00Z");
+const ago = (sec: number) => new Date(NOW.getTime() - sec * 1000);
+
+const lesson = (over: Partial<BoardInput["lesson"]> = {}): BoardInput["lesson"] => ({
+  status: "RUNNING",
+  startedAt: ago(600),
+  finishedAt: null,
+  ackSec: 30,
+  workSec: 180,
+  typingSec: 65,
+  ...over,
+});
+
+const seat = (id: string, role: "OP112" | "DDS", extra: Partial<BoardInput["seats"][number]> = {}) => ({
+  id,
+  label: `Место ${id}`,
+  role,
+  studentId: `u${id}`,
+  studentName: `Ученик ${id}`,
+  serviceId: role === "DDS" ? 191 : null,
+  serviceName: role === "DDS" ? "Поселение Вороновское" : null,
+  scenarioIds: [] as string[],
+  ...extra,
+});
+
+type Plate = BoardInput["incidents"][number]["plates"][number];
+const plate = (id: string, addedSec: number, status: Plate["status"], events: [Plate["status"], number, string | null][] = [], extra: Partial<Plate> = {}): Plate => ({
+  id,
+  serviceId: 191,
+  serviceName: "Поселение Вороновское",
+  delivery: "ARM112",
+  visible: true,
+  status,
+  addedAt: ago(addedSec),
+  events: [["ADDED", addedSec, null] as [Plate["status"], number, string | null], ...events].map(([s, sec, seatId]) => ({ status: s, at: ago(sec), seatId })),
+  ...extra,
+});
+
+const incident = (id: string, plates: Plate[], extra: Partial<BoardInput["incidents"][number]> = {}) => ({
+  id,
+  number: Number(id.replace(/\D/g, "")) || 1,
+  scenarioId: null,
+  title: `Карточка ${id}`,
+  address: "Москва",
+  source: "generated",
+  createdBySeatId: null,
+  createdAt: plates[0]?.addedAt ?? ago(100),
+  openedAt: null,
+  savedAt: plates[0]?.addedAt ?? null,
+  plates,
+  ...extra,
+});
+
+const input = (over: Partial<BoardInput>): BoardInput => ({ lesson: lesson(), seats: [], incidents: [], calls: [], attempts: [], ...over });
+
+describe("buildBoard: ДДС place", () => {
+  it("turns the answer timer red and marks «Не оповещено» after 30 s", () => {
+    const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 40, "RECEIVED", [["RECEIVED", 35, "1"]])])] }), NOW);
+    const s = board.seats[0];
+    expect(s.timer).toMatchObject({ phase: "ack", late: true, normSec: 30 });
+    expect(s.state).toBe("late");
+    expect(s.red.notNotified).toBe(1);
+    expect(board.cards[0].control).toEqual([{ label: "Не оповещено", red: true }]);
+  });
+
+  it("moves to processing after an answer in time and counts the queue", () => {
+    const board = buildBoard(
+      input({
+        seats: [seat("1", "DDS")],
+        incidents: [
+          incident("i1", [plate("p1", 100, "ACCEPTED", [["RECEIVED", 95, "1"], ["ACCEPTED", 80, "1"]])]),
+          incident("i2", [plate("p2", 10, "ADDED", [], { seatId: "1" })]),
+        ],
+      }),
+      NOW,
+    );
+    const s = board.seats[0];
+    expect(s.timer).toMatchObject({ phase: "dispatch", late: false });
+    expect(s.current?.number).toBe(1);
+    expect(s.queue).toBe(1);
+    expect(s.counts).toEqual({ opened: 1, answered: 1, submitted: 0 });
+    expect(s.red.notNotified).toBe(0);
+  });
+
+  it("marks a refusal red and closes the plate", () => {
+    const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 90, "REJECTED", [["REJECTED", 70, "1"]])])] }), NOW);
+    expect(board.seats[0].current).toBeNull();
+    expect(board.seats[0].red.refused).toBe(1);
+    expect(board.seats[0].counts.submitted).toBe(1);
+    expect(board.summary.refused).toBe(1);
+  });
+
+  it("marks open plates «Не завершено» when the lesson is over", () => {
+    const board = buildBoard(
+      input({ lesson: lesson({ status: "FINISHED", finishedAt: ago(5) }), seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 300, "STARTED", [["ACCEPTED", 290, "1"], ["STARTED", 200, "1"]])])] }),
+      NOW,
+    );
+    expect(board.seats[0].timer).toBeNull();
+    expect(board.seats[0].red.notFinished).toBe(1);
+    expect(board.cards[0].control.map((c) => c.label)).toEqual(["Не завершено"]);
+  });
+
+  it("does not grade services nobody plays and phone-only plates", () => {
+    const other = plate("p9", 500, "ADDED", [], { serviceId: 181, serviceName: "Поселение ТиНАО" });
+    const phone = plate("p8", 500, "ADDED", [], { serviceId: 14, serviceName: "Деп. ЖКХ", delivery: "PHONE" });
+    const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [other, phone])] }), NOW);
+    expect(board.cards[0].control).toEqual([{ label: "Зарегистрирована", red: false }]);
+    expect(board.cards[0].plates.find((p) => p.name === "Деп. ЖКХ")?.phoneOnly).toBe(true);
+  });
+});
+
+describe("buildBoard: assigning cards to places", () => {
+  it("uses the acting place, then the only place with the task", () => {
+    const a = seat("1", "DDS", { scenarioIds: ["s1"] });
+    const b = seat("2", "DDS", { scenarioIds: ["s2"] });
+    const board = buildBoard(
+      input({
+        seats: [a, b],
+        incidents: [
+          incident("i1", [plate("p1", 20, "ACCEPTED", [["ACCEPTED", 10, "2"]])]),
+          incident("i2", [plate("p2", 15, "ADDED")], { scenarioId: "s1" }),
+          incident("i3", [plate("p3", 15, "ADDED")], { scenarioId: "s9" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(board.seats[1].current?.number).toBe(1);
+    expect(board.seats[0].current?.number).toBe(2);
+    // Nobody can tell whose card i3 is: it is not graded on any place.
+    expect(board.cards.find((c) => c.id === "i3")?.plates[0].seat).toBeNull();
+  });
+});
+
+describe("buildBoard: 112 place", () => {
+  it("shows the typing timer and counts late saves and missed calls", () => {
+    const s = seat("5", "OP112");
+    const board = buildBoard(
+      input({
+        seats: [s],
+        incidents: [
+          incident("i1", [], { source: "op112", createdBySeatId: "5", createdAt: ago(400), openedAt: ago(400), savedAt: ago(300) }),
+          incident("i2", [], { source: "op112", createdBySeatId: "5", createdAt: ago(70), openedAt: ago(70), savedAt: null }),
+        ],
+        calls: [
+          { seatId: "5", kind: "CALLER_IN", status: "ENDED", startedAt: ago(405), answeredAt: ago(400) },
+          { seatId: "5", kind: "CALLER_IN", status: "MISSED", startedAt: ago(200), answeredAt: null },
+          { seatId: "5", kind: "CALLER_IN", status: "ACTIVE", startedAt: ago(72), answeredAt: ago(70) },
+        ],
+      }),
+      NOW,
+    );
+    const st = board.seats[0];
+    expect(st.timer).toMatchObject({ phase: "typing", late: true, normSec: 65 });
+    expect(st.lateTyping).toBe(1); // 100 s > 65 s
+    expect(st.missedCalls).toBe(1);
+    expect(st.counts).toEqual({ opened: 2, answered: 1, submitted: 0 });
+    expect(board.cards.find((c) => c.id === "i2")?.control[0].label).toBe("Заполняется");
+  });
+});
+
+describe("buildBoard: errors", () => {
+  it("counts failed checks after the teacher's corrections", () => {
+    const criteria: CriterionResult[] = [
+      { code: "a", group: "address", title: "Улица записана верно", ok: false, source: "rule" },
+      { code: "b", group: "literacy", title: "Описание понятно", ok: false, source: "ai" },
+      { code: "c", group: "timeliness", title: "Вовремя", ok: true, source: "rule" },
+    ];
+    const board = buildBoard(
+      input({
+        seats: [seat("1", "OP112")],
+        attempts: [{ seatId: "1", incidentServiceId: null, reviewStatus: "OVERRIDDEN", score: 50, criteria, override: { b: true } }],
+      }),
+      NOW,
+    );
+    expect(board.seats[0].failedChecks).toBe(1);
+    expect(board.seats[0].topErrors).toEqual(["Улица записана верно"]);
+    expect(board.summary.pendingReview).toBe(0);
+  });
+});
