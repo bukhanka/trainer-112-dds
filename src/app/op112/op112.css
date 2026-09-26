@@ -1,0 +1,152 @@
+/* 112 workstation: controls copied from the customer's screenshots. */
+
+.arm-mini-btn {
+  border: 1px solid #8f989e;
+  background: #fff;
+  color: #2f353a;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  white-space: nowrap;
+}
+.arm-mini-btn:hover:not(:disabled) {
+  background: #f1f3f4;
+}
+
+/* Questionnaire and flag buttons: white with a dark frame; chosen = #157DBD with white text. */
+.arm-btn {
+  border: 1px solid #b8bfc4;
+  background: #fff;
+  color: #1f2326;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.15;
+  padding: 6px 11px;
+  min-height: 30px;
+  text-align: center;
+}
+.arm-btn:hover:not(:disabled) {
+  border-color: #2f353a;
+}
+.arm-btn[aria-pressed="true"] {
+  background: #157dbd;
+  border-color: #157dbd;
+  color: #fff;
+}
+.arm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.arm-btn:focus-visible,
+.arm-mini-btn:focus-visible,
+.arm-orange-btn:focus-visible {
+  outline: 2px solid #157dbd;
+  outline-offset: 1px;
+}
+
+.arm-flag-btn {
+  border: 1px solid #8f989e;
+  background: #fff;
+  color: #1f2326;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.15;
+  padding: 6px 12px;
+  min-height: 50px;
+}
+.arm-flag-btn[aria-pressed="true"] {
+  background: #157dbd;
+  border-color: #157dbd;
+  color: #fff;
+}
+
+.arm-orange-btn {
+  border: 1px solid #ec653b;
+  background: #fff;
+  color: #ec653b;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 6px 14px;
+  min-height: 50px;
+}
+.arm-orange-btn:disabled {
+  background: #f6c3b2;
+  color: #f19a7d;
+  border-color: #f19a7d;
+  cursor: not-allowed;
+}
+
+.arm-field {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #b3bbc0;
+  background: transparent;
+  padding: 2px 0 3px;
+  font-size: 15px;
+  color: #1f2326;
+  outline: none;
+}
+.arm-field:focus {
+  border-bottom-color: #157dbd;
+}
+.arm-field::placeholder {
+  color: #8b959b;
+}
+.arm-label {
+  font-size: 12.5px;
+  color: #49555d;
+}
+
+.arm-bar-btn {
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  color: #fff;
+  height: 48px;
+  min-width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.arm-bar-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+.arm-bar-btn:disabled {
+  opacity: 0.45;
+}
+
+/* Hotkey hints: hold Alt to see them next to every block that has a shortcut. */
+[data-hk] {
+  position: relative;
+}
+.hk-on [data-hk]::after {
+  content: attr(data-hk);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  z-index: 60;
+  background: #fff3a8;
+  color: #1f2326;
+  border: 1px solid #c9a800;
+  font: 700 11px/1.2 "Segoe UI", Tahoma, Arial, sans-serif;
+  padding: 1px 4px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+@keyframes arm-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  20% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+  60% {
+    transform: rotate(-8deg);
+  }
+}
+.arm-ringing {
+  animation: arm-ring 0.9s ease-in-out infinite;
+}
