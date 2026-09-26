@@ -6,6 +6,7 @@ import type { Prisma, ServiceDelivery, ServiceStatus } from "@prisma/client";
 import type { DescriptionEntry, IncidentAddress, IncidentCaller, IncidentFlags, TagChoice } from "@/lib/incident/types";
 import { db } from "@/lib/db";
 import { addressFeed, addressTitle, classLine, fmtHM, tagsLine } from "./format";
+import { servicePhone } from "./personas";
 import { ddsCardOf } from "./scenario";
 import { awaitsAnswer, isClosed, STATUS_LABEL } from "./status";
 
@@ -37,7 +38,7 @@ export type PlateView = {
   shortName: string;
   fullName: string;
   delivery: ServiceDelivery;
-  phone: string | null;
+  phone: string;
   own: boolean;
   main: boolean;
   vis: boolean;
@@ -109,7 +110,7 @@ export function plateView(plate: PlateFull, ownServiceId: number | null): PlateV
     shortName: plate.service.shortName,
     fullName: plate.service.fullName ?? plate.service.shortName,
     delivery: plate.service.delivery,
-    phone: plate.service.phone,
+    phone: servicePhone(plate.service),
     own: plate.serviceId === ownServiceId,
     main: plate.isMain,
     vis: plate.addedBy === "vis",

@@ -9,6 +9,19 @@ import { hash } from "./bots";
 import type { CrewPlan } from "./scenario";
 import { STATUS_LABEL } from "./status";
 
+// ─── Phone numbers ─────────────────────────────────────────────────────────
+
+/**
+ * The service list has no phone numbers, so a plate without one gets a training number: the short
+ * 101–104 for the emergency services and «+7 (495) 000-XX-XX» built from the service id for the rest.
+ */
+export function servicePhone(s: { id: number; shortName: string; phone?: string | null }): string {
+  if (s.phone) return s.phone;
+  const short = /^Служба (10[1-4])$/.exec(s.shortName)?.[1];
+  if (short) return short;
+  return `+7 (495) 000-${String(Math.floor(s.id / 100) % 100).padStart(2, "0")}-${String(s.id % 100).padStart(2, "0")}`;
+}
+
 // ─── Crews of a service («книжка» of the place) ──────────────────────────────
 
 export type CrewMember = { crew: string; title: string; leader: string; phone: string; voice: "male" | "female" };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { botPlan, dueSteps } from "./bots";
-import { crewChain, ddsCardOf, referenceFor } from "./scenario";
+import { crewChain, crewExpected, ddsCardOf, platesForPlace, referenceFor, territorialLevel } from "./scenario";
 
 const service = { id: 191, shortName: "Поселение Вороновское" };
 
@@ -79,5 +79,106 @@ describe("bots", () => {
     expect(dueSteps(plan, "ADDED", 10_000).length).toBe(plan.length);
     expect(dueSteps(plan, "ACCEPTED", 10_000)[0].status).toBe("STARTED");
     expect(dueSteps(plan, "REJECTED", 10_000)).toEqual([]);
+  });
+});
+
+// ─── The format of data/scenarios.json ───────────────────────────────────────
+
+const ticket = {
+  id: "t",
+  title: "Б30-3. В частном доме запах газа от трубы на вводе в дом",
+  category: "газ",
+  caller: { fullName: "Соколова Вера Ивановна", role: "очевидец", phone: "+7 (916) 320-12-83", situation: "Пахнет газом", facts: [] },
+  truth: {
+    kind: "104",
+    typeCodes: [13020100],
+    finalType: "Запах бытового газа в частном доме",
+    address: { country: "Россия", subject: "Москва", city: "Москва", okrug: "ТиНАО", district: "Вороновское", street: "пос. ЛМС, мкр Солнечный", house: "20" },
+    services: [
+      { serviceId: 5, shortName: "Служба 104", isMain: true },
+      { serviceId: 191, shortName: "Поселение Вороновское", isMain: false },
+      { serviceId: 181, shortName: "Поселение ТиНАО", isMain: false },
+    ],
+  },
+  ddsCard: {
+    classLabel: "Запах бытового газа в частном доме",
+    tagsLine: "Запах газа в помещении · Дом частный",
+    flags: { victims: false, refusedAmbulance: false, blocked: true },
+    address: "Москва, пос. ЛМС, мкр Солнечный, д. 20, частный дом",
+    descriptive: null,
+    description: "Запах газа от трубы на вводе в дом",
+    caller: { fullName: "Соколова Вера Ивановна", status: "очевидец", aon: "+7 (916) 320-12-83", provided: "+7 (916) 320-12-83" },
+    services: ["Служба 104", "Поселение Вороновское", "Поселение ТиНАО"],
+  },
+  ddsReference: {
+    rules: ["«Принята» или «Не принята» — не позже 30 секунд"],
+    services: [
+      {
+        serviceId: 191,
+        service: "Поселение Вороновское",
+        decision: "ACCEPTED",
+        chain: ["ACCEPTED", "STARTED", "ARRIVED", "WORKING", "FINISHED"],
+        brigadeReport: "Утечка на фланцевом соединении устранена, жители предупреждены",
+        commentMustHave: ["что сделано: перекрыт кран, устранена утечка", "жители предупреждены"],
+        traps: ["Не отказываться только потому, что уже реагирует другая служба"],
+      },
+      { serviceId: 60, service: "Поселение Дорогомилово", decision: "REJECTED", decisionComment: "Территория МЖД, передано дежурному по станции", chain: ["REJECTED"], brigadeReport: "—", commentMustHave: ["кому передано"], traps: [] },
+      { serviceId: 181, service: "Поселение ТиНАО", decision: "ACCEPTED", chain: ["ACCEPTED", "FINISHED"], brigadeReport: "—", commentMustHave: ["принято к сведению"], traps: [] },
+    ],
+  },
+};
+
+describe("data/scenarios.json format", () => {
+  it("builds the ДДС card from classLabel, tagsLine and truth", () => {
+    const card = ddsCardOf(ticket);
+    expect(card.cardType).toBe("104");
+    expect(card.finalTypes).toEqual(["Запах бытового газа в частном доме"]);
+    expect(card.tags.map((t) => t.value)).toEqual(["Запах газа в помещении", "Дом частный"]);
+    expect(card.services).toEqual([5, 191, 181]);
+    expect(card.address.district).toBe("Вороновское");
+    expect(card.flags.noAccess).toBe(true);
+    expect(card.caller.aon).toBe("+7 (916) 320-12-83");
+  });
+
+  it("falls back to plate names when truth has no ids", () => {
+    const card = ddsCardOf({ ...ticket, truth: { kind: "104" } });
+    expect(card.services).toEqual([]);
+    expect(card.serviceNames).toEqual(["Служба 104", "Поселение Вороновское", "Поселение ТиНАО"]);
+  });
+
+  it("reads the reference entry of the service", () => {
+    const ref = referenceFor(ticket.ddsReference, { id: 191, shortName: "Поселение Вороновское" });
+    expect(ref?.decision).toBe("accept");
+    expect(ref?.chain).toEqual(["STARTED", "ARRIVED", "WORKING", "FINISHED"]);
+    expect(ref?.crew.result).toContain("устранена");
+    expect(ref?.finalMust).toHaveLength(2);
+    const reject = referenceFor(ticket.ddsReference, { id: 60, shortName: "Поселение Дорогомилово" });
+    expect(reject?.decision).toBe("reject");
+    expect(reject?.why).toContain("передано");
+    expect(reject?.crew.result).toBeUndefined();
+  });
+
+  it("gives a territorial place the entry of the same level when it is not on the card", () => {
+    const district = referenceFor(ticket.ddsReference, { id: 70, shortName: "Поселение Щукино" });
+    expect(district?.decision).toBe("accept"); // the first district-level entry: Вороновское
+    const prefecture = referenceFor(ticket.ddsReference, { id: 46, shortName: "Поселение САО" });
+    expect(prefecture?.chain).toEqual(["FINISHED"]);
+    expect(crewExpected(prefecture)).toBe(false);
+    expect(crewExpected(district)).toBe(true);
+    expect(referenceFor(ticket.ddsReference, { id: 21, shortName: "Мослифт" })).toBeNull();
+  });
+
+  it("puts the place's plate in place of the territorial plate of its level", () => {
+    const plates = [
+      { id: 1, shortName: "Служба 101" },
+      { id: 60, shortName: "Поселение Дорогомилово" },
+      { id: 156, shortName: "Поселение ЗАО" },
+    ];
+    expect(platesForPlace(plates, { id: 191, shortName: "Поселение Вороновское" }).map((p) => p.id)).toEqual([1, 191, 156]);
+    expect(platesForPlace(plates, { id: 181, shortName: "Поселение ТиНАО" }).map((p) => p.id)).toEqual([1, 60, 181]);
+    expect(platesForPlace(plates, { id: 21, shortName: "Мослифт" }).map((p) => p.id)).toEqual([1, 60, 156, 21]);
+    expect(platesForPlace(plates, { id: 1, shortName: "Служба 101" })).toBe(plates);
+    expect(territorialLevel("Поселение ТиНАО")).toBe("prefecture");
+    expect(territorialLevel("Служба 101")).toBeNull();
   });
 });

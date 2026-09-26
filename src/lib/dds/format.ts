@@ -119,7 +119,9 @@ export function addressShort(a: IncidentAddress | null | undefined): string {
 /** Bold line of the card: «Россия, Москва, (ТАО, Вороновское), пос. ЛМС, д. 20». */
 export function addressTitle(a: IncidentAddress | null | undefined): string {
   if (!a) return "";
-  return join([a.country ?? "Россия", a.subject, a.city, areaPart(a), a.object, streetPart(a)], ", ");
+  // A city inside a subject («Московская обл., Балашиха») is kept; «Москва, Москва» becomes «Москва».
+  const city = a.subject && a.city && a.city !== a.subject ? a.city : undefined;
+  return join([a.country ?? "Россия", a.subject ?? a.city, city, areaPart(a), a.object, streetPart(a)], ", ");
 }
 
 /** Feed column: «Москва , (ТАО, Вороновское) , пос. ЛМС, д. 20 , описательный адрес». */

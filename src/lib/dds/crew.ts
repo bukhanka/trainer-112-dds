@@ -63,7 +63,7 @@ export function crewPlanFor(ref: DdsReferenceEntry | null): { chain: ServiceStat
   if (ref?.decision === "reject") {
     return {
       chain: ["STARTED", "ARRIVED", "REFUSED"],
-      plan: { ...ref.crew, refuse: ref.crew.refuse ?? ref.why ?? "это не наша зона ответственности" },
+      plan: { ...ref.crew, refuse: ref.crew.refuse ?? "это не наша зона ответственности, пусть диспетчер передаст информацию по принадлежности" },
     };
   }
   return { chain: crewChain(ref), plan: ref?.crew ?? {} };

@@ -2,6 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PushToTalk } from "@/components/voice/PushToTalk";
+import { useVoice } from "@/components/voice/useVoice";
 import type { BookEntry, CallBrief } from "@/lib/dds/calls";
 import { fmtDuration, fmtHM } from "@/lib/dds/format";
 import { beep, postJson, useNow, withSeat } from "./client";
@@ -37,6 +39,11 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const now = useNow(offset);
+  // Voice: the counterpart's lines are spoken, the trainee may answer by push-to-talk; text stays as a fallback.
+  const voice = useVoice();
+  const { say, cancel } = voice;
+  const [voiceOn, setVoiceOn] = useState(true);
+  const spoken = useRef<{ callId: string; count: number }>({ callId: "", count: 0 });
 
   const ringing = phone?.ringing ?? [];
   const current = phone?.current ?? null;
@@ -65,6 +72,21 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [lines, current?.id]);
 
+  // Speak every new line of the counterpart once, in the voice of the persona.
+  useEffect(() => {
+    if (!current) {
+      spoken.current = { callId: "", count: 0 };
+      return;
+    }
+    if (spoken.current.callId !== current.id) spoken.current = { callId: current.id, count: 0 };
+    const fresh = current.messages.slice(spoken.current.count).filter((m) => m.role === "counterpart");
+    spoken.current.count = current.messages.length;
+    if (!voiceOn || !fresh.length) return;
+    void (async () => {
+      for (const m of fresh) await say(m.text, current.voice);
+    })();
+  }, [current, voiceOn, say]);
+
   async function run(url: string, body?: unknown) {
     setBusy(true);
     setError(null);
@@ -84,13 +106,27 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     },
   };
 
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    if (!current || !draft.trim()) return;
-    const text = draft;
-    setDraft("");
+  async function sayLine(text: string) {
+    if (!current || !text.trim()) return;
     const ok = await run(`/api/dds/calls/${current.id}/say`, { text });
     if (!ok) setDraft(text);
+  }
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    const text = draft;
+    setDraft("");
+    await sayLine(text);
+  }
+
+  async function talk() {
+    const text = await voice.listen();
+    if (text) await sayLine(text);
+  }
+
+  function hangUp(id: string) {
+    cancel();
+    void run(`/api/dds/calls/${id}/hangup`);
   }
 
   const missed = (phone?.log ?? []).filter((c) => c.status === "MISSED" && c.incoming).length;
@@ -118,6 +154,17 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                   ? "Входящий вызов"
                   : "Телефон · линия свободна"}
             </span>
+            <button
+              onClick={() => {
+                if (voiceOn) cancel();
+                setVoiceOn(!voiceOn);
+              }}
+              title={voiceOn ? "Собеседник говорит голосом — выключить" : "Включить голос собеседника"}
+              aria-pressed={voiceOn}
+              className={`rounded px-1.5 text-[11px] ${voiceOn ? "bg-white/20 text-white" : "text-white/60"}`}
+            >
+              {voiceOn ? "голос вкл." : "голос выкл."}
+            </button>
             {!current && !ringing.length ? (
               <button onClick={() => setOpen(false)} aria-label="Свернуть телефон" className="text-white/80 hover:text-white">
                 <Close className="h-4 w-4" />
@@ -172,6 +219,12 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 ))}
                 {busy ? <div className="text-[11px] text-arm-desc">…</div> : null}
               </div>
+              {voice.canListen ? (
+                <div className="flex flex-wrap items-center gap-2 border-t px-2 pt-2">
+                  <PushToTalk state={voice.state} onStart={() => void talk()} onStop={voice.stop} disabled={busy} />
+                  {voice.error ? <span className="text-[11px] text-arm-late">{voice.error}</span> : null}
+                </div>
+              ) : null}
               <form onSubmit={send} className="flex gap-2 border-t px-2 py-2">
                 <input
                   autoFocus
@@ -186,7 +239,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                   Сказать
                 </button>
               </form>
-              <button onClick={() => run(`/api/dds/calls/${current.id}/hangup`)} className="flex items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110">
+              <button onClick={() => hangUp(current.id)} className="flex items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110">
                 <HandsetDown className="h-4 w-4" /> Положить трубку
               </button>
             </div>

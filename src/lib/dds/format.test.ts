@@ -15,6 +15,9 @@ describe("format", () => {
     expect(addressTitle(a)).toBe("Россия, Москва, (ТАО, Вороновское), пос. ЛМС, д. 20");
     expect(addressFeed(a)).toBe("Москва , (ТАО, Вороновское) , пос. ЛМС, д. 20 , частный дом");
     expect(addressTitle(null)).toBe("");
+    expect(addressTitle({ country: "Россия", subject: "Москва", city: "Москва", okrug: "СВАО", district: "Ярославский", object: "парк" })).toBe(
+      "Россия, Москва, (СВАО, Ярославский), парк",
+    );
   });
 
   it("joins tags of one row with commas and rows with dots", () => {

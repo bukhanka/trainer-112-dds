@@ -30,6 +30,7 @@ import {
   reportLine,
   serviceGreeting,
   serviceMockReply,
+  servicePhone,
   servicePrompt,
   type CrewContext,
   type CrewMember,
@@ -194,6 +195,8 @@ export type CallBrief = {
   name: string;
   role: string;
   phone: string | null;
+  /** Voice of the counterpart for speech synthesis. */
+  voice: "male" | "female";
   startedAt: string;
   answeredAt: string | null;
   endedAt: string | null;
@@ -216,6 +219,7 @@ function brief(call: Call & { incident: { number: number } | null }): CallBrief 
     name: c.name ?? "",
     role: c.role ?? "",
     phone: c.phone ?? null,
+    voice: c.voice ?? (c.kind === "crew" ? "male" : "female"),
     startedAt: call.startedAt.toISOString(),
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
@@ -271,8 +275,8 @@ export async function phoneBook(seat: DdsSeat): Promise<BookEntry[]> {
     const phone = caller.provided ?? caller.aon ?? caller.onSite;
     if (phone) entries.push({ group, name: caller.fullName ?? "Заявитель", role: "заявитель", phone, incidentId: i.id });
     for (const p of i.services) {
-      if (p.serviceId === seat.serviceId || !p.service.phone) continue;
-      entries.push({ group, name: p.service.shortName, role: "дежурный диспетчер", phone: p.service.phone, incidentId: i.id });
+      if (p.serviceId === seat.serviceId) continue;
+      entries.push({ group, name: p.service.shortName, role: "дежурный диспетчер", phone: servicePhone(p.service), incidentId: i.id });
     }
     const ref = seat.service ? referenceFor(i.scenario?.ddsReference, seat.service) : null;
     for (const c of ref?.contacts ?? []) entries.push({ group, name: c.name, role: "дежурный диспетчер", phone: c.phone, incidentId: i.id });
@@ -313,9 +317,9 @@ export async function dial(seat: DdsSeat, number: string, incidentId?: string | 
 
   // Another service of a card, by its phone (101, 102…).
   for (const i of ordered) {
-    const plate = i.services.find((p) => p.serviceId !== seat.serviceId && p.service.phone && normPhone(p.service.phone) === digits);
+    const plate = i.services.find((p) => p.serviceId !== seat.serviceId && normPhone(servicePhone(p.service)) === digits);
     if (plate) {
-      const counterpart: Counterpart = { kind: "service", name: plate.service.shortName, role: "дежурный диспетчер", phone: plate.service.phone!, serviceId: plate.serviceId };
+      const counterpart: Counterpart = { kind: "service", name: plate.service.shortName, role: "дежурный диспетчер", phone: servicePhone(plate.service), serviceId: plate.serviceId };
       const greeting = serviceGreeting({ name: plate.service.shortName, ownService: seat.service.shortName, address: "", what: "" });
       return startCall(seat, "SERVICE_OUT", i.id, counterpart, greeting, now);
     }
@@ -328,13 +332,10 @@ export async function dial(seat: DdsSeat, number: string, incidentId?: string | 
   }
 
   // Any other service of the list by its phone, even if it is not on the card.
-  const listed = await db.service.findMany({
-    where: { phone: { not: null }, NOT: { id: seat.serviceId! } },
-    select: { id: true, shortName: true, phone: true },
-  });
-  const byPhone = listed.find((sv) => normPhone(sv.phone!) === digits);
+  const listed = await db.service.findMany({ where: { NOT: { id: seat.serviceId! } }, select: { id: true, shortName: true, phone: true } });
+  const byPhone = listed.find((sv) => normPhone(servicePhone(sv)) === digits);
   if (byPhone) {
-    const counterpart: Counterpart = { kind: "service", name: byPhone.shortName, role: "дежурный диспетчер", phone: byPhone.phone!, serviceId: byPhone.id };
+    const counterpart: Counterpart = { kind: "service", name: byPhone.shortName, role: "дежурный диспетчер", phone: servicePhone(byPhone), serviceId: byPhone.id };
     return startCall(seat, "SERVICE_OUT", context?.id ?? null, counterpart, serviceGreeting({ name: byPhone.shortName, ownService: seat.service.shortName, address: "", what: "" }), now);
   }
 

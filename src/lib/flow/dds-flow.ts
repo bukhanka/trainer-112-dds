@@ -11,7 +11,7 @@ import { db } from "@/lib/db";
 import type { LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
-import { ddsCardOf } from "@/lib/dds/scenario";
+import { ddsCardOf, platesForPlace } from "@/lib/dds/scenario";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 
 type Tx = Prisma.TransactionClient;
@@ -118,12 +118,17 @@ async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings): Promi
 
 async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Date) {
   const spec = ddsCardOf(scenario);
-  const ownId = seat.serviceId!;
-  const known = new Set(
-    (await tx.service.findMany({ where: { id: { in: [...spec.services, ownId] } }, select: { id: true } })).map((s) => s.id),
-  );
-  // Own plate is always on the card, whatever the scenario lists.
-  const serviceIds = [...new Set([...spec.services.filter((id) => known.has(id)), ownId])];
+  const select = { id: true, shortName: true } as const;
+  const own = await tx.service.findUnique({ where: { id: seat.serviceId! }, select });
+  if (!own) return;
+  const listed = spec.services.length
+    ? await tx.service.findMany({ where: { id: { in: spec.services } }, select })
+    : await tx.service.findMany({ where: { shortName: { in: spec.serviceNames } }, select });
+  // Keep the scenario's order of plates; unknown ids or names are skipped.
+  const ordered = (spec.services.length ? spec.services.map((id) => listed.find((s) => s.id === id)) : spec.serviceNames.map((n) => listed.find((s) => s.shortName === n)))
+    .filter((s): s is { id: number; shortName: string } => !!s);
+  // Own plate is always on the card (#684): a territorial place takes the plate of its level, others are added.
+  const serviceIds = [...new Set(platesForPlace(ordered, own).map((s) => s.id))];
   const count = await tx.incident.count({ where: { ddsSeatId: seat.id } });
   const savedAt = new Date(now.getTime() - 4_000);
 

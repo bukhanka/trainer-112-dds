@@ -1,11 +1,17 @@
 /**
- * What a ДДС place needs from a Scenario, read leniently: the reference data comes from another
- * team member's import and from teachers, so every field is optional and falls back to
+ * What a ДДС place needs from a Scenario, read leniently: the reference data comes from the tickets
+ * import (data/scenarios.json) and from teachers, so every field is optional and falls back to
  * Scenario.truth / Scenario.caller.
  *
- * Scenario.ddsCard      — the card as the ДДС sees it: header type, «Класс.», tags, address, plates;
- * Scenario.ddsReference — the expected decision of a ДДС: { default?, services?: { [id | shortName]: entry } },
- *                         an array of entries with serviceId, or a single entry.
+ * Scenario.ddsCard      — the card as the ДДС sees it: classLabel («Класс.»), tagsLine, flags, address,
+ *                         description, caller, services (plate short names);
+ * Scenario.ddsReference — { rules[], services: [{ serviceId, service, decision, decisionComment, chain,
+ *                         brigadeReport, commentMustHave, traps }] }. Extra optional fields understood here:
+ *                         transferTo[], contacts[{ name, phone }], crew { work, refuse }, and a `default` entry.
+ *
+ * One algorithm for every ДДС (#684): a place whose service is not on the scenario's card plays the role
+ * of the territorial ДДС of the same level (district or prefecture) — its plate takes that plate's place
+ * and that reference entry applies.
  */
 import type { ServiceStatus } from "@prisma/client";
 import type {
@@ -17,7 +23,7 @@ import type {
   TagChoice,
 } from "@/lib/incident/types";
 import { CALLER_STATUSES } from "@/lib/incident/types";
-import { STATUS_LABEL } from "./status";
+import { PROGRESS, STATUS_LABEL } from "./status";
 
 type Obj = Record<string, unknown>;
 
@@ -28,9 +34,14 @@ const strList = (v: unknown): string[] =>
 const numList = (v: unknown): number[] =>
   Array.isArray(v)
     ? v
-        .map((x) => (typeof x === "number" ? x : isObj(x) ? Number(x.id ?? x.serviceId) : Number(x)))
+        .map((x) => (typeof x === "number" ? x : isObj(x) ? Number(x.serviceId ?? x.id) : typeof x === "string" && /^\d+$/.test(x) ? Number(x) : NaN))
         .filter((n) => Number.isInteger(n) && n > 0)
     : [];
+/** «—» and friends mean «nothing» in the reference data. */
+const meaningful = (v: unknown): string | undefined => {
+  const s = str(v);
+  return s && !/^[-—–.\s]+$/.test(s) ? s : undefined;
+};
 
 export type DdsCardSpec = {
   cardType?: string; // «Происшествие 101», feed column «Тип происшествия»
@@ -41,7 +52,10 @@ export type DdsCardSpec = {
   description?: string;
   caller: IncidentCaller;
   flags: IncidentFlags;
-  services: number[]; // plates in display order
+  /** Plates in display order: ids when the data has them… */
+  services: number[];
+  /** …or short names, resolved against the service list by the flow. */
+  serviceNames: string[];
   important: boolean;
 };
 
@@ -56,6 +70,13 @@ export type ScenarioLike = {
 };
 
 function tagList(v: unknown): TagChoice[] {
+  if (typeof v === "string") {
+    return v
+      .split(/\s+[·.]\s+|\s*·\s*/)
+      .map((s) => s.replace(/[.\s]+$/, "").trim())
+      .filter(Boolean)
+      .map((value) => ({ row: "", value }));
+  }
   if (!Array.isArray(v)) return [];
   return v
     .map((t): TagChoice | null => {
@@ -88,6 +109,15 @@ export function personaOf(scenario: Pick<ScenarioLike, "caller">): CallerPersona
   };
 }
 
+function flagsOf(raw: unknown): IncidentFlags {
+  if (!isObj(raw)) return {};
+  const flags = { ...raw } as IncidentFlags & { blocked?: boolean };
+  // The ДДС card says «Заблокированные»; the 112 flags call it noAccess.
+  if (flags.blocked !== undefined && flags.noAccess === undefined) flags.noAccess = !!flags.blocked;
+  delete flags.blocked;
+  return flags;
+}
+
 /** The card a ДДС place receives for this scenario. */
 export function ddsCardOf(scenario: ScenarioLike): DdsCardSpec {
   const card = isObj(scenario.ddsCard) ? scenario.ddsCard : {};
@@ -104,23 +134,57 @@ export function ddsCardOf(scenario: ScenarioLike): DdsCardSpec {
     channel: str(callerRaw.channel),
   };
 
-  const address = (isObj(card.address) ? card.address : isObj(truth.address) ? truth.address : {}) as IncidentAddress;
-  const flags = (isObj(card.flags) ? card.flags : isObj(truth.flags) ? truth.flags : {}) as IncidentFlags;
-  const finalTypes = strList(card.finalTypes ?? truth.finalTypes);
-  const services = numList(card.services).length ? numList(card.services) : numList(truth.services);
+  // The address object of the reference card; a plain line only as the last resort.
+  const base = (isObj(card.address) ? card.address : isObj(truth.address) ? truth.address : {}) as IncidentAddress;
+  const line = str(card.address) ?? str(truth.addressLine);
+  const address: IncidentAddress = { ...base };
+  if (meaningful(card.descriptive)) address.descriptive = str(card.descriptive);
+  if (!Object.keys(base).length && line) address.descriptive = line;
+
+  const finalTypes = strList(card.finalTypes).length
+    ? strList(card.finalTypes)
+    : strList(card.classLabel).length
+      ? strList(card.classLabel)
+      : strList(truth.finalType ?? truth.finalTypes);
+  const tags = tagList(card.tags).length ? tagList(card.tags) : tagList(card.tagsLine).length ? tagList(card.tagsLine) : tagList(truth.tags);
+  const ids = numList(truth.services).length ? numList(truth.services) : numList(card.services);
+  const names = Array.isArray(card.services) ? strList(card.services).filter((s) => !/^\d+$/.test(s)) : [];
 
   return {
-    cardType: str(card.cardType) ?? str(truth.cardType),
+    cardType: str(card.cardType) ?? str(truth.kind) ?? str(truth.cardType),
     finalTypes,
     typeCodes: numList(card.typeCodes).length ? numList(card.typeCodes) : numList(truth.typeCodes),
-    tags: tagList(card.tags).length ? tagList(card.tags) : tagList(truth.tags),
+    tags,
     address,
     description: str(card.description) ?? persona?.situation ?? scenario.title,
     caller,
-    flags,
-    services,
+    flags: { ...flagsOf(truth.flags), ...flagsOf(card.flags) },
+    services: ids,
+    serviceNames: ids.length ? [] : names,
     important: card.important === true,
   };
+}
+
+// ─── Territorial roles (#684) ───────────────────────────────────────────────
+
+const PREFECTURE = /^Поселение (ЦАО|САО|СВАО|ВАО|ЮВАО|ЮАО|ЮЗАО|ЗАО|СЗАО|ЗелАО|ТиНАО|ТАО|НАО)$/;
+
+/** «district» — ДДС of a district or a settlement, «prefecture» — ДДС of an okrug, null — not territorial. */
+export function territorialLevel(shortName: string): "district" | "prefecture" | null {
+  if (!/^Поселение /.test(shortName)) return null;
+  return PREFECTURE.test(shortName) ? "prefecture" : "district";
+}
+
+/**
+ * Plates of a generated card for a place: the scenario's plates with the place's own service on them.
+ * A territorial place takes the plate of the same level (it plays that ДДС); anyone else is added at the end.
+ */
+export function platesForPlace<T extends { id: number; shortName: string }>(plates: T[], own: T): T[] {
+  if (plates.some((p) => p.id === own.id)) return plates;
+  const level = territorialLevel(own.shortName);
+  const at = level ? plates.findIndex((p) => territorialLevel(p.shortName) === level) : -1;
+  if (at < 0) return [...plates, own];
+  return plates.map((p, i) => (i === at ? own : p));
 }
 
 // ─── Reference decision of a ДДС ────────────────────────────────────────────
@@ -131,7 +195,7 @@ export type DdsDecision = "accept" | "reject";
 export type CrewPlan = {
   kind?: string; // «аварийная бригада», «электрик»
   work?: string; // what they do on site
-  result?: string; // summary for «Работы завершены»
+  result?: string; // summary for «Работы завершены» (the reference's brigadeReport)
   refuse?: string; // why the right closing is «Отказ от выполнения работ»
 };
 
@@ -139,12 +203,13 @@ export type DdsContact = { name: string; phone: string };
 
 export type DdsReferenceEntry = {
   decision: DdsDecision;
+  /** Why this decision; for «Не принята» — the expected comment. */
   why?: string;
   /** Words that show whom the information was passed to (organisation, «передано», «дубль», «КП №»). */
   transferTo: string[];
-  /** Statuses expected after «Принята», e.g. Начало реагирования → Прибытие → Работы завершены. */
+  /** Statuses expected after the first answer, e.g. Начало реагирования → Прибытие → Работы завершены. */
   chain: ServiceStatus[];
-  /** The final comment should contain at least one of these words. */
+  /** What the final comment must contain: keywords or short phrases («что сделано», «кому передано»). */
   finalMust: string[];
   crew: CrewPlan;
   /** Extra numbers for the phone book of this card (a managing company, a utility). */
@@ -185,33 +250,46 @@ function entryOf(v: unknown): DdsReferenceEntry | null {
         .map((c): DdsContact | null => (isObj(c) && str(c.name) && str(c.phone) ? { name: str(c.name)!, phone: str(c.phone)! } : null))
         .filter((c): c is DdsContact => !!c)
     : [];
+  const report = meaningful(v.brigadeReport);
   return {
     decision,
-    why: str(v.why) ?? str(v.reason),
+    why: str(v.why) ?? str(v.decisionComment) ?? str(v.reason),
     transferTo: strList(v.transferTo ?? v.transfer),
     chain: statusList(v.chain ?? v.statusChain ?? v.statuses).filter((s) => s !== "ACCEPTED" && s !== "REJECTED"),
-    finalMust: strList(v.finalMust ?? v.commentMust ?? v.mustMention),
-    crew: { kind: str(crew.kind), work: str(crew.work), result: str(crew.result), refuse: str(crew.refuse) },
+    finalMust: strList(v.finalMust ?? v.commentMustHave ?? v.mustMention),
+    crew: {
+      kind: str(crew.kind),
+      work: str(crew.work),
+      result: str(crew.result) ?? (decision === "accept" ? report : undefined),
+      refuse: str(crew.refuse),
+    },
     contacts,
     traps: strList(v.traps),
   };
 }
 
-/** Reference entry for one service plate, or null when the scenario has none. */
+/** Reference entry for one service plate, or null when the scenario has none for it or for its role. */
 export function referenceFor(raw: unknown, service: { id: number; shortName: string }): DdsReferenceEntry | null {
-  if (Array.isArray(raw)) {
-    const own = raw.find((e) => isObj(e) && (Number(e.serviceId) === service.id || str(e.service) === service.shortName));
-    const any = raw.find((e) => isObj(e) && e.serviceId == null && e.service == null);
-    return entryOf(own ?? any);
+  const list: unknown[] = Array.isArray(raw) ? raw : isObj(raw) && Array.isArray(raw.services) ? raw.services : [];
+  if (list.length) {
+    const exact = list.find((e) => isObj(e) && (Number(e.serviceId) === service.id || str(e.service) === service.shortName));
+    if (exact) return entryOf(exact);
   }
-  if (!isObj(raw)) return null;
-  const byService = isObj(raw.services) ? raw.services : raw;
-  return (
-    entryOf(byService[String(service.id)]) ??
-    entryOf(byService[service.shortName]) ??
-    entryOf(raw.default) ??
-    entryOf(raw)
-  );
+  if (isObj(raw)) {
+    const byService = isObj(raw.services) ? raw.services : null;
+    const keyed = byService ? (entryOf(byService[String(service.id)]) ?? entryOf(byService[service.shortName])) : null;
+    if (keyed) return keyed;
+    const fallback = entryOf(raw.default) ?? (list.length ? null : entryOf(raw));
+    if (fallback) return fallback;
+  }
+  // A territorial place without its own entry plays the territorial ДДС of the same level.
+  const level = territorialLevel(service.shortName);
+  if (level && list.length) {
+    const role = list.find((e) => isObj(e) && territorialLevel(str(e.service) ?? "") === level);
+    if (role) return entryOf(role);
+  }
+  const bare = list.find((e) => isObj(e) && e.serviceId == null && e.service == null);
+  return bare ? entryOf(bare) : null;
 }
 
 /** Statuses the crew goes through when the reference says nothing. */
@@ -221,4 +299,9 @@ export function crewChain(ref: DdsReferenceEntry | null): ServiceStatus[] {
   if (!ref) return DEFAULT_CHAIN;
   if (ref.decision === "reject") return [];
   return ref.chain.length ? ref.chain : DEFAULT_CHAIN;
+}
+
+/** Whether the service sends people at all (an okrug ДДС usually just takes the card «к сведению»). */
+export function crewExpected(ref: DdsReferenceEntry | null): boolean {
+  return crewChain(ref).some((s) => PROGRESS.includes(s));
 }

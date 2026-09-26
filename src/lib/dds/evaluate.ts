@@ -14,7 +14,7 @@ import type { ServiceStatus } from "@prisma/client";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import { crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
-import type { DdsReferenceEntry } from "./scenario";
+import { crewExpected, type DdsReferenceEntry } from "./scenario";
 import { awaitsAnswer, NO_CREW_COMMENT, PROGRESS, STATUS_LABEL, type ServiceRules } from "./status";
 
 export type PlateEvent = { status: ServiceStatus; comment: string | null; crewNumber: string | null; at: Date; late: boolean };
@@ -69,6 +69,19 @@ export function decisionOf(events: PlateEvent[], rules: ServiceRules): { decisio
   return { decision: last.status === "ACCEPTED" ? "accept" : "reject", event: last };
 }
 
+const STOP_WORD = /^(что|кто|как|где|когда|какой|какая|какие|чем|если|или|для|при|после|через|итог|итоги|время|причина|кому|есть|было|были|этот|также|сделано)$/;
+
+/** A must-have of the reference («что сделано: перекрыт кран») is covered when a stem of its words is in the comment. */
+export function phraseCovered(comment: string, phrase: string): boolean {
+  const text = comment.toLowerCase().replace(/ё/g, "е");
+  const p = phrase.toLowerCase().replace(/ё/g, "е");
+  if (/время/.test(p) && /\b\d{1,2}[:.]\d{2}\b/.test(text)) return true;
+  if (/(кому|передан)/.test(p) && TRANSFER.test(comment)) return true;
+  const words = (p.match(/[а-я]{4,}/g) ?? []).filter((w) => !STOP_WORD.test(w));
+  if (!words.length) return text.trim().length > 0;
+  return words.some((w) => text.includes(w.slice(0, Math.max(4, Math.min(6, w.length - 2)))));
+}
+
 export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   const out: CriterionResult[] = [];
   const own = f.events.filter((e) => !awaitsAnswer(e.status));
@@ -103,7 +116,7 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     });
   }
 
-  if (decision === "accept" && !noCrewClose) {
+  if (decision === "accept" && !noCrewClose && crewExpected(ref)) {
     const sent = f.dispatch ? secBetween(f.addedAt, f.dispatch.at) : null;
     out.push({
       code: "dds.crew_in_time",
@@ -188,16 +201,34 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
 
   if (closing) {
     const text = (closing.comment ?? "").trim();
-    const must = noCrewClose ? ["без бригады"] : (ref?.finalMust ?? []);
-    const hit = must.filter((w) => text.toLowerCase().includes(w.toLowerCase()));
+    const noCrewOk = !noCrewClose || /без\s+бригады/i.test(text);
     const meaningful = text.length >= (noCrewClose ? NO_CREW_COMMENT.length - 5 : 20) && !GENERIC_FINAL.test(text);
     out.push({
       code: "dds.final_comment",
       group: "comments",
       title: "Итоговый комментарий содержательный",
-      ok: meaningful && (!must.length || hit.length > 0),
-      evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}${must.length && !hit.length ? ` — нет ни одного из: ${must.join(", ")}` : ""}`,
-      expected: "Итоги реагирования: что сделано, что устранено, кому передано — статус закрывает карточку",
+      ok: meaningful && noCrewOk,
+      evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}`,
+      expected: noCrewClose
+        ? `«${NO_CREW_COMMENT}» и причина`
+        : "Итоги реагирования: что сделано, что устранено, кому передано — статус закрывает карточку",
+      source: "rule",
+    });
+  }
+
+  // What the reference wants to read in the comment that ends the service's work on the card.
+  const endComment = closing ?? (decision === "reject" ? decisionEvent : null);
+  if (endComment && ref?.finalMust.length && !noCrewClose) {
+    const text = endComment.comment ?? "";
+    const hit = ref.finalMust.filter((p) => phraseCovered(text, p));
+    const miss = ref.finalMust.filter((p) => !phraseCovered(text, p));
+    out.push({
+      code: "dds.comment_content",
+      group: "comments",
+      title: "В комментарии есть то, что требует эталон",
+      ok: hit.length >= Math.ceil(ref.finalMust.length / 2),
+      evidence: `${STATUS_LABEL[endComment.status]}: ${quote(endComment.comment)}${miss.length ? ` — не хватает: ${miss.join("; ")}` : ""}`,
+      expected: ref.finalMust.join("; "),
       source: "rule",
     });
   }

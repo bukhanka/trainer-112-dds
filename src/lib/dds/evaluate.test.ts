@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ServiceStatus } from "@prisma/client";
 import type { Weights } from "@/lib/scoring/score";
-import { evaluateDdsPlate, scoreOf, summarize, type PlateEvent, type PlateFacts } from "./evaluate";
+import { evaluateDdsPlate, phraseCovered, scoreOf, summarize, type PlateEvent, type PlateFacts } from "./evaluate";
 import type { DdsReferenceEntry } from "./scenario";
 
 const T0 = Date.UTC(2026, 8, 17, 8, 14, 4);
@@ -198,5 +198,38 @@ describe("evaluateDdsPlate", () => {
     );
     expect(list["dds.closing_status"].ok).toBe(false);
     expect(list["dds.status_meaning"].ok).toBe(false);
+  });
+});
+
+describe("phraseCovered", () => {
+  it("matches the reference's must-have phrases by word stems", () => {
+    const c = "Аварийная газовая служба прибыла в 11:40, кран на вводе перекрыт, утечка устранена, жители предупреждены";
+    expect(phraseCovered(c, "кто выехал (аварийная газовая служба)")).toBe(true);
+    expect(phraseCovered(c, "что сделано: перекрыт кран, устранена утечка")).toBe(true);
+    expect(phraseCovered(c, "жители предупреждены")).toBe(true);
+    expect(phraseCovered(c, "время")).toBe(true);
+    expect(phraseCovered("Работы завершены", "площадь пожара")).toBe(false);
+    expect(phraseCovered("Не обслуживаем, передано в ООО «Практика»", "кому передано (ООО «Практика»)")).toBe(true);
+  });
+
+  it("wants at least half of the must-haves in the final comment", () => {
+    const events = [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, "Работы выполнены, всё в порядке, закрываем")];
+    const list = Object.fromEntries(
+      evaluateDdsPlate(facts({ status: "FINISHED", events, dispatch: { crew: "23", at: at(10), via: "status" } })).map((c) => [c.code, c]),
+    );
+    expect(list["dds.comment_content"].ok).toBe(false);
+    expect(list["dds.comment_content"].evidence).toContain("не хватает");
+  });
+
+  it("does not ask an okrug ДДС for a crew", () => {
+    const info: DdsReferenceEntry = { ...pipeRef, chain: ["FINISHED"], finalMust: ["принято к сведению"] };
+    const list = Object.fromEntries(
+      evaluateDdsPlate(
+        facts({ reference: info, status: "FINISHED", events: [ev("ADDED", 0), ev("ACCEPTED", 12), ev("FINISHED", 300, "Принято к сведению, пожар ликвидирован Службой 101")] }),
+      ).map((c) => [c.code, c]),
+    );
+    expect(list["dds.crew_in_time"]).toBeUndefined();
+    expect(list["dds.comment_content"].ok).toBe(true);
+    expect(list["dds.progress_statuses"]).toBeUndefined();
   });
 });

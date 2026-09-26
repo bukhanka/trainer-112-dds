@@ -36,7 +36,7 @@ describe("crew timeline", () => {
       traps: [],
     });
     expect(chain).toEqual(["STARTED", "ARRIVED", "REFUSED"]);
-    expect(plan.refuse).toContain("Практика");
+    expect(plan.refuse).toContain("не наша зона");
   });
 });
 
