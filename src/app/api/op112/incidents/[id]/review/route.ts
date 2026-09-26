@@ -3,7 +3,7 @@ import { jsonError, op112User, ownIncident } from "@/lib/op112/access";
 import { kindTitle } from "@/lib/op112/catalog";
 import { normalizeTruth } from "@/lib/op112/evaluate";
 import { addressLine } from "@/lib/op112/gazetteer";
-import { activeWeights, loadEvalInput } from "@/lib/op112/review";
+import { activeWeights, aiState, loadEvalInput } from "@/lib/op112/review";
 import { serviceCatalog } from "@/lib/op112/services";
 import { computeScore, type CriterionResult, type Overrides } from "@/lib/scoring/score";
 
@@ -18,6 +18,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
   if (!attempt) return Response.json({ ready: false });
 
   const criteria = (attempt.criteria ?? []) as unknown as CriterionResult[];
+  const isEmpty = own.incident.status === "empty";
   const overrides = (attempt.override ?? null) as Overrides | null;
   const score = computeScore(criteria, await activeWeights(), overrides);
   const scenario = own.incident.scenarioId ? await db.scenario.findUnique({ where: { id: own.incident.scenarioId } }) : null;
@@ -41,7 +42,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
     score,
     criteria,
     overrides,
-    ai: (attempt.aiDraft as { status?: string } | null)?.status ?? "off",
+    ai: attempt.incidentId && !isEmpty ? aiState(criteria) : "off",
     reviewStatus: attempt.reviewStatus,
     teacherComment: attempt.teacherComment,
     scenarioTitle: scenario?.title ?? null,

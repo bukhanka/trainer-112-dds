@@ -98,7 +98,6 @@ export async function gradeIncident(incidentId: string): Promise<{ attemptId: st
       scenarioId: loaded.scenarioId,
       criteria: criteria as unknown as Prisma.InputJsonValue,
       score,
-      aiDraft: { status: aiPending ? "pending" : "off" },
     },
   });
   return { attemptId: attempt.id, aiPending };
@@ -115,13 +114,22 @@ export async function runAiReview(attemptId: string): Promise<void> {
     const base = ((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
     const criteria = [...base, ...ai];
     const score = computeScore(criteria, await activeWeights(), attempt.override as Record<string, boolean | null> | null);
-    const failed = ai.every((c) => c.ok === null);
-    await db.attempt.update({
-      where: { id: attemptId },
-      data: { criteria: criteria as unknown as Prisma.InputJsonValue, score, aiDraft: { status: failed ? "failed" : "done" } },
-    });
+    await db.attempt.update({ where: { id: attemptId }, data: { criteria: criteria as unknown as Prisma.InputJsonValue, score } });
   } catch (err) {
+    // The rule checks stay; the model checks are marked as not done so the review stops waiting.
     console.error("op112 ai review failed", attemptId, err);
-    await db.attempt.update({ where: { id: attemptId }, data: { aiDraft: { status: "failed" } } }).catch(() => undefined);
+    const attempt = await db.attempt.findUnique({ where: { id: attemptId } }).catch(() => null);
+    if (!attempt) return;
+    const base = ((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
+    const criteria = [...base, ...aiUnavailable("ИИ-проверка не удалась")];
+    await db.attempt.update({ where: { id: attemptId }, data: { criteria: criteria as unknown as Prisma.InputJsonValue } }).catch(() => undefined);
   }
+}
+
+/** State of the model checks, read from the checks themselves (Attempt.aiDraft belongs to the teacher's review). */
+export function aiState(criteria: CriterionResult[]): "pending" | "done" | "failed" | "off" {
+  const ai = criteria.filter((c) => (AI_CODES as readonly string[]).includes(c.code));
+  if (!ai.length) return aiEnabled() ? "pending" : "off";
+  if (ai.some((c) => c.ok !== null)) return "done";
+  return ai.some((c) => /не настроена/.test(c.evidence ?? "")) ? "off" : "failed";
 }
