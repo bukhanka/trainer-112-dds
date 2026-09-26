@@ -7,8 +7,6 @@ import { PrismaClient, type Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { seedReference } from "./seed-reference";
 
-const db = new PrismaClient();
-
 export const DEMO_ACCOUNTS: { login: string; password: string; fullName: string; role: Role }[] = [
   { login: "admin", password: "Admin2026", fullName: "Администратор системы", role: "ADMIN" },
   { login: "teacher", password: "Teacher2026", fullName: "Смирнова Ольга Петровна", role: "TEACHER" },
@@ -27,6 +25,7 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   "audit.retentionDays": 190, // security journal ≥ 6 months
   "backup.dailyAt": "03:00",
   "backup.keepDays": 14,
+  "demo.resetAt": "04:30", // public demo stand only (DEMO_MODE=true)
 };
 
 export const DEFAULT_WEIGHTS: Record<string, number> = {
@@ -39,7 +38,8 @@ export const DEFAULT_WEIGHTS: Record<string, number> = {
   literacy: 1, // text clear for the next dispatcher
 };
 
-async function main() {
+/** Accounts, group, settings, weights, reference data. */
+export async function seedBase(db: PrismaClient) {
   for (const a of DEMO_ACCOUNTS) {
     await db.user.upsert({
       where: { login: a.login },
@@ -73,9 +73,12 @@ async function main() {
   console.log(`seed: ${DEMO_ACCOUNTS.length} accounts, group «${group.name}» with ${students.length} students`);
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => db.$disconnect());
+if (require.main === module) {
+  const client = new PrismaClient();
+  seedBase(client)
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    })
+    .finally(() => client.$disconnect());
+}

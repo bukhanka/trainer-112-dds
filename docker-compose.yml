@@ -4,9 +4,17 @@ name: lct-trainer
 #   docker compose up -d db                              — database only (for `pnpm dev`)
 #   docker compose --profile app up -d                   — database + application on :3000
 #   docker compose --profile app --profile https up -d   — plus HTTPS (Caddy), see deploy/Caddyfile
+x-logging: &logging
+  # Bounded logs: the stand runs unattended for weeks.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16-alpine
+    logging: *logging
     restart: always
     environment:
       POSTGRES_USER: trainer
@@ -24,6 +32,7 @@ services:
 
   app:
     profiles: ["app"]
+    logging: *logging
     build: .
     image: trainer-112-dds:latest
     restart: always
@@ -42,6 +51,7 @@ services:
 
   caddy:
     profiles: ["https"]
+    logging: *logging
     image: caddy:2-alpine
     restart: always
     depends_on:
