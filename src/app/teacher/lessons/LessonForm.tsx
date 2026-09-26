@@ -128,6 +128,13 @@ export function LessonForm({
   }
 
   const noServices = options.services.length === 0;
+  // 200+ services: grouped by kind, territorial ДДС first — they are the usual places of a lesson.
+  const serviceGroups = Object.entries(
+    options.services.reduce<Record<string, typeof options.services>>((acc, svc) => {
+      (acc[svc.kind] ??= []).push(svc);
+      return acc;
+    }, {}),
+  ).sort(([a], [b]) => Number(b.startsWith("территориал")) - Number(a.startsWith("территориал")));
 
   return (
     <div className="flex flex-col gap-4">
@@ -338,10 +345,14 @@ export function LessonForm({
                           onChange={(e) => patchSeat(m.id, { serviceId: e.target.value ? Number(e.target.value) : null })}
                         >
                           <option value="">— служба —</option>
-                          {options.services.map((svc) => (
-                            <option key={svc.id} value={svc.id} title={svc.fullName ?? undefined}>
-                              {svc.shortName}
-                            </option>
+                          {serviceGroups.map(([kind, list]) => (
+                            <optgroup key={kind} label={kind}>
+                              {list.map((svc) => (
+                                <option key={svc.id} value={svc.id} title={svc.fullName ?? undefined}>
+                                  {svc.shortName}
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                       ) : (
