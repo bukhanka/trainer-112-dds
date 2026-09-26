@@ -136,6 +136,7 @@ export type CardRow = {
   id: string;
   number: number;
   title: string;
+  difficulty: number | null;
   address: string | null;
   createdAt: string;
   source: string;
@@ -360,6 +361,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
         id: inc.id,
         number: inc.number,
         title: inc.title,
+        difficulty: inc.difficulty ?? null,
         address: inc.address,
         createdAt: inc.createdAt.toISOString(),
         source: inc.source,

@@ -48,6 +48,8 @@ export type RatingAttempt = {
   score: number | null;
   reviewStatus: "PENDING" | "CONFIRMED" | "OVERRIDDEN";
   createdAt: Date;
+  /** When the teacher decided; a decision after `until` means the attempt was still a draft then. */
+  reviewedAt?: Date | null;
   difficulty: number | null;
 };
 
@@ -99,7 +101,8 @@ const byTime = (a: RatingAttempt, b: RatingAttempt) => a.createdAt.getTime() - b
 
 /**
  * Replays the attempts of one role in time order. Attempts without a score (nothing to check) do
- * not move the rating. `until` limits the history, e.g. to the start of a lesson.
+ * not move the rating. `until` replays the history as it stood at that moment, e.g. the start of a
+ * lesson: later attempts are left out, and one confirmed only later counts as the draft it was then.
  */
 export function computeRating(role: RatingRole, attempts: RatingAttempt[], opts: { until?: Date } = {}): Rating {
   const list = attempts
@@ -110,7 +113,7 @@ export function computeRating(role: RatingRole, attempts: RatingAttempt[], opts:
   let counted = 0;
   const steps: RatingStep[] = [];
   for (const a of list) {
-    const confirmed = a.reviewStatus !== "PENDING";
+    const confirmed = a.reviewStatus !== "PENDING" && !(opts.until && a.reviewedAt && a.reviewedAt > opts.until);
     const weight = confirmed ? 1 : RATING.draftWeight;
     const difficulty = clampDifficulty(a.difficulty ?? RATING.defaultDifficulty);
     const score = Math.min(100, Math.max(0, a.score!));

@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BarChart, niceMax } from "@/components/charts";
 import { Badge, LinkButton, PageHeader, Section, Stat } from "@/components/ui";
-import { loadRatingAttempts } from "@/lib/adaptive/levels";
+import { loadRatingAttempts, teacherLessons } from "@/lib/adaptive/levels";
 import { lessonLevels } from "@/lib/adaptive/report";
+import { lessonForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDelta, formatDuration, shortName } from "@/lib/format";
@@ -11,6 +12,7 @@ import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
 import { WEIGHT_GROUPS } from "@/lib/scoring/score";
 import { findLesson } from "@/lib/teacher/access";
+import { ForecastVsFact } from "./ForecastVsFact";
 
 const READY_TONE = { green: "green", blue: "blue", amber: "amber", red: "red" } as const;
 
@@ -30,11 +32,12 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
   const group = lesson.groupId ? await db.group.findUnique({ where: { id: lesson.groupId }, select: { name: true } }) : null;
   const input = await loadReportInput(lesson);
   const report = buildLessonReport(input);
+  const forecast = await lessonForecast(lesson.id, input);
   const levels = lessonLevels({
     lessonId: lesson.id,
     start: lesson.startedAt ?? new Date(),
     seats: input.seats.map((x) => ({ studentId: x.studentId, name: x.studentName, seat: x.label, role: x.role })),
-    attempts: await loadRatingAttempts(input.seats.map((x) => x.studentId)),
+    attempts: await loadRatingAttempts(input.seats.map((x) => x.studentId), { scope: teacherLessons(lesson.teacherId) }),
   });
   const s = report.summary;
   const duration = lesson.startedAt ? ((lesson.finishedAt ?? new Date()).getTime() - lesson.startedAt.getTime()) / 1000 : null;
@@ -175,6 +178,8 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
           Время: у места 112 — набор карточки до сохранения, у места ДДС — от «Добавлена» до «Принята / Не принята». «В тексте» — ошибки понятности текста.
         </p>
       </Section>
+
+      <ForecastVsFact data={forecast} status={lesson.status} />
 
       <Section title="Уровень учеников «как в шахматах»: до и после занятия">
         <div className="overflow-x-auto">

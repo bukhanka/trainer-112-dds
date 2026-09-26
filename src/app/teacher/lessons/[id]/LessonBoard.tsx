@@ -206,7 +206,10 @@ function CardsTable({ cards }: { cards: CardRow[] }) {
                 </div>
               </div>
               <div className="min-w-0">
-                <div className="font-medium">{c.title}</div>
+                <div className="font-medium">
+                  {c.title}
+                  {c.difficulty != null && <span className="ml-1.5 whitespace-nowrap text-xs font-normal text-arm-desc">· сложность {c.difficulty}</span>}
+                </div>
                 <div className="truncate text-xs text-arm-desc" title={c.address ?? ""}>
                   {c.address ?? "—"}
                 </div>

@@ -4,7 +4,10 @@ import type { StudentForecastView } from "@/lib/adaptive/student";
 import { ROLE_LABEL } from "@/lib/adaptive/rating";
 import { countLabel, formatDuration } from "@/lib/format";
 
-const signed = (x: number) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(Math.round(x))}`;
+const signed = (x: number) => {
+  const r = Math.round(x);
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)}`;
+};
 
 /** «Мой прогноз на следующее занятие»: expected score with its interval, the time norm by role, the level. */
 export function MyForecast({ view }: { view: StudentForecastView }) {
@@ -37,7 +40,7 @@ export function MyForecast({ view }: { view: StudentForecastView }) {
             </p>
             <p className="text-xs text-arm-desc">
               По {countLabel(score.lessons, ["занятию", "занятиям", "занятиям"])} и {countLabel(score.attempts, ["проверенной попытке", "проверенным попыткам", "проверенным попыткам"])}.
-              Сглаженный средний балл занятий плюс тренд; интервал — насколько прогноз ошибался раньше, пока данных мало — ±15 баллов.
+              Сглаженный средний балл занятий плюс тренд. Интервал — по тому, насколько прогноз ошибался раньше; пока занятий мало, он шире.
             </p>
           </div>
           <ul className="flex flex-col gap-2 text-sm">

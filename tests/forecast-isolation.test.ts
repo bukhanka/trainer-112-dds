@@ -30,6 +30,29 @@ const attempts = [
   attempt("a-sidorov", "sidorov", lessons.orlov, 95),
 ];
 const member = (id: string, fullName: string) => ({ user: { id, fullName, role: "STUDENT" } });
+const seats = [
+  { id: "seat-ivanov", lessonId: "l-smirnova", studentId: "ivanov", role: "DDS", label: "Место 1", student: { fullName: "Иванов" }, service: null },
+  { id: "seat-sidorov", lessonId: "l-orlov", studentId: "sidorov", role: "DDS", label: "Место 1", student: { fullName: "Сидоров" }, service: null },
+];
+const snapshot = (lesson: (typeof lessons)["smirnova"], studentId: string, fullName: string, expected: number) => ({
+  id: `s-${studentId}`,
+  lessonId: lesson.id,
+  lesson,
+  studentId,
+  student: { fullName },
+  role: "DDS",
+  expected,
+  low: expected - 15,
+  high: expected + 15,
+  baseline: expected,
+  trend: 0,
+  lessons: 1,
+  pOnTime: 0.8,
+  normSec: 30,
+  rating: 1250,
+  difficulty: 3,
+});
+const snapshots = [snapshot(lessons.smirnova, "ivanov", "Иванов", 75), snapshot(lessons.orlov, "sidorov", "Сидоров", 40)];
 const groups = [
   { id: "g1", name: "Группа Смирновой", teacherId: "smirnova", members: [member("ivanov", "Иванов"), member("petrova", "Петрова")] },
   { id: "g2", name: "Группа Орлова", teacherId: "orlov", members: [member("sidorov", "Сидоров")] },
@@ -38,7 +61,15 @@ const groups = [
 type Who = { id: string; login: string; fullName: string; role: "STUDENT" | "TEACHER" | "ADMIN" };
 const session = vi.hoisted(() => ({ user: null as null | Who }));
 
-vi.mock("@/lib/db", () => ({ db: { attempt: fakeModel(attempts), group: fakeModel(groups) } }));
+vi.mock("@/lib/db", () => ({
+  db: {
+    attempt: fakeModel(attempts),
+    group: fakeModel(groups),
+    lesson: fakeModel(Object.values(lessons)),
+    seat: fakeModel(seats),
+    forecastSnapshot: fakeModel(snapshots),
+  },
+}));
 vi.mock("@/lib/auth/session", () => ({
   apiUser: async (roles?: string[]) => {
     if (!session.user) return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -49,6 +80,8 @@ vi.mock("@/lib/auth/session", () => ({
 
 const studentForecast = (await import("@/app/api/student/forecast/route")).GET;
 const teacherForecast = (await import("@/app/api/teacher/forecast/route")).GET;
+const lessonForecast = (await import("@/app/api/teacher/lessons/[id]/forecast/route")).GET;
+const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
 describe("forecast: a student sees only own forecast", () => {
   beforeEach(() => {
@@ -99,10 +132,30 @@ describe("forecast: a teacher sees own groups and own lessons only", () => {
     expect(ivanov.levels.DDS.attempts).toBe(1);
   });
 
+  it("compares forecasts with the fact only for own lessons", async () => {
+    const data = await (await teacherForecast()).json();
+    expect(data.history.lessons.map((l: { lessonId: string }) => l.lessonId)).toEqual(["l-smirnova"]);
+    expect(data.history.points).toEqual([expect.objectContaining({ lessonId: "l-smirnova", expected: 75, fact: 82 })]);
+    expect(JSON.stringify(data.history)).not.toContain("Сидоров");
+  });
+
+  it("opens «прогноз ↔ факт» of an own lesson and answers 404 for another teacher's", async () => {
+    const own = await lessonForecast(new Request("http://x"), ctx("l-smirnova"));
+    expect(own.status).toBe(200);
+    const data = await own.json();
+    expect(data.rows).toEqual([expect.objectContaining({ studentId: "ivanov", fact: 82, error: 7, inside: true })]);
+    const foreign = await lessonForecast(new Request("http://x"), ctx("l-orlov"));
+    const missing = await lessonForecast(new Request("http://x"), ctx("no-such"));
+    expect(foreign.status).toBe(404);
+    expect(await foreign.json()).toEqual(await missing.json());
+  });
+
   it("keeps students and anonymous users out", async () => {
     session.user = { id: "ivanov", login: "student1", fullName: "Иванов", role: "STUDENT" };
     expect((await teacherForecast()).status).toBe(403);
+    expect((await lessonForecast(new Request("http://x"), ctx("l-smirnova"))).status).toBe(403);
     session.user = null;
     expect((await teacherForecast()).status).toBe(401);
+    expect((await lessonForecast(new Request("http://x"), ctx("l-smirnova"))).status).toBe(401);
   });
 });

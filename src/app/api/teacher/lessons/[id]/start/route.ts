@@ -1,3 +1,4 @@
+import { saveLessonForecasts } from "@/lib/adaptive/snapshot";
 import { db } from "@/lib/db";
 import { isPractice } from "@/lib/lessons/form";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
@@ -47,12 +48,17 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
   const startedAt = new Date();
   const res = await db.lesson.updateMany({ where: { id, status: "DRAFT" }, data: { status: "RUNNING", startedAt } });
   if (!res.count) return jsonError("Занятие уже запущено", 409);
+  // The forecast as it stands now, to set against the fact after the lesson. A failure here must not stop the class.
+  const forecasts = await saveLessonForecasts(id, { at: startedAt }).catch((err) => {
+    console.error("forecast snapshot failed", id, err);
+    return 0;
+  });
   await auditBy(user, request, {
     action: "lesson.start",
     entity: "Lesson",
     entityId: id,
     before: { status: lesson.status },
-    after: { status: "RUNNING", startedAt: startedAt.toISOString(), seats: seats.length },
+    after: { status: "RUNNING", startedAt: startedAt.toISOString(), seats: seats.length, forecasts },
   });
   return Response.json({ ok: true, startedAt });
 }

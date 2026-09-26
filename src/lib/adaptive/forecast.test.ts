@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accuracy, confirmedAt, FORECAST, forecastScore, forecastStudent, forecastTime, lessonSeries, normalCdf, riskOf, smoothWithTrend, type ForecastAttempt } from "./forecast";
+import { accuracy, confirmedAt, FORECAST, forecastScore, forecastStudent, forecastTime, lessonSeries, normalCdf, riskOf, smoothWithTrend, t80, type ForecastAttempt } from "./forecast";
 
 const day = (d: number, h = 7) => new Date(Date.UTC(2026, 8, d, h));
 
@@ -55,7 +55,7 @@ describe("expected score on the next lesson", () => {
     expect(f.expected).toBe(70);
     expect(f.trend).toBe(0);
     expect(f.sd).toBe(FORECAST.priorSd);
-    expect(f.high - f.low).toBeCloseTo(2 * FORECAST.z * FORECAST.priorSd, 0);
+    expect(f.high - f.low).toBeCloseTo(2 * t80(FORECAST.priorWeight) * FORECAST.priorSd, 0);
     expect(f.baseline).toBe(70);
   });
 
@@ -70,9 +70,10 @@ describe("expected score on the next lesson", () => {
   });
 
   it("narrows the interval for a steady student and widens it for an erratic one", () => {
+    const first = forecastScore(lessons([73]))!;
     const steady = forecastScore(lessons([72, 74, 73, 72, 74, 73]))!;
     const erratic = forecastScore(lessons([40, 90, 45, 95, 40, 90]))!;
-    expect(steady.high - steady.low).toBeLessThan(2 * FORECAST.z * FORECAST.priorSd);
+    expect(steady.high - steady.low).toBeLessThan((first.high - first.low) / 1.5);
     expect(erratic.high - erratic.low).toBeGreaterThan(steady.high - steady.low);
   });
 
@@ -96,6 +97,14 @@ describe("expected score on the next lesson", () => {
     const at = day(3, 7);
     expect(confirmedAt(list, at)).toHaveLength(2);
     expect(forecastScore(list, { cutoff: at })!.series.map((p) => p.mean)).toEqual([60, 80]);
+  });
+});
+
+describe("interval width", () => {
+  it("uses Student's quantile: wider with little history, the normal 1.28 in the long run", () => {
+    expect(t80(2)).toBeCloseTo(1.886, 3);
+    expect(t80(5)).toBeLessThan(t80(3));
+    expect(t80(1000)).toBeCloseTo(1.2816, 4);
   });
 });
 

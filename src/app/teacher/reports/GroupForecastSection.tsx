@@ -1,10 +1,13 @@
 import { RangeBar } from "@/components/charts";
-import { Badge, Section } from "@/components/ui";
+import { Section } from "@/components/ui";
 import { FORECAST, type TimeForecast } from "@/lib/adaptive/forecast";
 import type { GroupForecast } from "@/lib/adaptive/teacher";
 import { formatDuration } from "@/lib/format";
 
-const signed = (x: number) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(Math.round(x))}`;
+const signed = (x: number) => {
+  const r = Math.round(x);
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)}`;
+};
 
 function TimeCell({ t, label }: { t: TimeForecast | null; label: string }) {
   if (!t) return null;
@@ -82,7 +85,21 @@ export function GroupForecastSection({ data }: { data: GroupForecast }) {
                     )}
                     {!r.levels.OP112.attempts && !r.levels.DDS.attempts && <span className="text-arm-desc">новичок</span>}
                   </td>
-                  <td className="py-1.5 text-xs">{r.risk.atRisk ? <Badge tone="red">{r.risk.reasons.join("; ")}</Badge> : r.score ? <span className="text-emerald-700">нет</span> : "—"}</td>
+                  <td className="py-1.5 text-xs">
+                    {r.risk.atRisk ? (
+                      <ul className="flex flex-col gap-0.5">
+                        {r.risk.reasons.map((reason) => (
+                          <li key={reason} className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-red-700">
+                            {reason}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : r.score ? (
+                      <span className="text-emerald-700">нет</span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

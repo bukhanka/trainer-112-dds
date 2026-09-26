@@ -5,9 +5,10 @@
  * Expected score. Every past lesson gives one point — the average confirmed score of the student on
  * it. The series is smoothed with a trend (Holt's method):
  *     level ← α·x + (1 − α)·(level + trend),   trend ← β·(new level − old level) + (1 − β)·trend,
- * starting from the first lesson with no trend. The forecast is level + trend. The interval is
- * ±1.28·σ (about 8 times out of 10 the fact falls inside), where σ is how far the same method missed on
- * the student's own past lessons, pulled towards 12 points while the history is short.
+ * starting from the first lesson with no trend. The forecast is level + trend. The interval is ±t·σ,
+ * meant to hold the fact 8 times out of 10: σ is how far the same method missed on the student's own
+ * past lessons, pulled towards 12 points while the history is short, and t is Student's 80 % quantile
+ * (1.64 with little history down to 1.28 with a long one) — the fewer misses seen, the wider.
  *
  * Meeting the time norm. From the last confirmed attempts in the role of the place: the logarithm of
  * the time is treated as normally distributed (times are skewed — a few long ones), so
@@ -17,14 +18,14 @@
 import type { RatingRole } from "./rating";
 
 export const FORECAST = {
-  alpha: 0.5,
-  beta: 0.3,
+  alpha: 0.4,
+  beta: 0.2,
   /** Typical miss of a lesson average while there is little history, points. */
   priorSd: 12,
   /** How many «typical» misses are mixed with the student's own ones. */
   priorWeight: 2,
-  /** z of the 80 % interval. */
-  z: 1.2816,
+  /** Share of facts the interval is meant to hold. */
+  coverage: 0.8,
   /** Last attempts of a role used for the time forecast. */
   timeWindow: 10,
   /** Typical spread of ln(time): about ±35 %. */
@@ -78,6 +79,29 @@ export type TimeForecast = {
 };
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
+
+/** Student's t, 0.9 quantile (two-sided 80 %), by degrees of freedom; the normal 1.2816 beyond the table. */
+const T80: [number, number][] = [
+  [1, 3.078],
+  [2, 1.886],
+  [3, 1.638],
+  [4, 1.533],
+  [5, 1.476],
+  [6, 1.44],
+  [7, 1.415],
+  [8, 1.397],
+  [9, 1.383],
+  [10, 1.372],
+  [12, 1.356],
+  [15, 1.341],
+  [20, 1.325],
+  [30, 1.31],
+];
+
+export function t80(df: number): number {
+  for (const [d, t] of T80) if (df <= d) return t;
+  return 1.2816;
+}
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
 /** Confirmed attempts with a score, as they stood at `cutoff` (e.g. the start of a lesson). */
@@ -134,11 +158,12 @@ export function forecastScore(attempts: ForecastAttempt[], opts: { cutoff?: Date
   const misses = values.flatMap((x, i) => (fit.oneStep[i] == null ? [] : [x - fit.oneStep[i]!]));
   const variance = (FORECAST.priorWeight * FORECAST.priorSd ** 2 + misses.reduce((a, e) => a + e * e, 0)) / (FORECAST.priorWeight + misses.length);
   const sd = Math.sqrt(variance);
+  const half = t80(FORECAST.priorWeight + misses.length) * sd;
   const expected = clamp(fit.next, 0, 100);
   return {
     expected: round1(expected),
-    low: round1(clamp(expected - FORECAST.z * sd, 0, 100)),
-    high: round1(clamp(expected + FORECAST.z * sd, 0, 100)),
+    low: round1(clamp(expected - half, 0, 100)),
+    high: round1(clamp(expected + half, 0, 100)),
     trend: round1(fit.trend),
     baseline: round1(values.reduce((a, b) => a + b, 0) / values.length),
     sd: round1(sd),

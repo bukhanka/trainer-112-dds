@@ -1,5 +1,5 @@
 import type { Lesson } from "@prisma/client";
-import { studentRatings } from "@/lib/adaptive/levels";
+import { studentRatings, teacherLessons } from "@/lib/adaptive/levels";
 import { db } from "@/lib/db";
 import { parseTeacherSettings } from "@/lib/lessons/form";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
@@ -38,7 +38,7 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
       select: { seatId: true, incidentServiceId: true, reviewStatus: true, score: true, criteria: true, override: true },
     }),
   ]);
-  const levels = await studentRatings(seats.map((s) => s.studentId));
+  const levels = await studentRatings(seats.map((s) => s.studentId), { scope: teacherLessons(lesson.teacherId) });
   const levelOf = (studentId: string, role: "OP112" | "DDS") => {
     const r = levels.get(studentId)?.[role];
     return r ? { rating: r.rating, difficulty: r.difficulty, attempts: r.attempts } : null;

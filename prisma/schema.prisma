@@ -38,6 +38,7 @@ model User {
   seats        Seat[]
   attempts     Attempt[]     @relation("AttemptStudent")
   reviews      Attempt[]     @relation("AttemptReviewer")
+  forecasts    ForecastSnapshot[]
 }
 
 model Session {
@@ -225,6 +226,7 @@ model Lesson {
   incidents Incident[]
   calls     Call[]
   attempts  Attempt[]
+  forecasts ForecastSnapshot[]
 }
 
 enum SeatRole {
@@ -419,6 +421,35 @@ model Attempt {
 
   @@index([lessonId, studentId])
   @@index([studentId, createdAt]) // the level and the forecast replay one student's attempts
+}
+
+/// Forecast for a student of a lesson, saved when the lesson starts, to set against the fact once the
+/// teacher confirms the lesson's attempts (src/lib/adaptive). Never recomputed afterwards.
+model ForecastSnapshot {
+  id         String   @id @default(cuid())
+  lessonId   String
+  lesson     Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  role       SeatRole
+  /// Expected lesson average 0–100 and its 80 % interval; null when there was no confirmed lesson yet
+  expected   Float?
+  low        Float?
+  high       Float?
+  /// Plain average of the past lessons: the naive forecast to compare with
+  baseline   Float?
+  trend      Float?
+  lessons    Int      @default(0) // confirmed lessons behind the forecast
+  /// Chance to meet the time norm of the place's role, 0–1, and that norm
+  pOnTime    Float?
+  normSec    Int?
+  /// Level in the role of the place at the start (rating «как в шахматах») and the difficulty it recommends
+  rating     Int
+  difficulty Int
+  createdAt  DateTime @default(now())
+
+  @@unique([lessonId, studentId])
+  @@index([studentId])
 }
 
 model WeightProfile {

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { Badge, LESSON_STATUS, LinkButton, PageHeader, Section } from "@/components/ui";
-import { studentRatings } from "@/lib/adaptive/levels";
+import { studentRatings, teacherLessons } from "@/lib/adaptive/levels";
 import type { Rating } from "@/lib/adaptive/rating";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -31,7 +31,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
   const scenarioIds = [...new Set(seats.flatMap((s) => s.scenarioIds))];
   const [scenarios, levels] = await Promise.all([
     db.scenario.findMany({ where: { id: { in: scenarioIds } }, select: { id: true, title: true } }),
-    studentRatings(seats.map((s) => s.studentId)),
+    studentRatings(seats.map((s) => s.studentId), { scope: teacherLessons(lesson.teacherId) }),
   ]);
   const scenarioTitle = new Map(scenarios.map((s) => [s.id, s.title]));
   const settings = parseTeacherSettings(lesson.settings);
@@ -81,8 +81,8 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
                 <th className="py-1 pr-3 font-medium">Ученик</th>
                 <th className="py-1 pr-3 font-medium">Роль</th>
                 <th className="py-1 pr-3 font-medium">Служба</th>
-                <th className="py-1 pr-3 font-medium" title="Рейтинг ученика в роли места «как в шахматах» и сложность заданий, которую он подсказывает">
-                  Уровень
+                <th className="py-1 pr-3 font-medium" title="Текущий рейтинг ученика в роли места «как в шахматах» и сложность заданий, которую он подсказывает">
+                  Уровень сейчас
                 </th>
                 <th className="py-1 font-medium">Задания</th>
               </tr>

@@ -1,8 +1,10 @@
 /**
  * Demo lessons for the teacher cabinet, built on the real ticket scenarios and services
- * (run `pnpm db:seed` first — it loads them): two finished lessons of «Учебная группа № 1» with
- * attempts of both kinds (112 and ДДС), part confirmed by the teacher and part waiting for review,
- * plus a draft lesson ready to start.
+ * (run `pnpm db:seed` first — it loads them): six finished lessons of «Учебная группа № 1» over two
+ * weeks with attempts of both kinds (112 and ДДС) — the last one partly waiting for review, one dealt
+ * adaptively by the students' levels — plus a draft lesson ready to start. Every started lesson gets
+ * the forecast snapshot it would have got at its start (src/lib/adaptive), computed by the same code
+ * from the attempts confirmed before that moment, so «прогноз ↔ факт» has real pairs to compare.
  *
  *   pnpm exec tsx prisma/seed-demo.ts          finished lessons + draft
  *   pnpm exec tsx prisma/seed-demo.ts --live   also a running lesson with timers relative to now
@@ -16,6 +18,10 @@ import path from "node:path";
 import { PrismaClient, type Prisma, type ServiceDelivery, type ServiceStatus } from "@prisma/client";
 import { computeScore, type CriterionResult, type Weights } from "../src/lib/scoring/score";
 import { ruleDraft } from "../src/lib/review/draft";
+import { loadRatingAttempts } from "../src/lib/adaptive/levels";
+import { pickAdaptive } from "../src/lib/adaptive/pick";
+import { computeRating, type RatingAttempt } from "../src/lib/adaptive/rating";
+import { saveLessonForecasts } from "../src/lib/adaptive/snapshot";
 
 const db = new PrismaClient();
 
@@ -49,6 +55,7 @@ type Fx = {
   id: string;
   ticketRef: string;
   title: string;
+  difficulty: number;
   caller: { fullName: string; role?: string; phone?: string; visibleAddress: string; hiddenAddress?: string; situation: string; facts: string[]; voice?: string };
   services: number[];
   address: string;
@@ -63,7 +70,10 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
-function toFx(s: { id: string; ticketRef: string | null; title: string; caller: unknown; truth: unknown; ddsCard: unknown; ddsReference: unknown }, known: Set<number>): Fx {
+function toFx(
+  s: { id: string; ticketRef: string | null; title: string; difficulty: number; caller: unknown; truth: unknown; ddsCard: unknown; ddsReference: unknown },
+  known: Set<number>,
+): Fx {
   const truth = isObj(s.truth) ? s.truth : {};
   const card = isObj(s.ddsCard) ? s.ddsCard : {};
   const caller = (isObj(s.caller) ? s.caller : {}) as Fx["caller"];
@@ -77,6 +87,7 @@ function toFx(s: { id: string; ticketRef: string | null; title: string; caller: 
     id: s.id,
     ticketRef: s.ticketRef ?? "",
     title: s.title.replace(/^Б\d+-\d+\.\s*/, ""),
+    difficulty: s.difficulty,
     caller: { ...caller, facts: Array.isArray(caller.facts) ? caller.facts : [] },
     services,
     address: str(card.address) ?? str(truth.addressLine) ?? caller.visibleAddress ?? "адрес не указан",
@@ -139,6 +150,36 @@ const PROFILES: Record<string, Profile> = {
   student4: { ack: [16, 30], dispatch: [110, 190], typing: [55, 75], skipProgress: 0.2, noHandover: 0.8, lookAlikeStreet: 0.1, sloppyText: 0.3, wrongDecision: 0.25, missQuestion: 0.3, wrongServices: 0.1 },
   student5: { ack: [34, 75], dispatch: [150, 240], typing: [60, 90], skipProgress: 0.6, noHandover: 0.5, lookAlikeStreet: 0.3, sloppyText: 0.4, wrongDecision: 0.2, missQuestion: 0.4, wrongServices: 0.3 },
 };
+
+/**
+ * How the students change over the course: every lesson the chances of each mistake shrink by `learn`
+ * (student4 slips a little — rushes more), and a harder scenario has more traps: ×1.25 per step of
+ * difficulty above 3. Times shrink a little with skill and grow a little with difficulty.
+ */
+const LEARN: Record<string, number> = { student1: 0.04, student2: 0.1, student3: 0.16, student4: -0.04, student5: 0.07 };
+
+function profileFor(login: string, lessonNo: number, difficulty: number): Profile {
+  const base = PROFILES[login] ?? PROFILES.student2;
+  const skill = (1 - (LEARN[login] ?? 0.05)) ** lessonNo;
+  const traps = 1.25 ** (difficulty - 3);
+  const p = (x: number) => Math.min(0.95, x * skill * traps);
+  const t = ([lo, hi]: [number, number]): [number, number] => {
+    const k = (0.8 + 0.2 * Math.min(1.2, skill)) * (0.94 + 0.02 * difficulty);
+    return [Math.round(lo * k), Math.round(hi * k)];
+  };
+  return {
+    ack: t(base.ack),
+    dispatch: t(base.dispatch),
+    typing: t(base.typing),
+    skipProgress: p(base.skipProgress),
+    noHandover: p(base.noHandover),
+    lookAlikeStreet: p(base.lookAlikeStreet),
+    sloppyText: p(base.sloppyText),
+    wrongDecision: p(base.wrongDecision),
+    missQuestion: p(base.missQuestion),
+    wrongServices: p(base.wrongServices),
+  };
+}
 
 const HANDOVER_BAD = "Не наша территория";
 
@@ -362,7 +403,8 @@ function dialogue(fx: Fx, start: Date) {
 }
 
 // ─── lesson builder ──────────────────────────────────────────────────────────
-type SeatPlan = { login: string; role: "OP112" | "DDS"; serviceId?: number; tasks: string[] };
+/** `tasks` are ticket refs dealt by the teacher; an empty list in an adaptive lesson means `cards` tasks picked by the student's level. */
+type SeatPlan = { login: string; role: "OP112" | "DDS"; serviceId?: number; tasks: string[]; cards?: number };
 type ServiceInfo = { shortName: string; delivery: ServiceDelivery };
 type SeatRow = { id: string; studentId: string; role: "OP112" | "DDS"; serviceId: number | null; plan: SeatPlan; login: string; fullName: string };
 
@@ -379,6 +421,8 @@ async function buildLesson(opts: {
   groupId: string;
   fx: Map<string, Fx>;
   services: Map<number, ServiceInfo>;
+  /** Place of the lesson in the course: the students get better (or worse) from lesson to lesson. */
+  lessonNo: number;
 }) {
   const { ctx } = opts;
   const students = await db.user.findMany({ where: { login: { in: opts.plan.map((p) => p.login) } } });
@@ -417,11 +461,30 @@ async function buildLesson(opts: {
   // Cards typed at 112 places reach the ДДС places of their services only when the lesson takes students' cards.
   const routeToDds = opts.settings.cardSource !== "generated";
 
+  // An adaptive place gets the next task near the student's level as it stands at that moment —
+  // the same choice as the workstations make (src/lib/adaptive/pick.ts).
+  const adaptivePool = [...opts.fx.values()].map((f) => ({ id: f.ticketRef, difficulty: f.difficulty }));
+  const difficultyOf = new Map([...opts.fx.values()].map((f) => [f.id, f.difficulty]));
+  const earlier = await loadRatingAttempts(seats.map((s) => s.studentId), { client: db });
+
   for (const seat of seats) {
-    const profile = PROFILES[seat.login] ?? PROFILES.student2;
-    for (const [k, ticket] of seat.plan.tasks.entries()) {
+    const adaptive = !seat.plan.tasks.length && opts.settings.adaptive === true;
+    const count = adaptive ? (seat.plan.cards ?? 3) : seat.plan.tasks.length;
+    const lastUsed = new Map<string, number>();
+    for (let k = 0; k < count; k++) {
+      let ticket = seat.plan.tasks[k];
+      if (adaptive) {
+        // This lesson's attempts are still drafts: the teacher confirms them after the lesson.
+        const mine: RatingAttempt[] = attempts
+          .filter((a) => a.seatId === seat.id)
+          .map((a, i) => ({ id: `${seat.id}:${i}`, kind: a.kind, score: a.score ?? null, reviewStatus: "PENDING", createdAt: a.createdAt as Date, difficulty: difficultyOf.get(a.scenarioId ?? "") ?? null }));
+        const level = computeRating(seat.role, [...(earlier.get(seat.studentId) ?? []), ...mine]);
+        ticket = pickAdaptive(adaptivePool, { target: level.difficulty, lastUsed, random: rnd })!.id;
+        lastUsed.set(ticket, k);
+      }
       const fx = opts.fx.get(ticket);
       if (!fx) continue;
+      const profile = profileFor(seat.login, opts.lessonNo, fx.difficulty);
       const offset = 120 + k * between(540, 660) + between(0, 40);
       const t0 = at(opts.start, offset);
 
@@ -470,7 +533,7 @@ async function buildLesson(opts: {
           });
           const events: Prisma.StatusEventCreateManyInput[] = [{ incidentServiceId: plate.id, status: "ADDED", actorLabel: "оп. 0", at: addedAt }];
           if (target) {
-            const tProfile = PROFILES[target.login] ?? PROFILES.student2;
+            const tProfile = profileFor(target.login, opts.lessonNo, fx.difficulty);
             const cut = finishedAt ? lessonEndSec - (offset + sim.typing + 1) : null;
             const dds = simulateDds(fx, serviceId, opts.services.get(serviceId)?.shortName ?? "", tProfile, ctx, cut);
             events.push(...ownEvents(plate.id, dds.events, addedAt, target, ctx));
@@ -710,13 +773,17 @@ async function buildLive(ctx: Ctx, groupId: string, fx: Map<string, Fx>) {
 // ─── main ────────────────────────────────────────────────────────────────────
 const TICKETS = ["Б30-3", "Б2-1", "Б31-3", "Б5-1", "Б1-1", "Б26-1", "Б32-2", "Б4-1", "Б11-1", "Б29-1", "Б17-1"];
 
+const HISTORY_IDS = ["demo-lesson-h1", "demo-lesson-h2", "demo-lesson-h3", "demo-lesson-h4"];
+const DEMO_IDS = [...HISTORY_IDS, "demo-lesson-1", "demo-lesson-2", "demo-lesson-3", "demo-lesson-live"];
+
 /** Rebuilds the demo lessons (fixed ids) from the approved ticket scenarios. */
 export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const teacher = await db.user.findUnique({ where: { login: "teacher" } });
   const group = await db.group.findFirst({ where: { name: "Учебная группа № 1" } });
   const serviceRows = await db.service.findMany({ select: { id: true, shortName: true, delivery: true } });
-  const scenarioRows = await db.scenario.findMany({ where: { ticketRef: { in: TICKETS } } });
-  if (!teacher || !group || !serviceRows.some((s) => s.id === VORONOVSKOE) || scenarioRows.length < TICKETS.length) {
+  // The listed tickets plus every other approved ticket scenario: the adaptive lesson draws from all of them.
+  const scenarioRows = await db.scenario.findMany({ where: { OR: [{ ticketRef: { in: TICKETS } }, { status: "APPROVED", ticketRef: { not: null } }] } });
+  if (!teacher || !group || !serviceRows.some((s) => s.id === VORONOVSKOE) || !TICKETS.every((t) => scenarioRows.some((s) => s.ticketRef === t))) {
     throw new Error("Сначала загрузите учётки и справочники: pnpm db:seed");
   }
   // Lessons deal only approved scenarios, as the teacher would have approved them in «Сценарии».
@@ -731,12 +798,90 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const weights = (profile?.weights ?? { timeliness: 3, statusOrder: 2, comments: 2, address: 3, services: 3, completeness: 1, literacy: 1 }) as Weights;
   const ctx: Ctx = { weights, teacherId: teacher.id, ackSec: 30, workSec: 180, typingSec: 65 };
 
-  await db.lesson.deleteMany({ where: { id: { in: ["demo-lesson-1", "demo-lesson-2", "demo-lesson-3", "demo-lesson-live"] } } });
+  await db.lesson.deleteMany({ where: { id: { in: DEMO_IDS } } });
 
   const base = { categories: [], tempoSec: 90, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true };
   const common = { groupId: group.id, ctx, fx, services };
+  const confirmedAll = (i: number): Review => (i % 9 === 4 ? "OVERRIDDEN" : "CONFIRMED");
+
+  // Two weeks of the course before the two lessons below: the history behind the levels and forecasts.
+  const history = [
+    await buildLesson({
+      ...common,
+      lessonNo: 0,
+      id: "demo-lesson-h1",
+      title: "Вводное: первый вызов и первая карточка",
+      status: "FINISHED",
+      start: new Date("2026-09-14T07:00:00Z"),
+      durationMin: 40,
+      settings: { ...base, cardSource: "generated", hints: true, sameCard: false },
+      plan: [
+        { login: "student1", role: "OP112", tasks: ["Б31-3", "Б22-1"] },
+        { login: "student2", role: "DDS", tasks: ["Б31-3", "Б20-1"] },
+        { login: "student3", role: "OP112", tasks: ["Б20-1", "Б31-3"] },
+        { login: "student4", role: "DDS", tasks: ["Б22-1", "Б17-1"] },
+        { login: "student5", role: "DDS", tasks: ["Б31-3", "Б2-1"] },
+      ],
+      review: confirmedAll,
+    }),
+    await buildLesson({
+      ...common,
+      lessonNo: 1,
+      id: "demo-lesson-h2",
+      title: "Адрес и службы на карточке",
+      status: "FINISHED",
+      start: new Date("2026-09-16T07:00:00Z"),
+      durationMin: 45,
+      settings: { ...base, cardSource: "generated", sameCard: false },
+      plan: [
+        { login: "student1", role: "DDS", tasks: ["Б17-1", "Б30-3"] },
+        { login: "student2", role: "OP112", tasks: ["Б2-1", "Б17-1"] },
+        { login: "student3", role: "DDS", tasks: ["Б30-3", "Б22-1"] },
+        { login: "student4", role: "OP112", tasks: ["Б29-1", "Б31-3"] },
+        { login: "student5", role: "OP112", tasks: ["Б20-1", "Б2-1"] },
+      ],
+      review: confirmedAll,
+    }),
+    await buildLesson({
+      ...common,
+      lessonNo: 2,
+      id: "demo-lesson-h3",
+      title: "Адаптивное занятие: задания по уровню",
+      status: "FINISHED",
+      start: new Date("2026-09-18T07:00:00Z"),
+      durationMin: 45,
+      settings: { ...base, cardSource: "generated", sameCard: false, adaptive: true },
+      plan: [
+        { login: "student1", role: "OP112", tasks: [], cards: 3 },
+        { login: "student2", role: "DDS", tasks: [], cards: 3 },
+        { login: "student3", role: "DDS", tasks: [], cards: 3 },
+        { login: "student4", role: "OP112", tasks: [], cards: 3 },
+        { login: "student5", role: "DDS", tasks: [], cards: 3 },
+      ],
+      review: confirmedAll,
+    }),
+    await buildLesson({
+      ...common,
+      lessonNo: 3,
+      id: "demo-lesson-h4",
+      title: "Статусы по докладам бригады",
+      status: "FINISHED",
+      start: new Date("2026-09-21T07:00:00Z"),
+      durationMin: 45,
+      settings: { ...base, cardSource: "mixed", sameCard: false },
+      plan: [
+        { login: "student1", role: "DDS", serviceId: VORONOVSKOE, tasks: ["Б5-1", "Б13-1"] },
+        { login: "student2", role: "DDS", serviceId: VORONOVSKOE, tasks: ["Б26-1", "Б1-1"] },
+        { login: "student3", role: "OP112", tasks: ["Б30-3", "Б29-1"] },
+        { login: "student4", role: "DDS", serviceId: HOROSHEVO, tasks: ["Б32-2", "Б7-1"] },
+        { login: "student5", role: "OP112", tasks: ["Б2-1", "Б17-1"] },
+      ],
+      review: confirmedAll,
+    }),
+  ];
   const l1 = await buildLesson({
     ...common,
+    lessonNo: 4,
     id: "demo-lesson-1",
     title: "Пожары и газ: первые карточки",
     status: "FINISHED",
@@ -754,6 +899,7 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   });
   const l2 = await buildLesson({
     ...common,
+    lessonNo: 5,
     id: "demo-lesson-2",
     title: "Смешанный поток: 112 → ДДС",
     status: "FINISHED",
@@ -771,6 +917,7 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   });
   await buildLesson({
     ...common,
+    lessonNo: 6,
     id: "demo-lesson-3",
     title: "Итоговое: одна карточка на всех",
     status: "DRAFT",
@@ -782,7 +929,12 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   });
   if (live) await buildLive(ctx, group.id, fx);
 
-  console.log(`seed-demo: lesson 1 — ${l1.attempts} attempts, lesson 2 — ${l2.attempts} attempts, draft lesson 3${live ? ", live lesson" : ""}`);
+  // The forecast each lesson would have saved at its start: the same code, the attempts confirmed before it.
+  let snapshots = 0;
+  for (const id of DEMO_IDS) snapshots += await saveLessonForecasts(id, { client: db });
+
+  const counts = [...history, l1, l2].map((l) => l.attempts).join(", ");
+  console.log(`seed-demo: 6 finished lessons (attempts ${counts}), draft lesson 3${live ? ", live lesson" : ""}; forecast snapshots ${snapshots}`);
 }
 
 export function disconnectDemo() {
