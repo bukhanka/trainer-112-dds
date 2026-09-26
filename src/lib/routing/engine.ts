@@ -188,7 +188,7 @@ function norm(value: string | null | undefined): string {
 // Note: \b does not work with Cyrillic in JS regexps, so word edges are spelled out.
 export function normalizeOkrug(value: string | null | undefined): string | null {
   const key = ` ${norm(value)} `
-    .replace(/ (административный|адм) /g, " ")
+    .replace(/ (административный|административные|адм) /g, " ")
     .replace(/ (округ|округа|округов|ао) /g, " ")
     .replace(/ (г|города) москвы /g, " ")
     .replace(/\s+/g, " ")

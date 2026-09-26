@@ -268,6 +268,7 @@ describe("listeners and helpers", () => {
     ]);
     expect(normalizeOkrug("Северо-Западный административный округ")).toBe("СЗАО");
     expect(normalizeOkrug("НАО")).toBe("ТиНАО");
+    expect(normalizeOkrug("Троицкий и Новомосковский административные округа")).toBe("ТиНАО");
     expect(normalizeDistrict("поселение Вороновское")).toBe("вороновское");
   });
 
