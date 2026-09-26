@@ -94,14 +94,21 @@ async function llmAuthHeaders(): Promise<Record<string, string>> {
 // ─── budget guard ────────────────────────────────────────────────────────────
 
 const CALLS_PER_MIN = Number(process.env.AI_MAX_CALLS_PER_MIN ?? 300);
-let window = { start: 0, calls: 0 };
+const windows: Record<"chat" | "voice", { start: number; calls: number }> = {
+  chat: { start: 0, calls: 0 },
+  voice: { start: 0, calls: 0 },
+};
 
-/** Model calls per minute for this process; above the limit callers fall back to rules. */
-function takeCall(): boolean {
+/** Paid calls per minute for this process (chat and speech counted apart); above the limit callers fall back. */
+export function takeCall(kind: "chat" | "voice" = "chat"): boolean {
   const now = Date.now();
-  if (now - window.start > 60_000) window = { start: now, calls: 0 };
-  window.calls += 1;
-  return window.calls <= CALLS_PER_MIN;
+  const w = windows[kind];
+  if (now - w.start > 60_000) {
+    w.start = now;
+    w.calls = 0;
+  }
+  w.calls += 1;
+  return w.calls <= CALLS_PER_MIN;
 }
 
 // ─── chat ────────────────────────────────────────────────────────────────────
@@ -170,6 +177,7 @@ function safeJson(raw: string): unknown {
 export async function transcribe(audio: Blob, fileName = "speech.webm"): Promise<string> {
   const provider = sttProvider();
   if (!provider) return "";
+  if (!takeCall("voice")) throw new Error("AI call limit reached");
   if (provider === "google") return transcribeGoogle(audio);
   const form = new FormData();
   form.append("file", audio, fileName);
@@ -216,6 +224,7 @@ const GOOGLE_VOICES = { male: "ru-RU-Chirp3-HD-Charon", female: "ru-RU-Chirp3-HD
 export async function speak(text: string, gender: "male" | "female"): Promise<ArrayBuffer | null> {
   const provider = ttsProvider();
   if (!provider) return null;
+  if (!takeCall("voice")) return null; // the browser speaks with its own voices
   // With google-live the male/female voice names belong to Live; the Text-to-Speech fallback keeps its own.
   const named = env("TTS_PROVIDER") === "google-live" ? undefined : gender === "male" ? env("TTS_VOICE_MALE") : env("TTS_VOICE_FEMALE");
   const voice = named ?? (provider === "google" ? GOOGLE_VOICES[gender] : gender);

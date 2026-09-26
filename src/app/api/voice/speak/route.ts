@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { speak, ttsConfigured } from "@/lib/ai/provider";
+import { speak, takeCall, ttsConfigured } from "@/lib/ai/provider";
 import { LIVE_SAMPLE_RATE, liveVoiceConfigured, liveVoiceStream } from "@/lib/ai/live-voice";
 import { apiUser } from "@/lib/auth/session";
 
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   if (!ttsConfigured()) return new Response(null, { status: 204 });
   const { text, voice, manner } = parsed.data;
 
-  if (liveVoiceConfigured()) {
+  if (liveVoiceConfigured() && takeCall("voice")) {
     try {
       const stream = await liveVoiceStream(text, voice, manner);
       return new Response(stream, { headers: { "Content-Type": `audio/pcm;rate=${LIVE_SAMPLE_RATE}`, "Cache-Control": "no-store" } });
