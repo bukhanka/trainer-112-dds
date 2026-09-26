@@ -57,9 +57,11 @@ export function DdsShell({ children }: { children: React.ReactNode }) {
         {error ? (
           <>
             <span>{error.message}</span>
-            <Link href="/login" className="underline">
-              Вход в систему
-            </Link>
+            {error.message.startsWith("Сессия") && (
+              <Link href="/login" className="underline">
+                Вход в систему
+              </Link>
+            )}
           </>
         ) : (
           "Загрузка рабочего места…"
