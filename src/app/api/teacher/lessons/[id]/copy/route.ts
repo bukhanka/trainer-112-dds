@@ -10,7 +10,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
   const lesson = await findLesson(user, id);
   if (!lesson) return jsonError("Занятие не найдено", 404);
 
-  const seats = await db.seat.findMany({ where: { lessonId: id }, orderBy: { createdAt: "asc" } });
+  // Only students who are still in the group and not blocked keep their places.
+  const members = lesson.groupId
+    ? new Set((await db.groupMember.findMany({ where: { groupId: lesson.groupId, user: { isBlocked: false, role: "STUDENT" } }, select: { userId: true } })).map((m) => m.userId))
+    : new Set<string>();
+  const seats = (await db.seat.findMany({ where: { lessonId: id }, orderBy: { createdAt: "asc" } })).filter((s) => members.has(s.studentId));
   const approved = new Set(
     (await db.scenario.findMany({ where: { id: { in: seats.flatMap((s) => s.scenarioIds) }, status: "APPROVED" }, select: { id: true } })).map((s) => s.id),
   );

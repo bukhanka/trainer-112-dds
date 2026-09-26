@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { modelName } from "@/lib/ai/model-name";
 import { aiMode, chatJson } from "@/lib/ai/provider";
 import { callerSchema, jsonSectionSchema, SECTIONS, type SectionKey } from "./sections";
 
@@ -39,7 +40,7 @@ export async function regenerateSection(
       schema,
       { temperature: 0.3, maxTokens: 1800 },
     );
-    return { ok: true, value, model: aiMode().llm };
+    return { ok: true, value, model: modelName() };
   } catch (err) {
     console.error("scenario regenerate failed", err);
     return { ok: false, mock: false, error: "Модель не ответила или вернула неверный формат. Попробуйте ещё раз или исправьте раздел вручную." };

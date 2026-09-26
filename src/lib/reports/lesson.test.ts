@@ -56,6 +56,11 @@ describe("buildLessonReport", () => {
     ]),
   );
 
+  it("exports only confirmed attempts, never draft verdicts", () => {
+    expect(report.attempts).toHaveLength(4);
+    expect(report.attempts.every((a) => a.reviewStatus !== "PENDING")).toBe(true);
+  });
+
   it("counts only confirmed attempts", () => {
     expect(report.summary).toMatchObject({ reviewed: 4, pending: 1, avgScore: 53 });
     const kuz = report.students.find((s) => s.studentId === "u3")!;

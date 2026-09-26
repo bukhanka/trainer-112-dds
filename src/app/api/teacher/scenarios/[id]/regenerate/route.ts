@@ -33,12 +33,16 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/sce
     return jsonError(result.error, result.mock ? 503 : 502);
   }
 
+  // The model may think for up to a minute: re-check the lock and write only over the version we read.
+  const lockedNow = await scenarioLockedBy(scenario);
+  if (lockedNow) return jsonError(`Пока ИИ работал, началось занятие «${lockedNow}» — сценарий не изменён.`, 409);
   const approvedSections = nextApprovals(scenario.approvedSections, [section], false);
   const status = statusFor(approvedSections, presentSections({ ...scenario, [section]: result.value }), scenario.status);
-  await db.scenario.update({
-    where: { id },
+  const res = await db.scenario.updateMany({
+    where: { id, updatedAt: scenario.updatedAt },
     data: { [section]: result.value as Prisma.InputJsonValue, approvedSections, status, teacherNote, approvedById: status === "APPROVED" ? scenario.approvedById : null },
   });
+  if (!res.count) return jsonError("Сценарий изменили, пока ИИ работал. Обновите страницу и повторите.", 409);
   await auditBy(user, request, {
     action: "scenario.regenerate",
     entity: "Scenario",

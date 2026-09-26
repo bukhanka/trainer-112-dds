@@ -32,6 +32,8 @@ const FINISH_HOURS = 48;
 export type BoardInput = {
   lesson: {
     status: "DRAFT" | "RUNNING" | "FINISHED";
+    /** generated | students | mixed: in a «generated» lesson cards typed at 112 places do not reach ДДС places. */
+    cardSource?: string;
     startedAt: Date | null;
     finishedAt: Date | null;
     ackSec: number;
@@ -143,6 +145,7 @@ export type BoardState = {
 };
 
 type Plate = BoardInput["incidents"][number]["plates"][number];
+type Incident = BoardInput["incidents"][number];
 
 const secBetween = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 1000;
 
@@ -176,6 +179,15 @@ function sumFlags(list: RedFlags[]): RedFlags {
  * place that acted on it, then the only place with this service, then the only place with this task.
  * A card typed at a 112 place is shared by every ДДС place of its service until one of them acts.
  */
+/**
+ * Can this plate reach a ДДС place of the lesson at all? Not when the system already answered it
+ * (a bot: answer without a place) and not a card typed at 112 in a lesson that takes only generated cards.
+ */
+export function reachesPlaces(inc: Incident, p: Plate, lesson: BoardInput["lesson"]): boolean {
+  if (p.events.some((e) => ANSWER.includes(e.status) && !e.seatId)) return false;
+  return !(inc.source === "op112" && lesson.cardSource === "generated");
+}
+
 export function assignPlates(input: BoardInput): Map<string, string> {
   const dds = input.seats.filter((s) => s.role === "DDS");
   const ddsIds = new Set(dds.map((s) => s.id));
@@ -189,7 +201,7 @@ export function assignPlates(input: BoardInput): Map<string, string> {
       const acted = p.events.find((e) => e.seatId && ddsIds.has(e.seatId))?.seatId ?? null;
       const graded = attemptSeat.get(p.id);
       let seat = explicit ?? acted ?? (graded && ddsIds.has(graded) ? graded : null);
-      if (!seat) {
+      if (!seat && reachesPlaces(inc, p, input.lesson)) {
         const byService = dds.filter((s) => s.serviceId === p.serviceId);
         if (byService.length === 1) seat = byService[0].id;
         else if (byService.length > 1 && inc.scenarioId) {
@@ -247,7 +259,11 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
       const mine = input.incidents.flatMap((inc) => inc.plates.filter((p) => plateSeat.get(p.id) === seat.id).map((p) => ({ inc, p }))).sort(byAdded);
       // Shared cards nobody has taken yet wait in the feed of every place of their service.
       const shared = input.incidents
-        .flatMap((inc) => inc.plates.filter((p) => !plateSeat.has(p.id) && !inc.targetSeatId && p.serviceId === seat.serviceId && inc.savedAt).map((p) => ({ inc, p })))
+        .flatMap((inc) =>
+          inc.plates
+            .filter((p) => !plateSeat.has(p.id) && !inc.targetSeatId && p.serviceId === seat.serviceId && inc.savedAt && reachesPlaces(inc, p, L))
+            .map((p) => ({ inc, p })),
+        )
         .filter(({ p }) => !CLOSED.includes(p.status));
       const open = [...mine.filter(({ p }) => !CLOSED.includes(p.status)), ...shared].sort(byAdded);
       const cur = running ? open[0] : undefined;
@@ -266,7 +282,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
         ...common,
         current: cur ? { number: cur.inc.number, title: cur.inc.title, address: cur.inc.address, status: PLATE_STATUS_LABEL[cur.p.status] } : null,
         timer,
-        queue: Math.max(0, open.length - (cur ? 1 : 0)),
+        queue: running ? Math.max(0, open.length - (cur ? 1 : 0)) : 0,
         counts: {
           opened: mine.filter(({ p }) => p.events.some((e) => e.status !== "ADDED")).length,
           answered: mine.filter(({ p }) => answerAt(p)).length,
@@ -297,7 +313,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
       ...common,
       current: draft ? { number: draft.number, title: draft.title, address: draft.address, status: "заполняется" } : null,
       timer,
-      queue: Math.max(0, calls.filter((c) => c.status === "RINGING").length - (live?.status === "RINGING" ? 1 : 0)),
+      queue: running ? Math.max(0, calls.filter((c) => c.status === "RINGING").length - (live?.status === "RINGING" ? 1 : 0)) : 0,
       counts: {
         opened: calls.filter((c) => c.answeredAt).length || cards.length,
         answered: saved.length,
@@ -311,17 +327,21 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
     };
   });
 
+  const mannedServices = new Set(input.seats.filter((s) => s.role === "DDS" && s.serviceId != null).map((s) => s.serviceId!));
   const cards: CardRow[] = input.incidents
     .map((inc) => {
-      // Only plates handled by a place of this lesson are graded; other services are not trainees.
-      const flags = inc.plates.map((p) => (plateSeat.has(p.id) ? plateFlags(p, L, now) : { notNotified: 0, refused: 0, notFinished: 0 }));
+      // Graded are plates of the lesson's places: taken by a place, or waiting for any place of their service.
+      // Services nobody plays are not trainees and never turn a card red.
+      const graded = (p: Plate) => plateSeat.has(p.id) || (!inc.targetSeatId && mannedServices.has(p.serviceId) && reachesPlaces(inc, p, L));
+      const flagged = inc.plates.map((p) => ({ p, f: graded(p) ? plateFlags(p, L, now) : { notNotified: 0, refused: 0, notFinished: 0 } }));
+      const flags = flagged.map((x) => x.f);
       const total = sumFlags(flags);
       const control: CardRow["control"] = [];
       if (total.notNotified) control.push({ label: "Не оповещено", red: true });
       if (total.refused) control.push({ label: "Отказ", red: true });
       if (total.notFinished) control.push({ label: "Не завершено", red: true });
       if (!control.length) {
-        const manned = inc.plates.filter((p) => plateSeat.has(p.id));
+        const manned = inc.plates.filter(graded);
         if (!inc.savedAt && inc.source === "op112") control.push({ label: "Заполняется", red: false });
         else if (manned.length && manned.every((p) => CLOSED.includes(p.status))) control.push({ label: "Завершена", red: false });
         else control.push({ label: "Зарегистрирована", red: false });
@@ -335,12 +355,12 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
         source: inc.source,
         author: inc.createdBySeatId ? (seatLabel.get(inc.createdBySeatId) ?? null) : null,
         control,
-        plates: inc.plates
-          .filter((p) => p.visible)
-          .map((p, i) => ({
+        plates: flagged
+          .filter(({ p }) => p.visible)
+          .map(({ p, f }) => ({
             name: p.serviceName,
             status: PLATE_STATUS_LABEL[p.status],
-            late: flags[i].notNotified > 0,
+            late: f.notNotified > 0,
             seat: seatLabel.get(plateSeat.get(p.id) ?? "") ?? null,
             phoneOnly: p.delivery === "PHONE",
           })),

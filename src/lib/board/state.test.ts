@@ -209,3 +209,60 @@ describe("buildBoard: cards of the ДДС card flow", () => {
     expect(board.seats[0].red.notNotified + board.seats[1].red.notNotified).toBe(0);
   });
 });
+
+describe("buildBoard: review fixes", () => {
+  it("keeps the late mark on the right plate when a hidden plate comes first", () => {
+    const hidden = plate("p-hidden", 60, "ACCEPTED", [["ACCEPTED", 55, null]], { serviceId: 999, serviceName: "Невидимая", visible: false });
+    const late = plate("p-late", 60, "RECEIVED", [["RECEIVED", 55, "1"]]);
+    const onTime = plate("p-ok", 60, "ACCEPTED", [["ACCEPTED", 50, null]], { serviceId: 1, serviceName: "Служба 101", delivery: "VIS" });
+    const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [hidden, late, onTime])] }), NOW);
+    const plates = board.cards[0].plates;
+    expect(plates.map((p) => [p.name, p.late])).toEqual([
+      ["Поселение Вороновское", true],
+      ["Служба 101", false],
+    ]);
+  });
+
+  it("turns a shared 112 card red when no place of its service answered", () => {
+    const board = buildBoard(
+      input({
+        seats: [seat("1", "DDS"), seat("2", "DDS"), seat("3", "OP112")],
+        incidents: [incident("i1", [plate("p1", 600, "ADDED")], { source: "op112", createdBySeatId: "3" })],
+      }),
+      NOW,
+    );
+    expect(board.cards[0].control).toEqual([{ label: "Не оповещено", red: true }]);
+    expect(board.summary.notNotified).toBe(1);
+    expect(board.seats[0].red.notNotified + board.seats[1].red.notNotified).toBe(0);
+  });
+
+  it("does not pin to a place what the system answered or a 112 card in a generated lesson", () => {
+    const botDone = plate("p-bot", 300, "STARTED", [["ACCEPTED", 290, null], ["STARTED", 200, null]]);
+    const board = buildBoard(
+      input({
+        lesson: lesson({ cardSource: "generated", status: "FINISHED", finishedAt: ago(1) }),
+        seats: [seat("1", "DDS"), seat("5", "OP112")],
+        incidents: [
+          incident("i1", [botDone], { source: "op112", createdBySeatId: "5" }),
+          incident("i2", [plate("p2", 300, "ADDED")], { source: "op112", createdBySeatId: "5" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(board.seats[0].red).toEqual({ notNotified: 0, refused: 0, notFinished: 0 });
+    expect(board.cards.every((c) => !c.control.some((x) => x.red))).toBe(true);
+  });
+
+  it("shows no queue after the lesson has ended", () => {
+    const board = buildBoard(
+      input({
+        lesson: lesson({ status: "FINISHED", finishedAt: ago(1) }),
+        seats: [seat("1", "DDS")],
+        incidents: [incident("i1", [plate("p1", 100, "ADDED", [], { seatId: "1" })]), incident("i2", [plate("p2", 90, "ADDED", [], { seatId: "1" })])],
+      }),
+      NOW,
+    );
+    expect(board.seats[0].queue).toBe(0);
+    expect(board.seats[0].current).toBeNull();
+  });
+});

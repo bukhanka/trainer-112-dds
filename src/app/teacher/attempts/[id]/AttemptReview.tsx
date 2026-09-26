@@ -88,6 +88,8 @@ export function AttemptReview(p: AttemptReviewProps) {
       const res = await fetch(`/api/teacher/attempts/${p.id}/draft`, { method: "POST" });
       if (!res.ok) setError("Не удалось подготовить черновик");
       router.refresh();
+    } catch {
+      setError("Нет связи с сервером");
     } finally {
       setBusy(false);
     }
@@ -192,14 +194,15 @@ export function AttemptReview(p: AttemptReviewProps) {
           </div>
           <div className="mt-3 text-sm text-arm-desc">{p.reviewStatus === "PENDING" ? "Черновой балл (не в зачёте)" : "Балл"}</div>
           <div className="flex items-baseline gap-2">
-            <span className="text-4xl font-bold tabular-nums">{editing ? (editScore ?? "—") : (p.reviewStatus === "PENDING" ? draftScore : savedScore) ?? "—"}</span>
+            <span className="text-4xl font-bold tabular-nums">{editing ? (editScore ?? "—") : (savedScore ?? "—")}</span>
             <span className="text-sm text-arm-desc">из 100</span>
           </div>
-          {editing && editScore !== draftScore && (
+          {editing && editScore !== savedScore && (
             <div className="text-sm text-arm-desc">
-              черновик {draftScore ?? "—"} → с вашими правками {editScore ?? "—"}
+              было {savedScore ?? "—"} → с вашими правками {editScore ?? "—"}
             </div>
           )}
+          {!editing && p.override && savedScore !== draftScore && <div className="text-xs text-arm-desc">по черновику без исправлений: {draftScore ?? "—"}</div>}
           {p.reviewedBy && p.reviewStatus !== "PENDING" && (
             <div className="mt-2 text-xs text-arm-desc">
               {p.reviewedBy}, {p.reviewedAt}
@@ -258,7 +261,8 @@ export function AttemptReview(p: AttemptReviewProps) {
                   variant="danger"
                   disabled={busy || !p.criteria.length}
                   onClick={() => {
-                    setVerdicts(Object.fromEntries(p.criteria.map((c) => [c.code, c.ok])));
+                    // A reopened attempt keeps the corrections made before.
+                    setVerdicts(Object.fromEntries(applyOverrides(p.criteria, p.override).map((c) => [c.code, c.ok])));
                     setEditing(true);
                   }}
                 >

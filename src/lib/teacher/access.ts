@@ -50,6 +50,11 @@ export function auditBy(user: SessionUser, request: Request, fields: AuditFields
   return audit({ ...fields, actorId: user.id, actor: user.login, ip: requestIp(request) });
 }
 
+/** Audit record inside the same transaction as the change: a grade is never saved without its record. */
+export async function auditInTx(tx: Prisma.TransactionClient, user: SessionUser, request: Request, fields: AuditFields): Promise<void> {
+  await tx.auditLog.create({ data: { ...fields, actorId: user.id, actor: user.login, ip: requestIp(request) } });
+}
+
 /** Reads a JSON body; returns null for a missing or broken body. */
 export async function readJson(request: Request): Promise<unknown> {
   try {

@@ -15,15 +15,20 @@ export default async function ReportsPage() {
   const stats = await db.attempt.groupBy({
     by: ["lessonId", "reviewStatus"],
     where: { lessonId: { in: lessons.map((l) => l.id) } },
-    _count: { _all: true },
+    _count: { _all: true, score: true },
     _avg: { score: true },
   });
   const of = (id: string) => {
     const rows = stats.filter((s) => s.lessonId === id);
     const reviewed = rows.filter((r) => r.reviewStatus !== "PENDING");
-    const n = reviewed.reduce((a, r) => a + r._count._all, 0);
-    const sum = reviewed.reduce((a, r) => a + (r._avg.score ?? 0) * r._count._all, 0);
-    return { reviewed: n, pending: rows.find((r) => r.reviewStatus === "PENDING")?._count._all ?? 0, avg: n ? Math.round(sum / n) : null };
+    // Weighted by attempts that have a score, the same way the lesson report averages.
+    const scored = reviewed.reduce((a, r) => a + r._count.score, 0);
+    const sum = reviewed.reduce((a, r) => a + (r._avg.score ?? 0) * r._count.score, 0);
+    return {
+      reviewed: reviewed.reduce((a, r) => a + r._count._all, 0),
+      pending: rows.find((r) => r.reviewStatus === "PENDING")?._count._all ?? 0,
+      avg: scored ? Math.round(sum / scored) : null,
+    };
   };
 
   return (

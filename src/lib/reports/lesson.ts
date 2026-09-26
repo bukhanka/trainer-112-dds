@@ -202,7 +202,8 @@ export function buildLessonReport(input: ReportInput): LessonReport {
           };
         }),
     },
-    attempts: input.attempts.map((a) => {
+    // Drafts never reach a report: an unconfirmed attempt is not exported even without its score.
+    attempts: reviewed.map((a) => {
       const seat = seatOf.get(a.seatId);
       return {
         ...a,

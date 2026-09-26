@@ -28,11 +28,16 @@ function useClock(skewMs: number) {
 
 export function LessonBoard({ lessonId, status, projector = false }: { lessonId: string; status: "DRAFT" | "RUNNING" | "FINISHED"; projector?: boolean }) {
   const [skew, setSkew] = useState(0);
+  const [live, setLive] = useState(status);
+  // Poll while the lesson runs as the server sees it: a stop in another tab ends the polling here too.
   const { data, error } = useSWR(`/api/teacher/lessons/${lessonId}/board`, fetcher, {
-    refreshInterval: status === "RUNNING" ? 2000 : 0,
-    revalidateOnFocus: status === "RUNNING",
+    refreshInterval: live === "RUNNING" ? 2000 : 0,
+    revalidateOnFocus: live === "RUNNING",
     keepPreviousData: true,
-    onSuccess: (d) => setSkew(new Date(d.now).getTime() - Date.now()),
+    onSuccess: (d) => {
+      setSkew(new Date(d.now).getTime() - Date.now());
+      setLive(d.lesson.status);
+    },
   });
   const now = useClock(skew);
 

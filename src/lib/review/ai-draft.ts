@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { modelName } from "@/lib/ai/model-name";
 import { aiMode, chatJson } from "@/lib/ai/provider";
 import { applyOverrides, type CriterionResult, type Overrides } from "@/lib/scoring/score";
 import { ruleDraft, type AiDraft } from "./draft";
@@ -42,7 +43,7 @@ export async function buildDraft(kind: "OP112" | "DDS", criteria: CriterionResul
       replySchema,
       { temperature: 0.2, maxTokens: 900 },
     );
-    return { ...reply, source: "ai", model: aiMode().llm, createdAt: new Date().toISOString() };
+    return { ...reply, source: "ai", model: modelName(), createdAt: new Date().toISOString() };
   } catch (err) {
     console.error("review draft failed, using rules", err);
     return fallback;

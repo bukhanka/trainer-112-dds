@@ -40,10 +40,13 @@ export function LessonForm({
   const [title, setTitle] = useState(initial?.title ?? defaultTitle());
   const [groupId, setGroupId] = useState(initial?.groupId ?? options.groups[0]?.id ?? "");
   const [settings, setSettings] = useState<TeacherSettings>(initial?.settings ?? defaults);
+  // Tasks that are no longer approved cannot be dealt: they are dropped from the plan with a notice.
+  const approvedIds = new Set(options.scenarios.map((x) => x.id));
+  const [dropped] = useState(() => [...new Set(initial?.seats.flatMap((x) => x.scenarioIds).filter((x) => !approvedIds.has(x)) ?? [])].length);
   const [seats, setSeats] = useState<Record<string, SeatDraft>>(() => initialSeats(options, initial?.groupId ?? options.groups[0]?.id, initial));
   const [shared, setShared] = useState<string[]>(() => {
     if (!initial?.settings.sameCard) return [];
-    return initial.seats[0]?.scenarioIds ?? [];
+    return (initial.seats[0]?.scenarioIds ?? []).filter((x) => approvedIds.has(x));
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -268,7 +271,21 @@ export function LessonForm({
             карточки возьмутся из выбранных категорий.
           </p>
         )}
-        {settings.sameCard && <p className="mb-3 text-sm text-arm-desc">Отмеченные задания получат все места — удобно, чтобы сравнить учеников на одной карточке.</p>}
+        {settings.sameCard && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-arm-desc">
+            <span>Отмеченные задания получат все места — удобно, чтобы сравнить учеников на одной карточке.</span>
+            {shared.length > 0 && (
+              <Button size="sm" onClick={() => setShared([])}>
+                Снять задания
+              </Button>
+            )}
+          </div>
+        )}
+        {dropped > 0 && (
+          <p className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
+            {dropped === 1 ? "Одно задание больше не утверждено и снято" : `Заданий больше не утверждено и снято: ${dropped}`} — проверьте раздачу и сохраните.
+          </p>
+        )}
 
         {noServices && (
           <p className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
@@ -409,21 +426,46 @@ export function LessonForm({
   );
 }
 
+/** Typing «45» must not jump through the minimum: the raw text is kept and clamped when the field is left. */
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [shown, setShown] = useState(value);
+  if (shown !== value) {
+    // The value changed from outside (defaults, another control): show it.
+    setShown(value);
+    setText(String(value));
+  }
+  const commit = () => {
+    const v = Math.round(Number(text));
+    const next = Number.isFinite(v) && text.trim() !== "" ? Math.min(max, Math.max(min, v)) : value;
+    setText(String(next));
+    setShown(next);
+    if (next !== value) onChange(next);
+  };
   return (
     <label className="flex flex-col gap-1 text-sm">
       <span className="min-h-[2.5rem] leading-tight">{label}</span>
       <input
         type="number"
+        inputMode="numeric"
         className={inputClass}
-        value={value}
+        value={text}
         min={min}
         max={max}
         onChange={(e) => {
+          setText(e.target.value);
           const v = Math.round(Number(e.target.value));
-          if (Number.isFinite(v)) onChange(Math.min(max, Math.max(min, v)));
+          // Valid values apply at once, so the form can be saved without leaving the field.
+          if (e.target.value.trim() !== "" && Number.isFinite(v) && v >= min && v <= max) {
+            setShown(v);
+            onChange(v);
+          }
         }}
+        onBlur={commit}
       />
+      <span className="text-xs text-arm-desc">
+        от {min} до {max}
+      </span>
     </label>
   );
 }
@@ -432,10 +474,11 @@ function initialSeats(options: LessonFormOptions, groupId: string | undefined, i
   const group = options.groups.find((g) => g.id === groupId);
   const out: Record<string, SeatDraft> = {};
   const saved = new Map(initial?.seats.map((s) => [s.studentId, s]));
+  const approved = new Set(options.scenarios.map((x) => x.id));
   for (const m of group?.members ?? []) {
     const s = saved.get(m.id);
     out[m.id] = s
-      ? { included: true, role: s.role, serviceId: s.serviceId, scenarioIds: s.scenarioIds, label: s.label ?? "" }
+      ? { included: true, role: s.role, serviceId: s.serviceId, scenarioIds: s.scenarioIds.filter((x) => approved.has(x)), label: s.label ?? "" }
       : {
           included: !initial,
           role: options.services.length ? "DDS" : "OP112",

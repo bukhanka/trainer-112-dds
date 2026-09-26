@@ -5,6 +5,7 @@ import { loadReportInput } from "@/lib/reports/load";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 
 const REVIEW = { PENDING: "на проверке", CONFIRMED: "подтверждено", OVERRIDDEN: "исправлено преподавателем" } as const;
+// Only confirmed attempts are exported (see buildLessonReport); PENDING stays in the map for type safety.
 
 /** Lesson report as CSV: ?kind=students (default) — a row per student, ?kind=attempts — a row per attempt. */
 export async function GET(request: Request, ctx: RouteContext<"/api/teacher/lessons/[id]/report/csv">) {
@@ -74,13 +75,14 @@ export async function GET(request: Request, ctx: RouteContext<"/api/teacher/less
             a.timeSec == null ? null : a.timeSec - a.normSec,
             a.failedTitles.length,
             a.failedTitles.join("; "),
-            a.reviewStatus === "PENDING" ? null : a.score,
+            a.score,
             REVIEW[a.reviewStatus],
             a.teacherComment,
           ]),
         ];
 
-  const date = (lesson.startedAt ?? lesson.createdAt).toISOString().slice(0, 10);
+  // Moscow date, as everywhere in the cabinet: «2026-09-25».
+  const date = (lesson.startedAt ?? lesson.createdAt).toLocaleDateString("sv-SE", { timeZone: "Europe/Moscow" });
   await auditBy(user, request, { action: "report.export", entity: "Lesson", entityId: id, after: { kind, rows: rows.length - 1 } });
   return new Response(toCsv(rows), {
     headers: {

@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
 import { isPractice } from "@/lib/lessons/form";
-import { groupScope } from "@/lib/teacher/access";
+import { groupScope, lessonScope } from "@/lib/teacher/access";
 
 const LAST_LESSONS = 6;
 
@@ -25,7 +25,8 @@ export default async function GroupsPage() {
       id: true,
       name: true,
       members: { select: { user: { select: { id: true, fullName: true, role: true, isBlocked: true } } } },
-      lessons: { where: { status: "FINISHED" }, orderBy: { startedAt: "desc" }, take: LAST_LESSONS * 2, select: { id: true, title: true, startedAt: true, settings: true } },
+      // Only the teacher's own lessons: someone else's lesson has no report for this teacher.
+      lessons: { where: { status: "FINISHED", ...lessonScope(user) }, orderBy: { startedAt: "desc" }, take: LAST_LESSONS * 2, select: { id: true, title: true, startedAt: true, settings: true } },
     },
   });
 

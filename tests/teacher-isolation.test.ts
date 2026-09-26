@@ -13,7 +13,12 @@ const attempts = [
 
 const session = vi.hoisted(() => ({ user: { id: "smirnova", login: "teacher", fullName: "Смирнова", role: "TEACHER" as "TEACHER" | "ADMIN" | "STUDENT" } }));
 
-vi.mock("@/lib/db", () => ({ db: { lesson: fakeModel(lessons), attempt: fakeModel(attempts) } }));
+vi.mock("@/lib/db", () => {
+  // Interactive transactions run on the same fake; the advisory lock is a no-op here.
+  const db: Record<string, unknown> = { lesson: fakeModel(lessons), attempt: fakeModel(attempts), $executeRaw: async () => 0 };
+  db.$transaction = async (fn: (tx: unknown) => unknown) => fn(db);
+  return { db };
+});
 vi.mock("@/lib/audit", () => ({ audit: async () => {} }));
 vi.mock("@/lib/auth/session", () => ({
   apiUser: async (roles?: string[]) => (roles && !roles.includes(session.user.role) ? Response.json({ error: "forbidden" }, { status: 403 }) : session.user),

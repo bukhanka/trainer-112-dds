@@ -41,6 +41,7 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
   return {
     lesson: {
       status: lesson.status,
+      cardSource: settings.cardSource,
       startedAt: lesson.startedAt,
       finishedAt: lesson.finishedAt,
       ackSec: settings.ackSec,
