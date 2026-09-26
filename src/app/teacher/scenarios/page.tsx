@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Badge, Empty, PageHeader, inputClass } from "@/components/ui";
+import { Badge, Empty, PageHeader, fieldClass } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
@@ -52,7 +52,7 @@ export default async function ScenariosPage(props: PageProps<"/teacher/scenarios
         </nav>
         <form className="ml-auto flex flex-wrap gap-2" action="/teacher/scenarios">
           {status && <input type="hidden" name="status" value={status} />}
-          <select name="category" defaultValue={category} className={`${inputClass} w-48`} aria-label="Категория">
+          <select name="category" defaultValue={category} className={`${fieldClass} h-10 w-full sm:w-48`} aria-label="Категория">
             <option value="">Все категории</option>
             {categories.map((c) => (
               <option key={c.category} value={c.category}>
@@ -60,7 +60,7 @@ export default async function ScenariosPage(props: PageProps<"/teacher/scenarios
               </option>
             ))}
           </select>
-          <input name="q" defaultValue={q} placeholder="Название или билет" className={`${inputClass} w-48`} aria-label="Поиск" />
+          <input name="q" defaultValue={q} placeholder="Название или билет" className={`${fieldClass} h-10 w-full sm:w-48`} aria-label="Поиск" />
           <button className="h-10 rounded border border-arm-gray bg-white px-3 text-sm hover:border-arm-blue">Найти</button>
         </form>
       </div>
