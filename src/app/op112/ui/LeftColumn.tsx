@@ -14,8 +14,8 @@ export function CallerRow(p: {
   readOnly: boolean;
 }) {
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-4 bg-arm-panel px-3">
-      <div className="min-w-[150px] flex-[1.6]" data-hk="Alt+Q">
+    <div className="flex h-[52px] shrink-0 items-center gap-2 bg-arm-panel px-3 2xl:gap-4">
+      <div className="min-w-[100px] flex-[2]" data-hk="Alt+Q">
         <input
           id="op112-name"
           aria-label="Фамилия и имя заявителя"
@@ -26,21 +26,23 @@ export function CallerRow(p: {
           className="arm-field"
         />
       </div>
-      <select
-        aria-label="Статус заявителя"
-        value={p.caller.status ?? ""}
-        disabled={p.readOnly}
-        onChange={(e) => p.onChange({ status: (e.target.value || undefined) as IncidentCaller["status"] })}
-        className={`arm-field min-w-[120px] flex-1 ${p.caller.status ? "" : "text-[#8b959b]"}`}
-      >
-        <option value="">выберите статус</option>
-        {CALLER_STATUSES.map((s) => (
-          <option key={s} value={s} className="text-arm-dark">
-            {s}
-          </option>
-        ))}
-      </select>
-      <div className="min-w-0 flex-1" data-hk="Alt+K">
+      <div className="w-[120px] shrink-0 2xl:w-[170px]">
+        <select
+          aria-label="Статус заявителя"
+          value={p.caller.status ?? ""}
+          disabled={p.readOnly}
+          onChange={(e) => p.onChange({ status: (e.target.value || undefined) as IncidentCaller["status"] })}
+          className={`arm-field ${p.caller.status ? "" : "text-[#8b959b]"}`}
+        >
+          <option value="">выберите статус</option>
+          {CALLER_STATUSES.map((s) => (
+            <option key={s} value={s} className="text-arm-dark">
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="w-[92px] shrink-0 2xl:w-[150px]" data-hk="Alt+K">
         <select
           id="op112-channel"
           aria-label="Канал связи"

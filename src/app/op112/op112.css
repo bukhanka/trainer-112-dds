@@ -54,6 +54,13 @@
   padding: 6px 12px;
   min-height: 50px;
 }
+@media (max-width: 1535px) {
+  .arm-flag-btn,
+  .arm-orange-btn {
+    font-size: 12.5px;
+    padding: 4px 6px;
+  }
+}
 .arm-flag-btn[aria-pressed="true"] {
   background: #157dbd;
   border-color: #157dbd;

@@ -83,10 +83,10 @@ export function TopBar(p: Props) {
           onCopyAon={() => p.onCaller({ onSite: p.caller?.aon ?? "" })}
         />
       </div>
-      <div className="flex w-[250px] shrink-0 flex-col justify-center bg-white px-3 leading-tight">
+      <div className="flex w-[210px] shrink-0 flex-col justify-center bg-white px-3 leading-tight 2xl:w-[250px]">
         {p.incident ? (
           <>
-            <div className="text-[17px] font-bold">Происшествие {p.incident.number}</div>
+            <div className="text-[15px] font-bold 2xl:text-[17px]">Происшествие {p.incident.number}</div>
             <div className="text-[12.5px]">{p.incident.savedLabel ? `Сохр. ${p.incident.savedLabel}` : "Сохр. —"}</div>
             <div className="text-[12.5px]">
               Опер. {p.operatorNo}, АРМ {p.armNo}, УМЦ
@@ -149,7 +149,7 @@ function PhoneBlock(props: {
             readOnly={props.readOnly}
             inputMode="tel"
             onChange={(e) => props.onChange?.(formatPhone(e.target.value))}
-            className="min-w-0 flex-1 border-b border-[#9aa3a9] bg-transparent pb-0.5 text-[20px] tracking-wide text-arm-dark outline-none placeholder:text-[#9aa3a9] focus:border-arm-blue read-only:cursor-default"
+            className="min-w-0 flex-1 border-b border-[#9aa3a9] bg-transparent pb-0.5 text-[16px] tracking-wide text-arm-dark outline-none placeholder:text-[#9aa3a9] focus:border-arm-blue read-only:cursor-default xl:text-[18px] 2xl:text-[20px]"
           />
           {props.onCopyAon && (
             <button

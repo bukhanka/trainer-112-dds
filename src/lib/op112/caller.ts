@@ -164,7 +164,13 @@ function styled(p: Persona, text: string, opening = false): string {
 }
 
 export function mockOpening(p: Persona): CallerReply {
-  return { text: styled(p, firstSentence(p.situation), true), revealed: ["situation"] };
+  const text = firstSentence(p.situation);
+  return { text: styled(p, text, true), revealed: ["situation", ...factsIn(text, factCards(p))] };
+}
+
+/** Ticket facts the caller's own words already contain (the situation often names a few). */
+function factsIn(text: string, cards: FactCard[]): string[] {
+  return expandRevealed(guessRevealed(text, cards.filter((c) => c.group)), cards);
 }
 
 const UNKNOWN: Partial<Record<FactTopic, string>> = {
@@ -228,7 +234,11 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
   const byKey = (k: string) => cards.find((c) => c.key === k);
 
   for (const topic of TOPIC_ORDER.filter((x) => topics.includes(x))) {
-    if (topic === "what") say(byKey("situation"), said.has("situation") ? p.situation : firstSentence(p.situation));
+    if (topic === "what") {
+      const text = said.has("situation") ? p.situation : firstSentence(p.situation);
+      say(byKey("situation"), text);
+      revealed.push(...factsIn(text, cards));
+    }
     else if (topic === "address") say(byKey("address"), p.visibleAddress);
     else if (topic === "addressExact") say(byKey("addressExact") ?? byKey("address"), p.hiddenAddress ? `Сейчас… точнее так: ${p.hiddenAddress}` : p.visibleAddress);
     else if (topic === "name") say(byKey("name"), `${p.fullName}.`);
