@@ -1,10 +1,17 @@
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { db } from "../db";
 import { getSetting } from "../settings";
 import { pruneBackups, runBackup } from "./backup";
 
+// Built into the Docker image from prisma/demo-reset.ts; absent in development.
+const DEMO_RESET_SCRIPT = path.join(/*turbopackIgnore: true*/ process.cwd(), "dist", "demo-reset.js");
+
 const TICK_MS = 60_000;
 let started = false;
 let lastBackupDay = "";
+let lastDemoResetDay = "";
 let lastHousekeeping = 0;
 
 /** Background jobs inside the app process: daily backup, backup rotation, audit retention. */
@@ -25,6 +32,19 @@ async function tick() {
     });
     lastBackupDay = today;
     if (!done) await runBackup("scheduled");
+  }
+
+  if (process.env.DEMO_MODE === "true" && lastDemoResetDay !== today) {
+    const resetAt = await getSetting("demo.resetAt", "04:30");
+    if (hhmm >= resetAt) {
+      lastDemoResetDay = today;
+      if (existsSync(/*turbopackIgnore: true*/ DEMO_RESET_SCRIPT)) {
+        execFile("node", [DEMO_RESET_SCRIPT], { timeout: 10 * 60_000 }, (err, stdout, stderr) => {
+          if (err) console.error("demo reset failed", err, stderr);
+          else console.log(stdout.trim());
+        });
+      }
+    }
   }
 
   if (Date.now() - lastHousekeeping > 3_600_000) {

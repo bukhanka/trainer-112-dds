@@ -710,8 +710,8 @@ async function buildLive(ctx: Ctx, groupId: string, fx: Map<string, Fx>) {
 // ─── main ────────────────────────────────────────────────────────────────────
 const TICKETS = ["Б30-3", "Б2-1", "Б31-3", "Б5-1", "Б1-1", "Б26-1", "Б32-2", "Б4-1", "Б11-1", "Б29-1", "Б17-1"];
 
-async function main() {
-  const live = process.argv.includes("--live");
+/** Rebuilds the demo lessons (fixed ids) from the approved ticket scenarios. */
+export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const teacher = await db.user.findUnique({ where: { login: "teacher" } });
   const group = await db.group.findFirst({ where: { name: "Учебная группа № 1" } });
   const serviceRows = await db.service.findMany({ select: { id: true, shortName: true, delivery: true } });
@@ -785,9 +785,15 @@ async function main() {
   console.log(`seed-demo: lesson 1 — ${l1.attempts} attempts, lesson 2 — ${l2.attempts} attempts, draft lesson 3${live ? ", live lesson" : ""}`);
 }
 
-main()
-  .catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-  })
-  .finally(() => db.$disconnect());
+export function disconnectDemo() {
+  return db.$disconnect();
+}
+
+if (require.main === module) {
+  seedDemo({ live: process.argv.includes("--live") })
+    .catch((err) => {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    })
+    .finally(() => db.$disconnect());
+}

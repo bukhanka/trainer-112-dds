@@ -12,16 +12,18 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm exec prisma generate \
  && pnpm build \
- && pnpm exec esbuild prisma/seed.ts --bundle --platform=node --target=node22 \
-      --outfile=dist/seed.js --external:@prisma/client --external:.prisma/client
+ && for f in seed seed-demo demo-reset; do \
+      pnpm exec esbuild prisma/$f.ts --bundle --platform=node --target=node22 \
+        --outfile=dist/$f.js --external:@prisma/client --external:.prisma/client || exit 1; \
+    done
 
 FROM node:22-alpine AS runner
 # pg_dump for backups; Prisma CLI (with its own dependencies) for migrations at start.
-RUN apk add --no-cache postgresql16-client \
+RUN apk add --no-cache postgresql16-client tzdata \
  && npm install -g prisma@6.19.3 \
  && npm cache clean --force
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 BACKUP_DIR=/backups
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 BACKUP_DIR=/backups TZ=Europe/Moscow
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
