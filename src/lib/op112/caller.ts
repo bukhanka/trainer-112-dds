@@ -10,7 +10,7 @@
 import { z } from "zod";
 import type { CallerPersona } from "@/lib/incident/types";
 import { chat, chatJson, type ChatMessage } from "@/lib/ai/provider";
-import { askedTopics, bestFactByWords, expandRevealed, factCards, low } from "./facts";
+import { askedTopics, bestFactByWords, evidenced, expandRevealed, factCards, low } from "./facts";
 import type { CallLine, FactCard, FactTopic } from "./types";
 
 export type Persona = CallerPersona & { factCards?: FactCard[] };
@@ -115,7 +115,7 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
     if (err instanceof Error && /invalid JSON/i.test(err.message)) {
       try {
         const text = await withTimeout(chat(messages, { temperature: 0.6, maxTokens: 200 }), REPLY_TIMEOUT_MS);
-        if (text.trim()) return { text: text.trim(), revealed: expandRevealed(guessRevealed(text, cards), cards) };
+        if (text.trim()) return { text: text.trim(), revealed: guessRevealed(text, cards) };
       } catch {
         /* fall through to the rules */
       }
@@ -155,7 +155,7 @@ function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): 
   const keys = new Set(cards.map((c) => c.key));
   const text = out.reply.replace(/^\s*["«]|["»]\s*$/g, "").trim();
   // A model that ignored the «revealed» field gets its disclosures guessed from the words it used.
-  if (!out.revealed) return { text, revealed: expandRevealed(guessRevealed(text, cards), cards) };
+  if (!out.revealed) return { text, revealed: guessRevealed(text, cards) };
   const groups = new Set(cards.map((c) => c.group).filter(Boolean));
   return { text, revealed: expandRevealed(out.revealed.filter((k) => keys.has(k) || groups.has(k)), cards) };
 }
@@ -170,7 +170,7 @@ function guessRevealed(text: string, cards: FactCard[]): string[] {
         .filter((w) => w.length >= 5 || /^\d{2,}$/.test(w));
       if (!words.length) return false;
       const hits = words.filter((w) => t.includes(w.slice(0, Math.max(4, w.length - 2)))).length;
-      return hits >= Math.min(2, words.length);
+      return hits >= Math.min(2, words.length) && evidenced(c, text);
     })
     .map((c) => c.key);
 }
@@ -201,7 +201,7 @@ export function mockOpening(p: Persona): CallerReply {
 
 /** Ticket facts the caller's own words already contain (the situation often names a few). */
 function factsIn(text: string, cards: FactCard[]): string[] {
-  return expandRevealed(guessRevealed(text, cards.filter((c) => c.group)), cards);
+  return guessRevealed(text, cards.filter((c) => c.group));
 }
 
 const UNKNOWN: Partial<Record<FactTopic, string>> = {

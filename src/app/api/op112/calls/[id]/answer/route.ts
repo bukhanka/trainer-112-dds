@@ -25,30 +25,34 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/op112/calls/[i
   const now = new Date();
   const line: CallLine = { role: "counterpart", text: opening.text, at: now.toISOString(), revealed: opening.revealed };
 
-  // Only one answer wins if the button is pressed twice.
-  const claimed = await db.call.updateMany({ where: { id: call.id, status: "RINGING" }, data: { status: "ACTIVE", answeredAt: now } });
-  if (claimed.count === 0) return Response.json(await buildState(user));
-
-  const incident = await db.incident.create({
-    data: {
-      lessonId: call.seat.lessonId,
-      scenarioId: cp.scenarioId ?? null,
-      source: "op112",
-      createdBySeatId: call.seat.id,
-      operatorNo: operatorNumber(user.login),
-      armNo: armNumber(call.seat),
-      status: "draft",
-      caller: { aon: cp.phone ?? "", channel: channelOf(cp.phone ?? "") },
-      address: { subject: "Москва" },
-      flags: {},
-      tags: [],
-      description: "",
-      openedAt: now,
-    },
+  // Only one answer wins if the button is pressed twice; the card and the call are linked in one step.
+  const seat = call.seat;
+  const answered = await db.$transaction(async (tx) => {
+    const claimed = await tx.call.updateMany({ where: { id: call.id, status: "RINGING" }, data: { status: "ACTIVE", answeredAt: now } });
+    if (claimed.count === 0) return false;
+    const incident = await tx.incident.create({
+      data: {
+        lessonId: seat.lessonId,
+        scenarioId: cp.scenarioId ?? null,
+        source: "op112",
+        createdBySeatId: seat.id,
+        operatorNo: operatorNumber(user.login),
+        armNo: armNumber(seat),
+        status: "draft",
+        caller: { aon: cp.phone ?? "", channel: channelOf(cp.phone ?? "") },
+        address: { subject: "Москва" },
+        flags: {},
+        tags: [],
+        description: "",
+        openedAt: now,
+      },
+    });
+    await tx.call.update({
+      where: { id: call.id },
+      data: { incidentId: incident.id, messages: [line] as unknown as Prisma.InputJsonValue },
+    });
+    return true;
   });
-  await db.call.update({
-    where: { id: call.id },
-    data: { incidentId: incident.id, messages: [line] as unknown as Prisma.InputJsonValue },
-  });
+  if (!answered) return Response.json(await buildState(user));
   return Response.json(await buildState(user));
 }

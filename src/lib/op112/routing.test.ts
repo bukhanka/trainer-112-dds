@@ -94,10 +94,23 @@ describe("address suggestions", () => {
     expect(suggestAddress("дубин").some((s) => /Дубининская/.test(s.address.street ?? ""))).toBe(true);
   });
 
-  it("tells look-alike streets from the same street written differently", () => {
+  it("tells another kind of street and typos from the same street written differently", () => {
     expect(compareStreets("ул. Грина", "улица Грина")).toBe("same");
-    expect(compareStreets("Дубнинская улица", "Дубининская улица")).toBe("lookalike");
     expect(compareStreets("Коломенская улица", "Коломенская набережная")).toBe("lookalike");
+    expect(compareStreets("Грин", "улица Грина")).toBe("typo");
+    expect(compareStreets("Киевская улица", "МЖД Киевская 1 км")).toBe("other");
     expect(compareStreets("Тверская улица", "улица Грина")).toBe("other");
+  });
+});
+
+describe("address suggestions keep the answer hidden", () => {
+  it("never suggests the house of a ticket the operator did not type", () => {
+    for (const q of ["грина", "киевская", "дмитровское"]) {
+      for (const s of suggestAddress(q)) {
+        expect(s.address.house).toBeUndefined();
+        expect(s.address.structure).toBeUndefined();
+      }
+    }
+    expect(suggestAddress("электронный рай")).toEqual([]);
   });
 });

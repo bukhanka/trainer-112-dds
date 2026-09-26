@@ -12,7 +12,7 @@ import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller, type Incide
 import { compareStreets as compareKnownStreets } from "@/lib/routing/address";
 import type { CriterionResult, WeightGroup } from "@/lib/scoring/score";
 import { findKind, kindTitle } from "./catalog";
-import { factCards, findAsked, low, normalizeQuestion } from "./facts";
+import { evidenced, factCards, findAsked, keywordRegex, low, normalizeQuestion } from "./facts";
 import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./gazetteer";
 import type { Persona } from "./caller";
 import type { ServiceLite } from "./routing";
@@ -43,6 +43,8 @@ export type EvalInput = {
   catalog: ServiceLite[];
   /** «Класс.» names for the leaves on the card and in the reference */
   typeNames: Record<number, string>;
+  /** flags the chosen panels can set at all (top buttons included); absent — any flag */
+  settableFlags?: string[];
 };
 
 // ─── Reference answer ────────────────────────────────────────────────────────
@@ -143,14 +145,18 @@ const FLAG_TITLE: Record<string, string> = {
   traffic: "Перекрытие движения",
 };
 
-/** A look-alike street is critical; a street written differently («ул. Грина» / «улица Грина») is fine. */
-export function streetVerdict(filled: string | undefined, truth: string): "same" | "lookalike" | "other" | "empty" {
+/**
+ * A known look-alike street («Дубнинская» for «Дубининская») or the same name of another kind of
+ * street is critical: the crew goes to another part of the city. A typo is a plain mistake.
+ */
+export function streetVerdict(filled: string | undefined, truth: string): "same" | "lookalike" | "typo" | "other" | "empty" {
   if (!filled?.trim()) return "empty";
   const known = compareKnownStreets(filled, truth);
   if (known.verdict === "same") return "same";
-  if (known.verdict === "confusable") return "lookalike";
+  if (known.verdict === "confusable" && known.pair) return "lookalike";
   const own = compareOwnStreets(filled, truth);
-  return own === "empty" ? "other" : own;
+  if (own === "same" || own === "lookalike") return own;
+  return known.verdict === "confusable" || own === "typo" ? "typo" : "other";
 }
 
 function tagMatches(card: EvalCard, row: string, value: string): boolean {
@@ -171,7 +177,29 @@ function filledTag(card: EvalCard, row: string): string {
 
 function descriptionMisses(description: string, keywords: string[]): string[] {
   const d = low(description);
-  return keywords.filter((k) => !new RegExp(k, "i").test(d));
+  return keywords.filter((k) => !(keywordRegex(k)?.test(d) ?? false));
+}
+
+/** Flags of the three top buttons: an unpressed button means «нет». */
+const TOP = new Set(["victims", "refusedAmbulance", "noAccess"]);
+
+/**
+ * Does the card hold this flag value? «Нет» on a panel row must be chosen explicitly: a row nobody
+ * answered is not «нет газа», and «Нет данных» is not «нет» either.
+ */
+function flagHolds(card: EvalCard, flag: keyof IncidentFlags, value: boolean): boolean {
+  const filled = card.flags[flag];
+  if (value) return filled === true;
+  if (TOP.has(flag)) return !filled;
+  if (flag === "gas" && card.tags.some((t) => t.row === "Проведена ли газификация" && t.value === "Нет данных")) return false;
+  return filled === false;
+}
+
+function flagText(card: EvalCard, flag: keyof IncidentFlags): string {
+  const v = card.flags[flag];
+  if (v === true) return "да";
+  if (v === false) return "нет";
+  return TOP.has(flag) ? "нет" : "не отмечено";
 }
 
 // ─── Rule checks ─────────────────────────────────────────────────────────────
@@ -224,6 +252,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
         evidence: [
           verdict === "empty" ? "Улица не заполнена" : `В карточке: ${quote(f.street ?? "")}`,
           verdict === "lookalike" ? "Похожее название, но это другая улица — бригада уедет не туда" : "",
+          verdict === "typo" ? "Название улицы записано с ошибкой" : "",
           said,
         ]
           .filter(Boolean)
@@ -293,15 +322,19 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     });
   }
 
-  // Flags of the reference the caller did not speak about (what was said is checked below).
+  // Flags of the reference. What the caller said is checked below; a fact the caller never said is
+  // the missed question, not a wrong flag; a flag no chosen panel can set is «не применимо».
+  const flagFacts = facts.filter((f) => f.expect?.kind === "flag");
   const saidFlags = new Set(
     [...revealed.values()].filter((r) => r.fact.expect?.kind === "flag").map((r) => (r.fact.expect as { flag: string }).flag),
   );
   for (const [key, value] of Object.entries(truth?.flags ?? {})) {
     if (typeof value !== "boolean" || saidFlags.has(key)) continue;
-    const filled = Boolean(card.flags[key as keyof IncidentFlags]);
-    add(`op112.flag.${key}`, "services", `Флаг «${FLAG_TITLE[key] ?? key}»`, filled === value, {
-      evidence: `В карточке: ${yesNo(filled)}`,
+    if (flagFacts.some((f) => (f.expect as { flag: string }).flag === key)) continue;
+    const flag = key as keyof IncidentFlags;
+    const settable = !input.settableFlags || TOP.has(key) || input.settableFlags.includes(key);
+    add(`op112.flag.${key}`, "services", `Флаг «${FLAG_TITLE[key] ?? key}»`, settable ? flagHolds(card, flag, value) : null, {
+      evidence: settable ? `В карточке: ${flagText(card, flag)}` : "В выбранной опросной карте такой строки нет",
       expected: yesNo(value),
     });
   }
@@ -368,9 +401,10 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     const title = `Сказал ↔ заполнил: ${fact.label}`;
     const code = `op112.said.${fact.key}`;
     if (e.kind === "flag") {
-      const filled = Boolean(card.flags[e.flag]);
-      add(code, "services", title, filled === e.value, {
-        evidence: `${said} → в карточке «${FLAG_TITLE[e.flag] ?? e.flag}»: ${yesNo(filled)}`,
+      const settable = !input.settableFlags || TOP.has(e.flag) || input.settableFlags.includes(e.flag);
+      // A flag the chosen panel has no row for has to be written in the description instead.
+      add(code, "services", title, settable ? flagHolds(card, e.flag, e.value) : evidenced(fact, card.description), {
+        evidence: `${said} → в карточке «${FLAG_TITLE[e.flag] ?? e.flag}»: ${flagText(card, e.flag)}`,
         expected: `«${FLAG_TITLE[e.flag] ?? e.flag}»: ${yesNo(e.value)}`,
       });
     } else if (e.kind === "tag") {

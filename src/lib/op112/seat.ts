@@ -39,6 +39,26 @@ export async function findActiveSeat(userId: string, sessionId: string | null): 
   return seats.find((s) => !isSelfTraining(s.lesson.settings)) ?? seats[0] ?? null;
 }
 
+/**
+ * A place whose lesson the teacher has already stopped but where a card is still open: the operator
+ * finishes it (save, «отработана», review) instead of losing it.
+ */
+export async function findSeatWithOpenCard(userId: string, sessionId: string | null): Promise<Op112Seat | null> {
+  const seats = (
+    await db.seat.findMany({
+      where: { studentId: userId, role: "OP112", lesson: { status: "FINISHED" } },
+      include: { lesson: true },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    })
+  ).filter((s) => seatVisibleTo(s, sessionId));
+  for (const seat of seats) {
+    const open = await db.incident.count({ where: { createdBySeatId: seat.id, status: { in: ["draft", "registered"] } } });
+    if (open) return seat;
+  }
+  return null;
+}
+
 /** Whether the user sits at a ДДС place of a running lesson (the 112 screen then points there). */
 export async function hasDdsSeat(userId: string): Promise<boolean> {
   const n = await db.seat.count({ where: { studentId: userId, role: "DDS", lesson: { status: "RUNNING" } } });

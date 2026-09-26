@@ -47,6 +47,7 @@ export function CardScreen(p: {
   incident: IncidentDto;
   call: CallDto | null;
   apply: (s: Op112State) => void;
+  refresh: () => void;
   notify: Notify;
   onClosed: (incidentId: string, number: number) => void;
 }) {
@@ -69,15 +70,19 @@ export function CardScreen(p: {
   const now = tick ? tick + state.clockOffset : Date.parse(state.serverNow);
 
   // Autosave of the draft, so a reload or a teacher's screen sees the card as it is being filled.
+  const { refresh } = p;
   useEffect(() => {
     if (readOnly) return;
     const t = setTimeout(() => {
       send<{ savedAt: string }>(`/api/op112/incidents/${incident.id}`, { draft }, "PATCH")
         .then((r) => setLastSave(r.savedAt))
-        .catch(() => undefined);
+        .catch((e) => {
+          // The card was saved or closed elsewhere (another tab): show it as it is now.
+          if (e instanceof ApiError && e.status === 409) refresh();
+        });
     }, 700);
     return () => clearTimeout(t);
-  }, [draft, readOnly, incident.id]);
+  }, [draft, readOnly, incident.id, refresh]);
 
   // Plates picked by the system for the card as it is now.
   const { cards, answers, flags, address } = draft;

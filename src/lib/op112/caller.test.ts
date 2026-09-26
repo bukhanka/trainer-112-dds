@@ -109,3 +109,34 @@ describe("facts of the tickets", () => {
     expect(statusOfRole("хозяйка дома")).toBeUndefined();
   });
 });
+
+describe("what counts as said", () => {
+  it("a shared word is not enough: the needed value must be in the line", async () => {
+    const { mockOpening: open } = await import("./caller");
+    const p: Persona = {
+      ...persona,
+      situation: "У нас в подъезде дым идёт из мусоропровода, весь этаж задымлён.",
+      facts: ["Дом 17 этажей, заявитель на 7-м, подъезд 3, домофон 68"],
+    };
+    const floors = factCards(p).find((c) => c.topic === "floors")!;
+    expect(open(p).revealed).not.toContain(floors.key);
+  });
+
+  it("does not take «магазин» for gas or «строение» for people", () => {
+    expect(askedTopics("В каком магазине горит?")).not.toContain("gas");
+    expect(topicsOfFact("Точный адрес: строение 2")).not.toContain("people");
+  });
+
+  it("keeps the exact address out of the facts", () => {
+    const p: Persona = { ...persona, facts: [...persona.facts, "Точный адрес знает только если спросить: ул. Грина, дом 11"] };
+    expect(factCards(p).some((c) => /Грина, дом 11/.test(c.text) && c.group)).toBe(false);
+  });
+
+  it("maps harder roles right", () => {
+    expect(statusOfRole("сама себе")).toBe("пострадавший");
+    expect(statusOfRole("потерпевшая")).toBe("пострадавший");
+    expect(statusOfRole("мама ребёнка")).toBe("родственник");
+    expect(statusOfRole("медсестра")).toBeUndefined();
+    expect(statusOfRole("мужчина с собакой")).toBe("очевидец");
+  });
+});

@@ -18,7 +18,7 @@ const ASK: Record<Topic, RegExp> = {
   phone: /телефон|номер для связи|перезвонить|контактн/,
   status: /кем (вы|приход)|вы (сами )?(пострадав|очевид|родствен|участник|житель|хозя)|вы (там|на месте|рядом)|кто вы (ему|ей)/,
   victims: /пострадав|ранен|травм|жертв|живы|кто-(то|нибудь) (есть|внутри|пострадал)|люди (есть|внутри|в доме|в квартире|в автобусе|в машине)|есть ли люди|нужна (ли )?скорая|медицинск|состояние/,
-  gas: /газ/,
+  gas: /(^|[^а-я])газ(?!он|ет|ел)/,
   floors: /этаж/,
   access: /доступ|проехать|подъехать|проезд|ворота|шлагбаум|заблокир|открыт[а-яa-z]* (дверь|подъезд)|попасть/,
   threat: /угроз|угрожа|опасн|распростран|перекин|соседн|эвакуац/,
@@ -28,7 +28,7 @@ const ASK: Record<Topic, RegExp> = {
   breathing: /дыш/,
   weapon: /оруж|вооруж|нож|бит[аыу]|пистолет|стреля/,
   people: /сколько (человек|людей|их|участник)|сколько народ/,
-  object: /предмет|как выглядит|приметы|марк[а-яa-z]* (машин|автомоб)|номер (машин|автомоб|маршрут)|бортов|госномер/,
+  object: /предмет|как выглядит|приметы|(^|[^а-я])марк(а|и|у|ой)? (машин|автомоб)|номер (машин|автомоб|маршрут)|бортов|госномер/,
 };
 
 export const TOPIC_LABEL: Record<FactTopic, string> = {
@@ -112,7 +112,7 @@ export function normalizeQuestion(q: RequiredQuestion | string): RequiredQuestio
  */
 export function findAsked(q: RequiredQuestion, operatorLines: string[]): string | undefined {
   if (q.keywords?.length) {
-    const res = q.keywords.map((k) => new RegExp(k, "i"));
+    const res = q.keywords.map(safeRegex).filter((re): re is RegExp => Boolean(re));
     return operatorLines.find((l) => res.some((re) => re.test(low(l))));
   }
   const topics = [...new Set([...(q.topic && q.topic !== "other" ? [q.topic] : []), ...questionTopics(q.text)])].filter(
@@ -127,7 +127,11 @@ export function findAsked(q: RequiredQuestion, operatorLines: string[]): string 
 }
 
 export function askedAbout(topic: FactTopic, operatorLines: string[], keywords?: string[]): boolean {
-  const res = keywords?.length ? keywords.map((k) => new RegExp(k, "i")) : topic === "other" ? [] : [ASK[topic]];
+  const res = keywords?.length
+    ? keywords.map(safeRegex).filter((re): re is RegExp => Boolean(re))
+    : topic === "other"
+      ? []
+      : [ASK[topic]];
   return operatorLines.some((line) => res.some((re) => re.test(low(line))));
 }
 
@@ -137,7 +141,7 @@ export function askedAbout(topic: FactTopic, operatorLines: string[], keywords?:
 export function topicsOfFact(text: string): Topic[] {
   const t = low(text);
   const out: Topic[] = [];
-  if (/газ(?!ел)|газиф|магистрал|баллон/.test(t)) out.push("gas");
+  if (/(^|[^а-я])газ(?!он|ет|ел)|магистрал|баллон/.test(t)) out.push("gas");
   if (/\d+\s*-?\s*(этаж|эт(?![а-я]))|этажн[а-яa-z]*\s*[-–—:]?\s*\d/.test(t)) out.push("floors");
   if (/пострадав|ранен|травм|ожог|кров|без сознан/.test(t)) out.push("victims");
   if (/сознани|без сознан/.test(t)) out.push("consciousness");
@@ -147,14 +151,19 @@ export function topicsOfFact(text: string): Topic[] {
   if (/\d+\s*(лет|год)/.test(t)) out.push("age");
   if (/дыш/.test(t)) out.push("breathing");
   if (/оруж|бит[аыу]|нож|палк|вооруж/.test(t)) out.push("weapon");
-  if (/\d+\s*(человек|мужчин|женщин)|двое|трое|группа|\d+[–-]\d+ (человек|молод)/.test(t)) out.push("people");
-  if (/коробк|сумк|предмет|маршрут|бортов|госномер|номер [а-я]\s?\d|марк|цвет/.test(t)) out.push("object");
+  if (/\d+\s*(человек|мужчин|женщин)|(^|[^а-я])(двое|трое|группа)([^а-я]|$)|\d+[–-]\d+ (человек|молод)/.test(t)) out.push("people");
+  if (/коробк|сумк|предмет|маршрут|бортов|госномер|номер [а-я]\s?\d|(^|[^а-я])марк(а|и|у|ой)?([^а-я]|$)|цвет/.test(t)) out.push("object");
   return out;
 }
 
 /** Back-compat for callers that need one topic. */
 export function topicOfFact(text: string): FactTopic {
   return topicsOfFact(text)[0] ?? "other";
+}
+
+/** Ticket lines that only restate the exact address for the trainer; the persona's hiddenAddress covers them. */
+export function isAddressNote(text: string): boolean {
+  return /^\s*(точный адрес|при уточнении|адрес при уточнении)/i.test(text);
 }
 
 /** What the caller says out loud: the ticket's notes for the trainer are cut off. */
@@ -209,15 +218,18 @@ export function expectationOfFact(topic: FactTopic, text: string): FactExpectati
 
 /** Map the ticket role («мама», «сосед», «работник АЗС») to one of the 6 caller statuses; unclear roles → none. */
 export function statusOfRole(role: string | undefined): CallerStatus | undefined {
-  const r = low(role ?? "");
-  if (!r) return undefined;
-  if ((CALLER_STATUSES as readonly string[]).includes(r)) return r as CallerStatus;
-  if (/ребен|ребён|школьн/.test(r)) return "ребёнок";
-  if (/мама|папа|мать|отец|муж|жена|супруг|сын|дочь|брат|сестр|бабушк|дедушк|родств|внук|внучк/.test(r)) return "родственник";
-  if (/сосед|знаком|друг|подруг|коллег/.test(r)) return "знакомый";
-  if (/пострадав|сам себе|вызывает себе/.test(r)) return "пострадавший";
-  if (/водител|участник/.test(r)) return "участник";
-  if (/житель|хозя|владел|работник|сотрудник/.test(r)) return undefined;
+  const r = ` ${low(role ?? "").replace(/[^а-яa-z]+/g, " ")} `;
+  if (!r.trim()) return undefined;
+  const has = (words: string) => new RegExp(` (${words}) `).test(r);
+  if ((CALLER_STATUSES as readonly string[]).includes(r.trim())) return r.trim() as CallerStatus;
+  if (has("сам|сама|сами") && has("себе") || /потерпевш|пострадавш/.test(r) || has("вызывает себе")) return "пострадавший";
+  if (has("мама|мать|папа|отец|муж|мужа|жена|супруг|супруга|сын|дочь|дочка|брат|сестра|бабушка|дедушка|внук|внучка|родственник|родственница|свекровь|тёща|теща")) {
+    return "родственник";
+  }
+  if (has("ребенок|ребёнок|школьник|школьница|подросток|девочка|мальчик")) return "ребёнок";
+  if (has("сосед|соседка|знакомый|знакомая|друг|подруга|коллега")) return "знакомый";
+  if (has("водитель|участник|участница")) return "участник";
+  if (/житель|хозя|владел|работник|сотрудник|медсестр|охранник|продав/.test(r)) return undefined;
   return "очевидец";
 }
 
@@ -249,6 +261,7 @@ export function factCards(persona: PersonaExtra): FactCard[] {
   }
   (persona.facts ?? []).forEach((raw, i) => {
     const group = `fact${i + 1}`;
+    if (isAddressNote(raw)) return;
     const text = spokenFact(raw);
     if (!text) return;
     const topics = topicsOfFact(raw);
@@ -283,4 +296,39 @@ export function bestFactByWords(question: string, cards: FactCard[]): FactCard |
     }
   }
   return best;
+}
+
+/** A regex from reference data; a broken pattern matches nothing instead of failing the review. */
+export function safeRegex(source: string): RegExp | null {
+  try {
+    return new RegExp(source, "i");
+  } catch {
+    return null;
+  }
+}
+
+/** Whole-number keywords must match as numbers: «54» is not inside «Р254ТС». */
+export function keywordRegex(keyword: string): RegExp | null {
+  return /^\d+$/.test(keyword) ? new RegExp(`(^|\\D)${keyword}(\\D|$)`) : safeRegex(keyword);
+}
+
+const FLAG_EVIDENCE: Partial<Record<string, RegExp>> = {
+  gas: /газиф|магистрал|баллон|газа (в [а-я ]+)?нет|без газа|электроплит|газов/,
+  victims: /пострада|ранен|травм|ожог|без сознан|кров/,
+  threat: /угроз|угрожа|на помощь|помощи прос|кричат|перекин|распростран/,
+  noAccess: /заблок|доступ|не открыва|закрыт/,
+};
+
+/**
+ * Does a line of the caller really state this fact? Shared words are not enough: the value the card
+ * needs (a number, a gas word, the victims) must be in the line as well.
+ */
+export function evidenced(card: FactCard, text: string): boolean {
+  const t = low(text);
+  const e = card.expect;
+  if (!e) return true;
+  if (e.kind === "tag") return /^\d+$/.test(e.value) ? (keywordRegex(e.value)?.test(t) ?? false) : t.includes(low(e.value).slice(0, 6));
+  if (e.kind === "flag") return FLAG_EVIDENCE[e.flag]?.test(t) ?? true;
+  if (e.kind === "description") return e.keywords.every((k) => keywordRegex(k)?.test(t) ?? false);
+  return true;
 }

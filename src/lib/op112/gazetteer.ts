@@ -34,19 +34,15 @@ type KnownAddress = {
 };
 type Pair = { a: string; aDistrict: string | null; aOkrug: string | null; b: string; bDistrict: string | null; bOkrug: string | null };
 
-/** Addresses of the training tickets with their district (reference data), then the look-alike streets. */
+/**
+ * Streets of the training tickets with their district (reference data), then the look-alike streets.
+ * Only the street: the house, corpus and building of a ticket are the answer the operator has to get
+ * from the caller, so they never come from the suggestions.
+ */
 const KNOWN: Place[] = [
   ...(addressesJson as { addresses: KnownAddress[] }).addresses
-    .filter((a) => a.street)
-    .map((a) => ({
-      street: a.street!,
-      house: a.house ?? undefined,
-      building: a.building ?? undefined,
-      structure: a.structure ?? undefined,
-      object: a.object ?? undefined,
-      district: a.district,
-      okrug: a.okrug,
-    })),
+    .filter((a) => a.street && !/корп\.|,/.test(a.street))
+    .map((a) => ({ street: a.street!, district: a.district, okrug: a.okrug })),
   ...(confusableJson as { pairs: Pair[] }).pairs.flatMap((p) => [
     { street: p.a, district: p.aDistrict ?? undefined, okrug: p.aOkrug ?? undefined },
     { street: p.b, district: p.bDistrict ?? undefined, okrug: p.bOkrug ?? undefined },
@@ -74,6 +70,7 @@ const OWN: Place[] = [
   MSK("Кутузовский проспект", "Дорогомилово", "ЗАО"),
   MSK("Большая Дорогомиловская улица", "Дорогомилово", "ЗАО"),
   MSK("площадь Киевского Вокзала", "Дорогомилово", "ЗАО"),
+  MSK("Киевская улица", "Дорогомилово", "ЗАО"),
   { ...MSK("МЖД Киевское направление 1-й км", "Дорогомилово", "ЗАО"), source: "ФИАС" },
   MSK("Ярцевская улица", "Кунцево", "ЗАО"),
   MSK("Рублёвское шоссе", "Кунцево", "ЗАО"),
@@ -214,16 +211,17 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** same — the same street; lookalike — a different street that is easy to confuse; other — unrelated. */
-export function compareStreets(filled: string | undefined, truth: string | undefined): "same" | "lookalike" | "other" | "empty" {
+/**
+ * same — the same street written differently; lookalike — the same name but another kind of street
+ * (Коломенская улица / набережная); typo — one or two letters off; other — a different street.
+ */
+export function compareStreets(filled: string | undefined, truth: string | undefined): "same" | "lookalike" | "typo" | "other" | "empty" {
   if (!filled?.trim()) return "empty";
   if (!truth?.trim()) return "other";
   const f = parseStreet(filled);
   const t = parseStreet(truth);
   if (f.name === t.name) return !f.type || !t.type || f.type === t.type ? "same" : "lookalike";
-  const d = levenshtein(f.name, t.name);
-  if (d <= 2 && Math.min(f.name.length, t.name.length) >= 4) return "lookalike";
-  if (f.name.includes(t.name) || t.name.includes(f.name)) return "same";
+  if (levenshtein(f.name, t.name) <= 2 && Math.min(f.name.length, t.name.length) >= 4) return "typo";
   return "other";
 }
 
@@ -271,14 +269,14 @@ export function suggestAddress(query: string, limit = 8): AddressSuggestion[] {
   }
   if (!words.length) return [];
   const matches = places().filter((p) => {
-    const hay = clean(`${p.street} ${p.object ?? ""} ${p.city ?? ""}`);
+    const hay = clean(`${p.street} ${p.city ?? ""}`);
     return words.every((w) => (TYPE_WORDS[w] ? hay.includes(TYPE_WORDS[w]) || hay.includes(w) : hay.includes(w)));
-  }).filter((p) => !p.house || !house || normHouse(p.house) === normHouse(house));
+  });
   const out: AddressSuggestion[] = [];
   for (const p of matches) {
-    const h = house ?? p.house;
-    const b = building ?? p.building;
-    const st = structure ?? p.structure;
+    const h = house;
+    const b = building;
+    const st = structure;
     const address: IncidentAddress = {
       country: "Россия",
       subject: p.subject ?? "Москва",
@@ -287,11 +285,10 @@ export function suggestAddress(query: string, limit = 8): AddressSuggestion[] {
       house: h,
       building: b,
       structure: st,
-      object: p.object,
       okrug: p.okrug,
       district: p.district,
     };
-    const tail = [h && `д. ${h}`, b && `к. ${b}`, st && `стр. ${st}`, p.object].filter(Boolean).join(", ");
+    const tail = [h && `д. ${h}`, b && `к. ${b}`, st && `стр. ${st}`].filter(Boolean).join(", ");
     const where = p.district ? `${p.okrug}, р-н ${p.district}` : [p.subject, p.city, p.okrug].filter(Boolean).join(", ");
     const label = `${p.city && p.city !== "Москва" ? `${p.city}, ` : ""}${p.street}${tail ? `, ${tail}` : ""} — ${where}`;
     if (out.some((x) => x.label === label)) continue;

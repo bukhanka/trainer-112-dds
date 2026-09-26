@@ -146,6 +146,7 @@ function PhoneBlock(props: {
             id={props.id}
             value={props.value}
             placeholder="+7 (   )    -  -"
+            maxLength={40}
             readOnly={props.readOnly}
             inputMode="tel"
             onChange={(e) => props.onChange?.(formatPhone(e.target.value))}

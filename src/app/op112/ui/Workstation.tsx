@@ -77,11 +77,12 @@ export function Workstation() {
   } else if (state.incident) {
     body = (
       <CardScreen
-        key={state.incident.id}
+        key={`${state.incident.id}:${state.call?.id ?? ""}`}
         state={state}
         incident={state.incident}
         call={state.call}
         apply={apply}
+        refresh={refresh}
         notify={notify}
         onClosed={(id, number) => setReview({ id, number, next: true })}
       />

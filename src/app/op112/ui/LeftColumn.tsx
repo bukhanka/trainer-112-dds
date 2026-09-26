@@ -20,6 +20,7 @@ export function CallerRow(p: {
           id="op112-name"
           aria-label="Фамилия и имя заявителя"
           placeholder="Фамилия и имя заявителя"
+          maxLength={120}
           value={p.caller.fullName ?? ""}
           readOnly={p.readOnly}
           onChange={(e) => p.onChange({ fullName: capitalizeWords(e.target.value) })}
@@ -141,6 +142,7 @@ export function AddressBlock(p: {
           <input
             id="op112-address"
             aria-label="Поиск адреса"
+            maxLength={200}
             value={query}
             readOnly={p.readOnly}
             autoComplete="off"
@@ -197,18 +199,18 @@ export function AddressBlock(p: {
       </div>
       <div className="grid grid-cols-[1fr_1fr_1.4fr] gap-x-4 gap-y-2">
         <F label="Страна:">
-          <input className="arm-field" value={a.country ?? ""} readOnly={p.readOnly} onChange={(e) => set({ country: e.target.value })} />
+          <input className="arm-field" maxLength={60} value={a.country ?? ""} readOnly={p.readOnly} onChange={(e) => set({ country: e.target.value })} />
         </F>
         <F label="Субъект:">
-          <input className="arm-field" value={a.subject ?? ""} readOnly={p.readOnly} onChange={(e) => set({ subject: e.target.value })} />
+          <input className="arm-field" maxLength={80} value={a.subject ?? ""} readOnly={p.readOnly} onChange={(e) => set({ subject: e.target.value })} />
         </F>
         <F label="Населенный пункт:">
-          <input className="arm-field" value={a.city ?? ""} readOnly={p.readOnly} onChange={(e) => set({ city: e.target.value })} />
+          <input className="arm-field" maxLength={80} value={a.city ?? ""} readOnly={p.readOnly} onChange={(e) => set({ city: e.target.value })} />
         </F>
       </div>
       <div className="grid grid-cols-[1.6fr_1fr_1fr] gap-x-4">
         <F label="Объект:">
-          <input className="arm-field" value={a.object ?? ""} readOnly={p.readOnly} onChange={(e) => set({ object: e.target.value })} />
+          <input className="arm-field" maxLength={200} value={a.object ?? ""} readOnly={p.readOnly} onChange={(e) => set({ object: e.target.value })} />
         </F>
         <F label="Округ:">
           <select
@@ -243,36 +245,37 @@ export function AddressBlock(p: {
       </div>
       <div className="grid grid-cols-[2fr_1fr_1fr] gap-x-4">
         <F label="Улица:">
-          <input className="arm-field" value={a.street ?? ""} readOnly={p.readOnly} onChange={(e) => set({ street: e.target.value })} />
+          <input className="arm-field" maxLength={200} value={a.street ?? ""} readOnly={p.readOnly} onChange={(e) => set({ street: e.target.value })} />
         </F>
         <F label="Дом/Вл:">
-          <input className="arm-field" value={a.house ?? ""} readOnly={p.readOnly} onChange={(e) => set({ house: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.house ?? ""} readOnly={p.readOnly} onChange={(e) => set({ house: e.target.value })} />
         </F>
         <F label="Корпус:">
-          <input className="arm-field" value={a.building ?? ""} readOnly={p.readOnly} onChange={(e) => set({ building: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.building ?? ""} readOnly={p.readOnly} onChange={(e) => set({ building: e.target.value })} />
         </F>
       </div>
       <div className="grid grid-cols-5 gap-x-4">
         <F label="Стр/соор:">
-          <input className="arm-field" value={a.structure ?? ""} readOnly={p.readOnly} onChange={(e) => set({ structure: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.structure ?? ""} readOnly={p.readOnly} onChange={(e) => set({ structure: e.target.value })} />
         </F>
         <F label="Квартира/офис:">
-          <input className="arm-field" value={a.flat ?? ""} readOnly={p.readOnly} onChange={(e) => set({ flat: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.flat ?? ""} readOnly={p.readOnly} onChange={(e) => set({ flat: e.target.value })} />
         </F>
         <F label="Подъезд:">
-          <input className="arm-field" value={a.entrance ?? ""} readOnly={p.readOnly} onChange={(e) => set({ entrance: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.entrance ?? ""} readOnly={p.readOnly} onChange={(e) => set({ entrance: e.target.value })} />
         </F>
         <F label="Этаж:">
-          <input className="arm-field" value={a.floor ?? ""} readOnly={p.readOnly} onChange={(e) => set({ floor: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.floor ?? ""} readOnly={p.readOnly} onChange={(e) => set({ floor: e.target.value })} />
         </F>
         <F label="Код:">
-          <input className="arm-field" value={a.code ?? ""} readOnly={p.readOnly} onChange={(e) => set({ code: e.target.value })} />
+          <input className="arm-field" maxLength={40} value={a.code ?? ""} readOnly={p.readOnly} onChange={(e) => set({ code: e.target.value })} />
         </F>
       </div>
       <F label="Описательный адрес:">
         <textarea
           rows={2}
           className="arm-field resize-none"
+          maxLength={1000}
           value={a.descriptive ?? ""}
           readOnly={p.readOnly}
           onChange={(e) => set({ descriptive: e.target.value })}

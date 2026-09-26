@@ -6,7 +6,7 @@ import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incid
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
 import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, type EvalInput } from "./evaluate";
-import { regionOf, typeNames } from "./panels";
+import { regionOf, treesFor, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
 import { serviceCatalog } from "./services";
 import { selectServicesFromDb } from "@/lib/routing/engine";
@@ -24,6 +24,18 @@ export async function activeWeights(): Promise<Weights> {
     weights[g] = Number.isFinite(v) ? v : 1;
   }
   return weights;
+}
+
+/** Flags the chosen panels can set: rows with a flag and buttons that switch one on. */
+function settableFlags(trees: Record<string, { rows: { flag?: string; options?: { flag?: string }[] }[] }>): string[] {
+  const out = new Set<string>();
+  for (const tree of Object.values(trees)) {
+    for (const row of tree.rows) {
+      if (row.flag) out.add(row.flag);
+      for (const o of row.options ?? []) if (o.flag) out.add(o.flag);
+    }
+  }
+  return [...out];
 }
 
 /** Everything the checks need, loaded from the database. */
@@ -75,12 +87,34 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
     typingSec: lessonSettings(seat).typingSec,
     catalog,
     typeNames: await typeNames([...incident.typeCodes, ...(truth?.typeCodes ?? [])]),
+    settableFlags: settableFlags(await treesFor(cards)),
   };
   return { input, lessonId: incident.lessonId, seatId: seat.id, studentId: seat.studentId, scenarioId: incident.scenarioId };
 }
 
-/** Create the Attempt for a saved card. Model checks, if any, are left pending for runAiReview. */
+/**
+ * Create the Attempt for a saved card. Model checks, if any, are left pending for runAiReview.
+ * If the checks themselves fail, the attempt still appears (with a note), so the review never hangs.
+ */
 export async function gradeIncident(incidentId: string): Promise<{ attemptId: string; aiPending: boolean } | null> {
+  try {
+    return await grade(incidentId);
+  } catch (err) {
+    console.error("op112 grading failed", incidentId, err);
+    const incident = await db.incident.findUnique({ where: { id: incidentId }, select: { lessonId: true, createdBySeatId: true, scenarioId: true } });
+    const seat = incident?.createdBySeatId ? await db.seat.findUnique({ where: { id: incident.createdBySeatId } }) : null;
+    if (!incident?.lessonId || !seat) return null;
+    const note: CriterionResult[] = [
+      { code: "op112.grading", group: "completeness", title: "Автоматическая проверка не выполнилась", ok: null, evidence: "Оценку поставит преподаватель", source: "rule" },
+    ];
+    const attempt = await db.attempt.create({
+      data: { lessonId: incident.lessonId, seatId: seat.id, studentId: seat.studentId, kind: "OP112", incidentId, scenarioId: incident.scenarioId, criteria: note as unknown as Prisma.InputJsonValue, score: null },
+    });
+    return { attemptId: attempt.id, aiPending: false };
+  }
+}
+
+async function grade(incidentId: string): Promise<{ attemptId: string; aiPending: boolean } | null> {
   const loaded = await loadEvalInput(incidentId);
   if (!loaded) return null;
   const { input } = loaded;

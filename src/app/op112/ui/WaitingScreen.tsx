@@ -81,6 +81,8 @@ export function WaitingScreen(p: {
       p.apply(await send<Op112State>(`/api/op112/calls/${ringing.id}/answer`));
     } catch {
       p.notify("Не удалось принять вызов");
+    } finally {
+      // The screen switches to the card on success; if the call was gone, the button must work again.
       setAnswering(false);
     }
   };
@@ -135,7 +137,7 @@ export function WaitingScreen(p: {
           >
             {answering ? "Соединяем…" : "Принять"}
           </button>
-          <button type="button" onClick={decline} title="Отклонить" className="px-1 text-[22px] leading-none text-white/80 hover:text-white">
+          <button type="button" onClick={decline} disabled={answering} title="Отклонить" className="px-1 text-[22px] leading-none text-white/80 hover:text-white disabled:opacity-40">
             ×
           </button>
         </div>

@@ -110,6 +110,38 @@ export function ChatPanel(p: {
     if (heard.trim()) p.onSend(heard.trim());
   };
 
+  // Hold Space to talk — but not while Space types a space or presses a focused button of the card.
+  const talkRef = useRef(talk);
+  useEffect(() => {
+    talkRef.current = talk;
+  });
+  const held = useRef(false);
+  const canTalk = active && voice.canListen;
+  useEffect(() => {
+    if (!canTalk) return;
+    const busy = (el: EventTarget | null) =>
+      el instanceof HTMLElement &&
+      (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(el.tagName) || el.getAttribute("role") === "button");
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.repeat || held.current || e.altKey || e.ctrlKey || e.metaKey || busy(e.target)) return;
+      e.preventDefault();
+      held.current = true;
+      void talkRef.current();
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || !held.current) return;
+      e.preventDefault();
+      held.current = false;
+      stop();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [canTalk, stop]);
+
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [p.lines.length, p.pending]);
@@ -202,7 +234,7 @@ export function ChatPanel(p: {
 
       <div className="border-t border-[#dde1e3] p-2">
         <div className="mb-1.5 flex items-center gap-2">
-          <PushToTalk state={voice.state} onStart={talk} onStop={stop} disabled={!voice.canListen || !active || p.pending} />
+          <PushToTalk state={voice.state} onStart={talk} onStop={stop} disabled={!voice.canListen || !active || p.pending} spaceKey={false} />
           <span className="text-[11px] leading-tight text-arm-desc">
             {voice.canListen ? "или пробел, когда курсор не в поле" : "голосовой ввод недоступен — пишите текстом"}
           </span>
@@ -225,6 +257,7 @@ export function ChatPanel(p: {
           <textarea
             id="op112-chat"
             rows={2}
+            maxLength={1000}
             value={text}
             disabled={!active}
             placeholder={active ? "Ваш вопрос заявителю… (Enter — сказать)" : "Разговор не идёт"}

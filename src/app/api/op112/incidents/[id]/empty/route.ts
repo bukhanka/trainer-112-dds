@@ -16,13 +16,14 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
   const body = bodySchema.safeParse(await readJson(req));
   if (!body.success) return jsonError("bad_request", 400);
   const now = new Date();
-  const claimed = await db.incident.updateMany({
-    where: { id, status: "draft" },
-    data: { status: "empty", savedAt: now, workedAt: now, description: EMPTY_TEXT[body.data.reason] },
+  const claimed = await db.$transaction(async (tx) => {
+    const r = await tx.incident.updateMany({
+      where: { id, status: "draft" },
+      data: { status: "empty", savedAt: now, workedAt: now, description: EMPTY_TEXT[body.data.reason] },
+    });
+    if (r.count) await tx.call.updateMany({ where: { incidentId: id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+    return r.count > 0;
   });
-  if (claimed.count) {
-    await db.call.updateMany({ where: { incidentId: id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
-    await gradeIncident(id);
-  }
+  if (claimed) await gradeIncident(id);
   return Response.json(await buildState(user));
 }

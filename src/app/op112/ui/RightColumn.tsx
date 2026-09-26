@@ -258,6 +258,7 @@ function QuestionCardView(p: {
               {row.kind === "text" ? (
                 <input
                   aria-label={row.label}
+                  maxLength={300}
                   value={picked(p.answers, row.id)[0] ?? ""}
                   readOnly={p.readOnly}
                   onChange={(e) => change({ ...p.answers, [row.id]: e.target.value ? [e.target.value] : [] })}

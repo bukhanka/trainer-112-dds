@@ -36,9 +36,8 @@ const persona: Persona = {
   voice: "male",
 };
 
-const truth = normalizeTruth(
-  {
-    kind: "101",
+const truthRaw = {
+  kind: "101",
     typeCodes: [1010101],
     acceptableTypeCodes: [1010101, 1010102],
     finalType: "пожар: мусор",
@@ -58,9 +57,8 @@ const truth = normalizeTruth(
       "ФИО и статус заявителя, контактный телефон",
     ],
     traps: ["Ориентир «депо у вокзала» — не адрес"],
-  },
-  CATALOG,
-)!;
+};
+const truth = normalizeTruth(truthRaw, CATALOG)!;
 
 const at = "2026-09-26T10:00:00.000Z";
 const line = (role: CallLine["role"], text: string, revealed?: string[]): CallLine => ({ role, text, at, revealed });
@@ -126,12 +124,41 @@ describe("evaluateOp112Rules", () => {
     expect(computeScore(res, WEIGHTS)).toBe(100);
   });
 
-  it("marks a look-alike street as a critical mistake and caps the score", () => {
-    const res = evaluateOp112Rules(input({ street: "МЖД Киевская 2 км" }));
+  it("marks a known look-alike street as a critical mistake and caps the score", () => {
+    const base = input();
+    const lookalike = normalizeTruth({ ...truthRaw, address: { street: "Дубининская ул.", house: "2", district: "Даниловский", okrug: "ЮАО" } }, CATALOG)!;
+    const res = evaluateOp112Rules({
+      ...base,
+      truth: lookalike,
+      card: { ...base.card, address: { street: "Дубнинская ул.", house: "2", district: "Даниловский", okrug: "ЮАО" } },
+    });
     const street = byCode(res, "op112.address.street");
     expect(street?.ok).toBe(false);
     expect(street?.critical).toBe(true);
     expect(computeScore(res, WEIGHTS)).toBeLessThanOrEqual(40);
+  });
+
+  it("treats a typo in the street as a plain mistake", () => {
+    const street = byCode(evaluateOp112Rules(input({ street: "МЖД Киевская 2 км" })), "op112.address.street");
+    expect(street?.ok).toBe(false);
+    expect(street?.critical).toBeFalsy();
+  });
+
+  it("does not count an unanswered «нет» row as «нет»", () => {
+    const base = input();
+    const t = normalizeTruth({ ...truthRaw, flags: { threat: false } }, CATALOG)!;
+    const blank = byCode(evaluateOp112Rules({ ...base, truth: t }), "op112.flag.threat");
+    expect(blank?.ok).toBe(false);
+    const answered = input({ answers: { where: ["Улица"], signStreet: [FLAME], streetObject: ["Мусор"], threat: ["Нет"] } });
+    expect(byCode(evaluateOp112Rules({ ...answered, truth: t }), "op112.flag.threat")?.ok).toBe(true);
+  });
+
+  it("matches numbers as whole numbers in the description", () => {
+    const p2: Persona = { ...persona, facts: [...persona.facts, "Водителю 54 года, в сознании"] };
+    const age = factCards(p2).find((f) => f.topic === "age")!;
+    const messages = [...goodMessages, line("trainee", "Сколько лет водителю?"), line("counterpart", age.text, [age.key])];
+    const res = evaluateOp112Rules({ ...input({ messages, description: "Горит мусорный контейнер, рядом а/м Р254ТС99, пострадавших нет." }), persona: p2 });
+    expect(byCode(res, `op112.said.${age.key}`)?.ok).toBe(false);
   });
 
   it("quotes the caller when a said fact is missing from the card", () => {

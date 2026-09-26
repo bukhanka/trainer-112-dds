@@ -29,37 +29,41 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
   const operator = `оп. ${own.incident.operatorNo ?? ""}`.trim();
   const aon = (own.incident.caller as { aon?: string } | null)?.aon;
 
-  const claimed = await db.incident.updateMany({
-    where: { id, status: "draft" },
-    data: {
-      status: "registered",
-      savedAt: now,
-      caller: { ...d.caller, aon: aon ?? d.caller.aon },
-      address: d.address,
-      flags: resolved.flags,
-      tags: resolved.tags as unknown as Prisma.InputJsonValue,
-      typeCodes: resolved.typeCodes,
-      description: d.description,
-      descriptionLog: d.description.trim() ? [{ at: now.toISOString(), author: operator, text: d.description.trim() }] : [],
-    },
-  });
-  if (claimed.count === 0) return Response.json(await buildState(user));
-
-  for (const p of plates) {
-    await db.incidentService.create({
+  // Registration, plates and the end of the call go together: a failure leaves the draft as it was.
+  const registered = await db.$transaction(async (tx) => {
+    const claimed = await tx.incident.updateMany({
+      where: { id, status: "draft" },
       data: {
-        incidentId: id,
-        serviceId: p.serviceId,
-        isMain: p.isMain,
-        addedBy: p.auto ? "auto" : "manual",
-        status: "ADDED",
-        addedAt: now,
-        events: { create: { status: "ADDED", actorLabel: "оп. 0", at: now } },
+        status: "registered",
+        savedAt: now,
+        caller: { ...d.caller, aon: aon ?? d.caller.aon },
+        address: d.address,
+        flags: resolved.flags,
+        tags: resolved.tags as unknown as Prisma.InputJsonValue,
+        typeCodes: resolved.typeCodes,
+        description: d.description,
+        descriptionLog: d.description.trim() ? [{ at: now.toISOString(), author: operator, text: d.description.trim() }] : [],
       },
     });
-  }
-  // The conversation is over once the card is sent.
-  await db.call.updateMany({ where: { incidentId: id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+    if (claimed.count === 0) return false;
+    for (const p of plates) {
+      await tx.incidentService.create({
+        data: {
+          incidentId: id,
+          serviceId: p.serviceId,
+          isMain: p.isMain,
+          addedBy: p.auto ? "auto" : "manual",
+          status: "ADDED",
+          addedAt: now,
+          events: { create: { status: "ADDED", actorLabel: "оп. 0", at: now } },
+        },
+      });
+    }
+    // The conversation is over once the card is sent.
+    await tx.call.updateMany({ where: { incidentId: id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+    return true;
+  });
+  if (!registered) return Response.json(await buildState(user));
 
   const graded = await gradeIncident(id);
   if (graded?.aiPending) after(() => runAiReview(graded.attemptId));
