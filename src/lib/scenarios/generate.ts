@@ -149,7 +149,7 @@ export function readByRules(text: string): Extracted {
 
   // Sentence breaks, but not after address abbreviations like «ул.», «д.», «корп.».
   const sentences = t
-    .split(/(?<!(?:^|[\s,(])(?:ул|д|пр|пер|корп|стр|кв|г|пос|мкр|ст|м|им|обл|ш|наб|пл|р-н|пр-т|пр-д|б-р))(?<=[.!?])\s+(?=[А-ЯЁA-Z0-9])/)
+    .split(/(?<!(?:^|[\s,(])(?:ул|д|пр|пер|корп|стр|кв|г|пос|мкр|ст|м|им|обл|ш|наб|пл|р-н|пр-т|пр-д|б-р)\.)(?<=[.!?])\s+(?=[А-ЯЁA-Z0-9])/)
     .filter(Boolean);
   const visibleAddress = street ? `${street}${house ? `, ${house}` : ""}` : "не знаю точно, где-то рядом";
   return {
