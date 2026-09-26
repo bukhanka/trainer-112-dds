@@ -17,6 +17,7 @@ git clone <адрес репозитория> trainer && cd trainer
 cp .env.example .env
 # в .env: DEMO_MODE=true, LLM_* / STT_* / TTS_* — модели (пример для Google Vertex AI — в .env.example),
 # GOOGLE_KEY_FILE=/root/google-sa.json — ключ сервисного аккаунта на сервере (в контейнер монтируется только для чтения)
+# POSTGRES_PASSWORD=<случайный> и APP_PUBLISH=127.0.0.1:3000 — снаружи открыт только HTTPS
 SITE_ADDRESS=trainer.example.ru docker compose --profile app --profile https up -d --build
 ```
 

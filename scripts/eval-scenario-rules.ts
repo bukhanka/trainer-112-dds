@@ -1,3 +1,10 @@
+/**
+ * Accuracy of «Сценарий из текста» without a model: reads every ticket situation by rules and checks the
+ * incident type it finds against the ticket's reference type. Prints the score for approved tickets and
+ * for all of them (the numbers quoted in docs/methods.md).
+ *
+ *   pnpm exec tsx scripts/eval-scenario-rules.ts
+ */
 import { db } from "@/lib/db";
 import { matchType, readByRules } from "@/lib/scenarios/generate";
 (async () => {

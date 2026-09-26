@@ -1,0 +1,2 @@
+# False positive: a localStorage key name ("op112.voiceMuted"), not a secret.
+1685dbfba69883e41bc27a779218c0d584f0ec7e:src/app/op112/ui/ChatPanel.tsx:generic-api-key:50

@@ -57,7 +57,7 @@ const BY_CARD: Record<string, Check[]> = {
   ],
 };
 
-const MUTE_KEY = "op112.voiceMuted";
+const MUTE_KEY = "op112.voiceMuted"; // gitleaks:allow — a localStorage key name, not a secret
 function readMuted(): boolean {
   try {
     return localStorage.getItem(MUTE_KEY) === "1";
