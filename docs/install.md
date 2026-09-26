@@ -46,18 +46,18 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./root.crt
 
 ## 3. Офлайн-установка (без интернета)
 
-На машине с интернетом:
+На машине с интернетом одна команда собирает два архива — образы Docker и файлы проекта:
 
 ```bash
-docker compose --profile app build
-docker pull postgres:16-alpine && docker pull caddy:2-alpine
-docker save trainer-112-dds:latest postgres:16-alpine caddy:2-alpine | gzip > trainer-images.tar.gz
+scripts/offline-bundle.sh      # → ../trainer-offline-images.tar.gz и ../trainer-offline-project.tar.gz
 ```
 
-Перенести в контур `trainer-images.tar.gz` и папку проекта, затем:
+В контуре:
 
 ```bash
-gunzip -c trainer-images.tar.gz | docker load
+tar xzf trainer-offline-project.tar.gz && cd trainer
+gunzip -c ../trainer-offline-images.tar.gz | docker load
+cp .env.example .env
 docker compose --profile app --profile https up -d
 ```
 
