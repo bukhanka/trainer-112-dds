@@ -1,0 +1,444 @@
+// Training simulator for 112 operators and duty dispatchers (ДДС).
+// Reference data comes from the customer's classifier and service list (see data/).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users, sessions, audit ──────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+model User {
+  id                String    @id @default(cuid())
+  login             String    @unique
+  passwordHash      String
+  fullName          String
+  role              Role
+  isBlocked         Boolean   @default(false)
+  failedLogins      Int       @default(0)
+  lockedUntil       DateTime?
+  passwordChangedAt DateTime  @default(now())
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+
+  sessions     Session[]
+  memberships  GroupMember[]
+  groupsTaught Group[]       @relation("GroupTeacher")
+  lessons      Lesson[]      @relation("LessonTeacher")
+  seats        Seat[]
+  attempts     Attempt[]     @relation("AttemptStudent")
+  reviews      Attempt[]     @relation("AttemptReviewer")
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// Security and user-action journal. Kept at least 6 months (setting audit.retentionDays).
+model AuditLog {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  actorId  String?
+  actor    String? // login or "system", denormalised so the journal survives user deletion
+  action   String // e.g. auth.login.ok, auth.login.fail, attempt.override, user.block
+  entity   String?
+  entityId String?
+  before   Json?
+  after    Json?
+  ip       String?
+
+  @@index([at])
+  @@index([entity, entityId])
+  @@index([actorId])
+}
+
+model Group {
+  id        String        @id @default(cuid())
+  name      String
+  teacherId String?
+  teacher   User?         @relation("GroupTeacher", fields: [teacherId], references: [id])
+  members   GroupMember[]
+  lessons   Lesson[]
+  createdAt DateTime      @default(now())
+}
+
+model GroupMember {
+  groupId String
+  userId  String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([groupId, userId])
+}
+
+// ─── Reference data: classifier, services, routing, territories ─────────────
+
+/// 24 incident groups of the classifier (column F header rows).
+model IncidentGroup {
+  id    Int            @id
+  name  String
+  types IncidentType[]
+}
+
+/// One classifier leaf (row). code = column E.
+model IncidentType {
+  code               Int           @id
+  groupId            Int
+  group              IncidentGroup @relation(fields: [groupId], references: [id])
+  subgroup           String? // column F inside the group
+  sign1              String? // G — what the 112 operator sees (place)
+  sign2              String? // H — object
+  sign3              String? // I — feature
+  extra              String? // J raw
+  questions          String[] // J split by «В:» — mandatory questions for the operator
+  finalType          String // K — «Класс.:» on the card
+  ekpType            String? // L
+  mainService        String? // M — e.g. MCHS, Police
+  scenarioCode       String? // «Сценарий реагирования» from classifier v046_11
+  hiddenFromOperator Boolean       @default(false)
+  routes             Route[]
+
+  @@index([groupId])
+  @@index([finalType])
+}
+
+enum ServiceDelivery {
+  ARM112 // receives the 112 card on its own workstation
+  VIS // external integrated system
+  PHONE // notified by phone only (grey plate)
+}
+
+/// 211 services of the «Добавьте службы» window.
+model Service {
+  id            Int             @id // order number in the customer's list
+  shortName     String // plate label
+  fullName      String?
+  kind          String // центральная / ведомственная / территориальная / ...
+  subtype       String?
+  classifierCol String? // raw note from the list
+  routeKeys     String[] // classifier routing column groups served by this plate
+  delivery      ServiceDelivery @default(ARM112)
+  visible       Boolean         @default(true) // «listeners» are hidden on the card
+  okrug         String?
+  district      String?
+  selectRule    String?
+  phone         String?
+  orderIdx      Int
+
+  incidentServices IncidentService[]
+  seats            Seat[]
+
+  @@index([okrug, district])
+}
+
+/// Classifier routing cell: for type × routing column group × condition, the service reacts with `label`.
+model Route {
+  id        Int          @id @default(autoincrement())
+  typeCode  Int
+  type      IncidentType @relation(fields: [typeCode], references: [code], onDelete: Cascade)
+  routeKey  String
+  condition String // default | no_access | threat | victims | victims_absent | offense | gas | med | evac | traffic | tunnel | crossing | road | crowd | construction | object_list | comm | always
+  label     String // cell value, e.g. «пожар: мусор» or «карточка-112»
+
+  @@index([typeCode])
+  @@index([routeKey])
+}
+
+// ─── Training content ────────────────────────────────────────────────────────
+
+enum ScenarioStatus {
+  DRAFT
+  APPROVED
+  ARCHIVED
+}
+
+/// A training situation: caller persona + reference answers for the 112 place and for the ДДС place.
+model Scenario {
+  id               String         @id @default(cuid())
+  title            String
+  category         String
+  difficulty       Int            @default(3) // 1–10
+  status           ScenarioStatus @default(DRAFT)
+  source           String // ticket | generated | teacher
+  ticketRef        String? // e.g. «Б1-1»
+  caller           Json // { fullName, role, phone, visibleAddress, hiddenAddress, facts[], temper, voice }
+  truth            Json // reference 112 card: { typeCodes[], flags, tags, address, services[], requiredQuestions[] }
+  ddsCard          Json? // the card as a ДДС sees it
+  ddsReference     Json? // per service: expected decision, status chain, comment must-haves, traps
+  approvedSections String[] // partial approval: caller | truth | ddsCard | ddsReference
+  teacherNote      String?
+  createdById      String?
+  approvedById     String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  incidents Incident[]
+  attempts  Attempt[]
+
+  @@index([status, category])
+}
+
+// ─── Lessons and live work ───────────────────────────────────────────────────
+
+enum LessonStatus {
+  DRAFT
+  RUNNING
+  FINISHED
+}
+
+model Lesson {
+  id         String       @id @default(cuid())
+  title      String
+  teacherId  String
+  teacher    User         @relation("LessonTeacher", fields: [teacherId], references: [id])
+  groupId    String?
+  group      Group?       @relation(fields: [groupId], references: [id])
+  status     LessonStatus @default(DRAFT)
+  /// { categories[], cardSource: generated|students|mixed, tempoSec, ackSec, workSec, typingSec, errorThresholds, textRules }
+  settings   Json
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  seats     Seat[]
+  incidents Incident[]
+  calls     Call[]
+  attempts  Attempt[]
+}
+
+enum SeatRole {
+  OP112
+  DDS
+}
+
+/// A student's place in a lesson. One account, two mini-roles: 112 operator or ДДС dispatcher.
+model Seat {
+  id          String   @id @default(cuid())
+  lessonId    String
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User     @relation(fields: [studentId], references: [id])
+  role        SeatRole
+  serviceId   Int? // ДДС profile: whose plates are «own»
+  service     Service? @relation(fields: [serviceId], references: [id])
+  scenarioIds String[] // tasks assigned to this place
+  label       String? // «Место 1»
+  createdAt   DateTime @default(now())
+
+  calls    Call[]
+  attempts Attempt[]
+
+  @@unique([lessonId, studentId])
+}
+
+/// Incident card (карточка происшествия).
+model Incident {
+  id              String    @id @default(cuid())
+  number          Int       @unique @default(autoincrement())
+  lessonId        String?
+  lesson          Lesson?   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  scenarioId      String?
+  scenario        Scenario? @relation(fields: [scenarioId], references: [id])
+  source          String // generated | op112 | vis
+  createdBySeatId String?
+  operatorNo      String? // «Опер.»
+  armNo           String? // «АРМ»
+  status          String    @default("draft") // draft | registered | worked
+  /// { fullName, status, aon, provided, onSite, channel }
+  caller          Json?
+  /// { country, subject, city, object, okrug, district, street, house, building, structure, flat, entrance, floor, code, descriptive }
+  address         Json?
+  typeCodes       Int[]
+  /// chosen tag rows: [{ row, value }]
+  tags            Json?
+  /// { victims, refusedAmbulance, blocked, noAccess, threat, med, evac, gas, offense, traffic, ... }
+  flags           Json      @default("{}")
+  description     String?
+  /// [{ at, author, text }]
+  descriptionLog  Json      @default("[]")
+  important       Boolean   @default(false) // «ЧС» mark
+  openedAt        DateTime?
+  savedAt         DateTime?
+  workedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  services IncidentService[]
+  calls    Call[]
+  attempts Attempt[]
+
+  @@index([lessonId, createdAt])
+}
+
+enum ServiceStatus {
+  ADDED // Добавлена
+  RECEIVED // Получена службой
+  ACCEPTED // Принята
+  REJECTED // Не принята
+  STARTED // Начало реагирования
+  ARRIVED // Прибытие
+  WORKING // Проведение работ
+  FINISHED // Работы завершены
+  REFUSED // Отказ от выполнения работ
+}
+
+/// A service plate on a card with its own status lifecycle.
+model IncidentService {
+  id         String        @id @default(cuid())
+  incidentId String
+  incident   Incident      @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  serviceId  Int
+  service    Service       @relation(fields: [serviceId], references: [id])
+  isMain     Boolean       @default(false)
+  addedBy    String // auto | manual | vis
+  crewNumber String?
+  status     ServiceStatus @default(ADDED)
+  addedAt    DateTime      @default(now())
+  events     StatusEvent[]
+  attempts   Attempt[]
+
+  @@unique([incidentId, serviceId])
+}
+
+model StatusEvent {
+  id                String          @id @default(cuid())
+  incidentServiceId String
+  incidentService   IncidentService @relation(fields: [incidentServiceId], references: [id], onDelete: Cascade)
+  status            ServiceStatus
+  comment           String?
+  crewNumber        String?
+  actorLabel        String // «оп. 0», full name, or bot
+  actorUserId       String?
+  seatId            String?
+  late              Boolean         @default(false)
+  at                DateTime        @default(now())
+
+  @@index([incidentServiceId, at])
+}
+
+enum CallKind {
+  CALLER_IN // applicant calls the 112 operator
+  BRIGADE_IN // brigade leader reports to the ДДС
+  BRIGADE_OUT // ДДС calls the brigade
+  CALLER_OUT // ДДС calls the applicant back
+  SERVICE_OUT // call to another service
+  CONTROL_IN // control department calls the ДДС
+}
+
+enum CallStatus {
+  RINGING
+  ACTIVE
+  ENDED
+  MISSED
+}
+
+/// A phone conversation with an AI counterpart, text or voice.
+model Call {
+  id          String     @id @default(cuid())
+  lessonId    String?
+  lesson      Lesson?    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  seatId      String?
+  seat        Seat?      @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  incidentId  String?
+  incident    Incident?  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  kind        CallKind
+  status      CallStatus @default(RINGING)
+  /// { name, role, voice: male|female, persona }
+  counterpart Json
+  /// [{ role: counterpart|trainee, text, at }]
+  messages    Json       @default("[]")
+  audioPath   String?
+  startedAt   DateTime   @default(now())
+  answeredAt  DateTime?
+  endedAt     DateTime?
+
+  @@index([seatId, startedAt])
+}
+
+// ─── Evaluation ──────────────────────────────────────────────────────────────
+
+enum ReviewStatus {
+  PENDING
+  CONFIRMED
+  OVERRIDDEN
+}
+
+/// One graded piece of work: a 112 card filled by a seat, or a ДДС plate handled by a seat.
+/// Raw criterion results are stored so that changing weights recomputes scores instantly.
+model Attempt {
+  id                String           @id @default(cuid())
+  lessonId          String
+  lesson            Lesson           @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  seatId            String
+  seat              Seat             @relation(fields: [seatId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           User             @relation("AttemptStudent", fields: [studentId], references: [id])
+  kind              SeatRole
+  incidentId        String?
+  incident          Incident?        @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incidentServiceId String?
+  incidentService   IncidentService? @relation(fields: [incidentServiceId], references: [id], onDelete: Cascade)
+  scenarioId        String?
+  scenario          Scenario?        @relation(fields: [scenarioId], references: [id])
+  /// [{ key, ok: boolean | null (n/a), value?, evidence?, source: rule|ai }]
+  criteria          Json
+  /// AI draft: summary, per-criterion comments, recommendations
+  aiDraft           Json?
+  /// teacher corrections per criterion key
+  override          Json?
+  score             Float? // cached with the active weight profile
+  reviewStatus      ReviewStatus     @default(PENDING)
+  reviewedById      String?
+  reviewedBy        User?            @relation("AttemptReviewer", fields: [reviewedById], references: [id])
+  reviewedAt        DateTime?
+  teacherComment    String?
+  createdAt         DateTime         @default(now())
+
+  @@index([lessonId, studentId])
+}
+
+model WeightProfile {
+  id        String   @id @default(cuid())
+  name      String
+  weights   Json // { criterionKey: weight }
+  isActive  Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Administration ──────────────────────────────────────────────────────────
+
+model SystemSetting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+}
+
+model Backup {
+  id        String   @id @default(cuid())
+  kind      String // manual | scheduled
+  fileName  String?
+  sizeBytes BigInt?
+  status    String // running | ok | failed
+  error     String?
+  createdAt DateTime @default(now())
+}

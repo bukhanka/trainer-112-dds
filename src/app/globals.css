@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* Palette sampled from the customer's 112 / ДДС workstation screenshots. */
+@theme {
+  --font-sans: "Segoe UI", Tahoma, Arial, "Helvetica Neue", sans-serif;
+  --color-arm-dark: #2f353a;
+  --color-arm-dark-2: #303335;
+  --color-arm-desc: #49555d;
+  --color-arm-feed: #838f97;
+  --color-arm-header: #ebecec;
+  --color-arm-panel: #efefef;
+  --color-arm-gray: #c9ced1;
+  --color-arm-orange: #ec653b;
+  --color-arm-blue: #157dbd;
+  --color-arm-bordo: #6c364b;
+  --color-arm-plate-gray: #8e9091;
+  --color-arm-late: #ff0000;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: #f4f5f6;
+  color: #1f2326;
+}
