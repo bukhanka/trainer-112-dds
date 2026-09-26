@@ -1,0 +1,3307 @@
+{
+ "note": "«Что случилось» (customer list), frequent buttons, flag rows and tag panels; type codes from data/classifier.json",
+ "kinds": [
+  {
+   "name": "101",
+   "groupId": 1,
+   "tree": "fire101",
+   "title": "Происшествие 101"
+  },
+  {
+   "name": "102",
+   "groupId": 15,
+   "title": "Происшествие 102"
+  },
+  {
+   "name": "103",
+   "groupId": 22,
+   "title": "Происшествие 103"
+  },
+  {
+   "name": "104",
+   "groupId": 13,
+   "tree": "gas104",
+   "title": "Происшествие 104"
+  },
+  {
+   "name": "Аварии и происшествия в городском хозяйстве",
+   "groupId": 14
+  },
+  {
+   "name": "Аварии и происшествия на транспортных объектах",
+   "groupId": 12
+  },
+  {
+   "name": "Аварии на гидротехнических сооружениях",
+   "groupId": 9
+  },
+  {
+   "name": "Аварии на опасных и производственных объектах",
+   "groupId": 10,
+   "subgroup": "Авария - опасный и производственный объект"
+  },
+  {
+   "name": "Благодарность службам",
+   "typeCodes": [
+    23010000
+   ]
+  },
+  {
+   "name": "БПЛА",
+   "groupId": 24
+  },
+  {
+   "name": "Взрыв",
+   "groupId": 3,
+   "tree": "explosion",
+   "title": "П: Взрыв"
+  },
+  {
+   "name": "Внутренний звонок (звонок от работников)",
+   "service": true
+  },
+  {
+   "name": "Вызов на иностранном языке",
+   "service": true
+  },
+  {
+   "name": "Дополнительный звонок от заявителя",
+   "service": true
+  },
+  {
+   "name": "Дорожные помехи",
+   "groupId": 16
+  },
+  {
+   "name": "ДТП",
+   "groupId": 2
+  },
+  {
+   "name": "Жалоба на действие или бездействие служб",
+   "typeCodes": [
+    23020000
+   ]
+  },
+  {
+   "name": "Животные",
+   "groupId": 21
+  },
+  {
+   "name": "Консультация",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Нецелевой вызов",
+   "service": true
+  },
+  {
+   "name": "Обрушение",
+   "groupId": 5
+  },
+  {
+   "name": "Отзыв о работе 112 Москва",
+   "service": true
+  },
+  {
+   "name": "Отмена вызова",
+   "service": true
+  },
+  {
+   "name": "Ошибочно набран номер",
+   "service": true
+  },
+  {
+   "name": "Передача дежурства",
+   "service": true
+  },
+  {
+   "name": "Помощь службам",
+   "typeCodes": [
+    23050000
+   ]
+  },
+  {
+   "name": "Природная стихия",
+   "groupId": 7,
+   "subgroup": "Природная стихия"
+  },
+  {
+   "name": "Прочие происшествия",
+   "typeCodes": [
+    23060000
+   ]
+  },
+  {
+   "name": "Радиация",
+   "groupId": 10,
+   "subgroup": "Радиация"
+  },
+  {
+   "name": "Разбитый градусник",
+   "groupId": 11,
+   "subgroup": "Ртуть - обнаружение"
+  },
+  {
+   "name": "Ребенок в опасности",
+   "groupId": 18
+  },
+  {
+   "name": "Сбор",
+   "service": true
+  },
+  {
+   "name": "Скопление воды",
+   "groupId": 7,
+   "subgroup": "Скопление воды Подтопление Паводок"
+  },
+  {
+   "name": "Смертельный исход",
+   "groupId": 19
+  },
+  {
+   "name": "Социальная помощь",
+   "groupId": 20
+  },
+  {
+   "name": "Справка 101",
+   "addressee": "Служба 101",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Справка 102",
+   "addressee": "Служба 102",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Справка 103",
+   "addressee": "Служба 103",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Справка 104",
+   "addressee": "Служба 104",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Справка ГИБДД",
+   "addressee": "Служба 102",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Справка Городское хозяйство",
+   "addressee": "Деп. ЖКХ",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Справка МЧС",
+   "addressee": "Служба 101",
+   "typeCodes": [
+    23030000
+   ]
+  },
+  {
+   "name": "Тестовый вызов",
+   "service": true
+  },
+  {
+   "name": "Технический сбой (сбой в работе с оборудованием 112 Москва)",
+   "service": true
+  },
+  {
+   "name": "Тренировка",
+   "typeCodes": [
+    23040000
+   ]
+  },
+  {
+   "name": "Уведомление о ЧС",
+   "service": true
+  },
+  {
+   "name": "Угроза взрыва/террористического акта",
+   "groupId": 4
+  },
+  {
+   "name": "Угроза выброса опасных веществ и радиации",
+   "groupId": 11
+  },
+  {
+   "name": "Угроза обрушения",
+   "groupId": 6
+  },
+  {
+   "name": "Человек в опасности",
+   "groupId": 17
+  },
+  {
+   "name": "Экологическое происшествие",
+   "groupId": 8
+  }
+ ],
+ "frequent": {
+  "default": [
+   "ДТП",
+   "Ошибочно набран номер",
+   "104",
+   "Человек в опасности",
+   "Отмена вызова",
+   "Тестовый вызов",
+   "Передача дежурства",
+   "Консультация",
+   "Вызов на иностранном языке",
+   "Справка 101"
+  ],
+  "alternative": [
+   "Отмена вызова",
+   "Тестовый вызов",
+   "Передача дежурства",
+   "ДТП",
+   "Консультация",
+   "Вызов на иностранном языке",
+   "Ошибочно набран номер",
+   "Справка 101",
+   "Справка 102",
+   "Справка 103"
+  ]
+ },
+ "flagRows": [
+  {
+   "flag": "victims",
+   "condition": "victims",
+   "label": "Пострадавшие",
+   "kind": "toggle",
+   "placement": "card"
+  },
+  {
+   "flag": "refusedAmbulance",
+   "condition": "victims_absent",
+   "label": "Нет на месте / Отказ от скорой",
+   "kind": "toggle",
+   "placement": "card"
+  },
+  {
+   "flag": "noAccess",
+   "condition": "no_access",
+   "label": "Нет доступа / Заблокированные",
+   "kind": "toggle",
+   "placement": "card"
+  },
+  {
+   "flag": "threat",
+   "condition": "threat",
+   "label": "Угроза людям",
+   "kind": "yesno",
+   "placement": "panel"
+  },
+  {
+   "flag": "med",
+   "condition": "med",
+   "label": "Медицинская помощь",
+   "kind": "yesno",
+   "placement": "panel"
+  },
+  {
+   "flag": "evac",
+   "condition": "evac",
+   "label": "Требуется эвакуация",
+   "kind": "yesno",
+   "placement": "panel"
+  },
+  {
+   "flag": "gas",
+   "condition": "gas",
+   "label": "Проведена ли газификация",
+   "kind": "yesnounknown",
+   "placement": "panel"
+  },
+  {
+   "flag": "offense",
+   "condition": "offense",
+   "label": "Правонарушение",
+   "kind": "toggle",
+   "option": "Есть правонарушение",
+   "placement": "panel"
+  },
+  {
+   "flag": "traffic",
+   "condition": "traffic",
+   "label": "Есть ли перекрытие движения",
+   "kind": "yesno",
+   "placement": "panel"
+  },
+  {
+   "flag": "tunnel",
+   "condition": "tunnel",
+   "label": "Тоннель",
+   "kind": "toggle",
+   "placement": "panel"
+  },
+  {
+   "flag": "crossing",
+   "condition": "crossing",
+   "label": "Пешеходный переход",
+   "kind": "toggle",
+   "placement": "panel"
+  },
+  {
+   "flag": "road",
+   "condition": "road",
+   "label": "Автомобильный мост / тоннель",
+   "kind": "toggle",
+   "placement": "panel"
+  },
+  {
+   "flag": "crowd",
+   "condition": "crowd",
+   "label": "Более 5 человек / ОД",
+   "kind": "toggle",
+   "placement": "panel"
+  },
+  {
+   "flag": "construction",
+   "condition": "construction",
+   "label": "Стройка",
+   "kind": "toggle",
+   "placement": "panel"
+  },
+  {
+   "flag": "objectList",
+   "condition": "object_list",
+   "label": "Объект из перечня (Деп. культуры)",
+   "kind": "toggle",
+   "placement": "panel"
+  },
+  {
+   "flag": "comm",
+   "condition": "comm",
+   "label": "Объект связи",
+   "kind": "toggle",
+   "placement": "panel"
+  }
+ ],
+ "groupFlags": {
+  "1": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "construction",
+   "objectList",
+   "comm"
+  ],
+  "2": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "traffic",
+   "tunnel",
+   "crowd",
+   "comm"
+  ],
+  "3": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "construction",
+   "objectList",
+   "comm"
+  ],
+  "4": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "objectList",
+   "comm"
+  ],
+  "5": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "crowd",
+   "objectList",
+   "comm"
+  ],
+  "6": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "objectList",
+   "comm"
+  ],
+  "7": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "objectList",
+   "comm"
+  ],
+  "8": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "offense",
+   "traffic",
+   "objectList"
+  ],
+  "9": [
+   "victims",
+   "threat",
+   "med",
+   "evac"
+  ],
+  "10": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "objectList"
+  ],
+  "11": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "objectList"
+  ],
+  "12": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "comm"
+  ],
+  "13": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "offense",
+   "objectList",
+   "comm"
+  ],
+  "14": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "construction",
+   "objectList",
+   "comm"
+  ],
+  "15": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "gas",
+   "offense",
+   "traffic",
+   "tunnel",
+   "crossing",
+   "road",
+   "construction",
+   "objectList",
+   "comm"
+  ],
+  "16": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "offense",
+   "traffic",
+   "tunnel"
+  ],
+  "17": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "crowd",
+   "construction",
+   "objectList",
+   "comm"
+  ],
+  "18": [
+   "victims",
+   "offense",
+   "tunnel",
+   "crossing",
+   "road",
+   "objectList"
+  ],
+  "19": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "crowd",
+   "construction",
+   "objectList",
+   "comm"
+  ],
+  "20": [
+   "victims",
+   "offense"
+  ],
+  "21": [
+   "victims",
+   "threat",
+   "med",
+   "evac",
+   "offense",
+   "objectList"
+  ],
+  "22": [
+   "victims",
+   "noAccess",
+   "threat",
+   "med",
+   "evac",
+   "offense",
+   "objectList"
+  ],
+  "24": [
+   "victims",
+   "noAccess",
+   "traffic"
+  ]
+ },
+ "genericLabels": [
+  "Что случилось",
+  "Где / что",
+  "Уточнение"
+ ],
+ "trees": {
+  "fire101": {
+   "id": "fire101",
+   "title": "Происшествие 101",
+   "groupId": 1,
+   "rows": [
+    {
+     "id": "where",
+     "label": "Где",
+     "kind": "single",
+     "options": [
+      {
+       "value": "Улица"
+      },
+      {
+       "value": "Транспорт"
+      },
+      {
+       "value": "Дом"
+      },
+      {
+       "value": "Здание / объект"
+      },
+      {
+       "value": "Опасный объект"
+      }
+     ]
+    },
+    {
+     "id": "signStreet",
+     "label": "Признак пожара (улица)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Улица"
+      ]
+     },
+     "options": [
+      {
+       "value": "Открытое пламя / Дым"
+      },
+      {
+       "value": "Запах гари",
+       "types": [
+        1011100
+       ]
+      }
+     ]
+    },
+    {
+     "id": "signTransport",
+     "label": "Признак пожара (транспорт)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Транспорт"
+      ]
+     },
+     "options": [
+      {
+       "value": "Открытое пламя / Дым"
+      },
+      {
+       "value": "Сработала пожарная сигнализация",
+       "types": [
+        1030300
+       ]
+      }
+     ]
+    },
+    {
+     "id": "signHouse",
+     "label": "Признак пожара (дом)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Дом"
+      ]
+     },
+     "options": [
+      {
+       "value": "Открытое пламя / Дым"
+      },
+      {
+       "value": "Запах гари"
+      },
+      {
+       "value": "Сработала пожарная сигнализация",
+       "types": [
+        1051600
+       ]
+      }
+     ]
+    },
+    {
+     "id": "signObject",
+     "label": "Признак пожара (объект)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Здание / объект",
+       "Опасный объект"
+      ]
+     },
+     "options": [
+      {
+       "value": "Открытое пламя / Дым"
+      },
+      {
+       "value": "Сработала пожарная сигнализация",
+       "types": [
+        1061300
+       ]
+      }
+     ]
+    },
+    {
+     "id": "access",
+     "label": "Доступ",
+     "kind": "toggle",
+     "flag": "noAccess",
+     "showIf": {
+      "where": [
+       "*"
+      ]
+     },
+     "options": [
+      {
+       "value": "Нет доступа"
+      }
+     ]
+    },
+    {
+     "id": "placeStreet",
+     "label": "Место происшествия",
+     "kind": "multi",
+     "showIf": {
+      "where": [
+       "Улица"
+      ]
+     },
+     "options": [
+      {
+       "value": "Тоннель",
+       "flag": "tunnel"
+      },
+      {
+       "value": "Пешеходный переход",
+       "flag": "crossing"
+      }
+     ]
+    },
+    {
+     "id": "streetObject",
+     "label": "Улица (пламя, дым)",
+     "kind": "single",
+     "showIf": {
+      "signStreet": [
+       "Открытое пламя / Дым"
+      ]
+     },
+     "options": [
+      {
+       "value": "Мусор",
+       "types": [
+        1010101
+       ],
+       "smokeTypes": [
+        1010102
+       ]
+      },
+      {
+       "value": "Трава, пух",
+       "types": [
+        1010201
+       ],
+       "smokeTypes": [
+        1010202
+       ]
+      },
+      {
+       "value": "Парк",
+       "types": [
+        1010401
+       ],
+       "smokeTypes": [
+        1010402
+       ]
+      },
+      {
+       "value": "Лес",
+       "types": [
+        1010501
+       ],
+       "smokeTypes": [
+        1010502
+       ]
+      },
+      {
+       "value": "Торф",
+       "types": [
+        1010601
+       ],
+       "smokeTypes": [
+        1010602
+       ]
+      },
+      {
+       "value": "Мачта освещения",
+       "types": [
+        1010701
+       ],
+       "smokeTypes": [
+        1010702
+       ]
+      },
+      {
+       "value": "Опора контактной сети",
+       "types": [
+        1010801
+       ],
+       "smokeTypes": [
+        1010802
+       ]
+      },
+      {
+       "value": "ЛЭП",
+       "types": [
+        1010901
+       ],
+       "smokeTypes": [
+        1010902
+       ]
+      },
+      {
+       "value": "Провода",
+       "types": [
+        1011001
+       ],
+       "smokeTypes": [
+        1011002
+       ]
+      },
+      {
+       "value": "Дерево, деревья",
+       "types": [
+        1011201
+       ],
+       "smokeTypes": [
+        1011202
+       ]
+      },
+      {
+       "value": "Горит человек",
+       "noLeaf": true
+      },
+      {
+       "value": "Что горит неизвестно",
+       "types": [
+        1061601
+       ],
+       "smokeTypes": [
+        1061602
+       ]
+      }
+     ]
+    },
+    {
+     "id": "transportObject",
+     "label": "Транспорт (пламя, дым)",
+     "kind": "single",
+     "showIf": {
+      "signTransport": [
+       "Открытое пламя / Дым"
+      ]
+     },
+     "options": [
+      {
+       "value": "Общественный транспорт",
+       "types": [
+        1020101
+       ],
+       "smokeTypes": [
+        1020102
+       ]
+      },
+      {
+       "value": "Автомашина",
+       "types": [
+        1020201
+       ],
+       "smokeTypes": [
+        1020202
+       ]
+      },
+      {
+       "value": "ДТП с пожаром",
+       "types": [
+        1020301
+       ],
+       "smokeTypes": [
+        1020302
+       ]
+      },
+      {
+       "value": "Опасный груз",
+       "types": [
+        1020401
+       ],
+       "smokeTypes": [
+        1020402
+       ]
+      },
+      {
+       "value": "Воздушный транспорт",
+       "types": [
+        1020501
+       ],
+       "smokeTypes": [
+        1020502
+       ]
+      },
+      {
+       "value": "Аэропорт",
+       "types": [
+        1020601
+       ],
+       "smokeTypes": [
+        1020602
+       ]
+      },
+      {
+       "value": "Ж/Д транспорт",
+       "types": [
+        1020701
+       ],
+       "smokeTypes": [
+        1020702
+       ]
+      },
+      {
+       "value": "Вокзал Ж/Д, платформа Ж/Д",
+       "types": [
+        1020801
+       ],
+       "smokeTypes": [
+        1020802
+       ]
+      },
+      {
+       "value": "Транспорт прочее",
+       "types": [
+        1020901
+       ],
+       "smokeTypes": [
+        1020902
+       ]
+      },
+      {
+       "value": "Водный",
+       "types": [
+        1021001
+       ],
+       "smokeTypes": [
+        1021002
+       ]
+      },
+      {
+       "value": "Мост",
+       "types": [
+        1021101
+       ],
+       "smokeTypes": [
+        1021102
+       ]
+      },
+      {
+       "value": "Эстакада",
+       "types": [
+        1021201
+       ],
+       "smokeTypes": [
+        1021202
+       ]
+      },
+      {
+       "value": "Тоннель",
+       "types": [
+        1021301
+       ],
+       "smokeTypes": [
+        1021302
+       ]
+      },
+      {
+       "value": "Переход подземный/наземный",
+       "types": [
+        1021401
+       ],
+       "smokeTypes": [
+        1021402
+       ]
+      },
+      {
+       "value": "Метро",
+       "types": [
+        1030001
+       ],
+       "smokeTypes": [
+        1030002
+       ]
+      },
+      {
+       "value": "МЦК, МЦД",
+       "types": [
+        1040001
+       ],
+       "smokeTypes": [
+        1040002
+       ]
+      },
+      {
+       "value": "Ж/Д пути",
+       "types": [
+        1020701
+       ],
+       "smokeTypes": [
+        1020702
+       ]
+      },
+      {
+       "value": "Релейный шкаф Ж/Д",
+       "types": [
+        1020701
+       ],
+       "smokeTypes": [
+        1020702
+       ]
+      }
+     ]
+    },
+    {
+     "id": "houseKind",
+     "label": "Дом (пламя, дым)",
+     "kind": "single",
+     "showIf": {
+      "signHouse": [
+       "Открытое пламя / Дым"
+      ]
+     },
+     "options": [
+      {
+       "value": "Дом многоквартирный"
+      },
+      {
+       "value": "Дом частный",
+       "types": [
+        1050901
+       ],
+       "smokeTypes": [
+        1050902
+       ]
+      },
+      {
+       "value": "Дача",
+       "types": [
+        1051401
+       ],
+       "smokeTypes": [
+        1051402
+       ]
+      },
+      {
+       "value": "Сарай / бытовка / хоз. постройка",
+       "types": [
+        1990133
+       ]
+      },
+      {
+       "value": "Выселенное здание",
+       "types": [
+        1990036
+       ]
+      }
+     ]
+    },
+    {
+     "id": "houseSmell",
+     "label": "Где запах гари",
+     "kind": "single",
+     "showIf": {
+      "signHouse": [
+       "Запах гари"
+      ]
+     },
+     "options": [
+      {
+       "value": "Квартира",
+       "types": [
+        1050103
+       ]
+      },
+      {
+       "value": "Подъезд",
+       "types": [
+        1050703
+       ]
+      }
+     ]
+    },
+    {
+     "id": "floors",
+     "label": "Этажность здания",
+     "kind": "text",
+     "showIf": {
+      "where": [
+       "Дом"
+      ]
+     }
+    },
+    {
+     "id": "buildingObject",
+     "label": "Здание / объект (пламя, дым)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Здание / объект"
+      ],
+      "signObject": [
+       "Открытое пламя / Дым"
+      ]
+     },
+     "options": [
+      {
+       "value": "Учебное заведение",
+       "types": [
+        1060101
+       ],
+       "smokeTypes": [
+        1060102
+       ]
+      },
+      {
+       "value": "Лечебное заведение",
+       "types": [
+        1060201
+       ],
+       "smokeTypes": [
+        1060202
+       ]
+      },
+      {
+       "value": "Административное здание",
+       "types": [
+        1060301
+       ],
+       "smokeTypes": [
+        1060302
+       ]
+      },
+      {
+       "value": "Общественное место",
+       "types": [
+        1060401
+       ],
+       "smokeTypes": [
+        1060402
+       ]
+      },
+      {
+       "value": "Производство",
+       "types": [
+        1061401
+       ],
+       "smokeTypes": [
+        1061402
+       ]
+      },
+      {
+       "value": "АЗС",
+       "types": [
+        1061501
+       ],
+       "smokeTypes": [
+        1061502
+       ]
+      },
+      {
+       "value": "Прочие объекты",
+       "types": [
+        1061601
+       ],
+       "smokeTypes": [
+        1061602
+       ]
+      }
+     ]
+    },
+    {
+     "id": "buildingDetail",
+     "label": "Вид объекта (уточнение)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Здание / объект"
+      ],
+      "signObject": [
+       "Открытое пламя / Дым"
+      ]
+     },
+     "options": [
+      {
+       "value": "Автобаза",
+       "types": [
+        1990002
+       ]
+      },
+      {
+       "value": "Автовокзал",
+       "types": [
+        1990004
+       ]
+      },
+      {
+       "value": "Автокомбинат",
+       "types": [
+        1990005
+       ]
+      },
+      {
+       "value": "Автосалон",
+       "types": [
+        1990006
+       ]
+      },
+      {
+       "value": "Автосервис",
+       "types": [
+        1990007
+       ]
+      },
+      {
+       "value": "Автостоянка",
+       "types": [
+        1990008
+       ]
+      },
+      {
+       "value": "Ангар",
+       "types": [
+        1990011
+       ]
+      },
+      {
+       "value": "Аптека",
+       "types": [
+        1990012
+       ]
+      },
+      {
+       "value": "Ателье",
+       "types": [
+        1990013
+       ]
+      },
+      {
+       "value": "Аэровокзал",
+       "types": [
+        1990015
+       ]
+      },
+      {
+       "value": "Аэродром",
+       "types": [
+        1990016
+       ]
+      },
+      {
+       "value": "Баня",
+       "types": [
+        1990019
+       ]
+      },
+      {
+       "value": "Бар",
+       "types": [
+        1990020
+       ]
+      },
+      {
+       "value": "Бассейн",
+       "types": [
+        1990021
+       ]
+      },
+      {
+       "value": "Башня",
+       "types": [
+        1990022
+       ]
+      },
+      {
+       "value": "Беседка",
+       "types": [
+        1990023
+       ]
+      },
+      {
+       "value": "Библиотека",
+       "types": [
+        1990024
+       ]
+      },
+      {
+       "value": "Биржа",
+       "types": [
+        1990025
+       ]
+      },
+      {
+       "value": "Бойлерная",
+       "types": [
+        1990026
+       ]
+      },
+      {
+       "value": "Бомбоубежище",
+       "types": [
+        1990028
+       ]
+      },
+      {
+       "value": "Будка консъержки",
+       "types": [
+        1990029
+       ]
+      },
+      {
+       "value": "Бытовка",
+       "types": [
+        1990030
+       ]
+      },
+      {
+       "value": "Вагон электрички (вагон электропоезда)",
+       "types": [
+        1990031
+       ]
+      },
+      {
+       "value": "Вагончик для жилья",
+       "types": [
+        1990188
+       ]
+      },
+      {
+       "value": "Велотрек",
+       "types": [
+        1990032
+       ]
+      },
+      {
+       "value": "Войсковая часть",
+       "types": [
+        1990034
+       ]
+      },
+      {
+       "value": "Выселенное здание",
+       "types": [
+        1990036
+       ]
+      },
+      {
+       "value": "Вытрезвитель",
+       "types": [
+        1990037
+       ]
+      },
+      {
+       "value": "Газовая тепловая станция",
+       "types": [
+        1990040
+       ]
+      },
+      {
+       "value": "Галерея",
+       "types": [
+        1990042
+       ]
+      },
+      {
+       "value": "Гараж",
+       "types": [
+        1990043
+       ]
+      },
+      {
+       "value": "Гимназия",
+       "types": [
+        1990044
+       ]
+      },
+      {
+       "value": "Голубятня",
+       "types": [
+        1990045
+       ]
+      },
+      {
+       "value": "Госпиталь",
+       "types": [
+        1990046
+       ]
+      },
+      {
+       "value": "Детский сад",
+       "types": [
+        1990051
+       ]
+      },
+      {
+       "value": "Дом быта",
+       "types": [
+        1990052
+       ]
+      },
+      {
+       "value": "Дом культуры",
+       "types": [
+        1990053
+       ]
+      },
+      {
+       "value": "Дом отдыха",
+       "types": [
+        1990054
+       ]
+      },
+      {
+       "value": "Дом ребенка",
+       "types": [
+        1990055
+       ]
+      },
+      {
+       "value": "Дом-интернат",
+       "types": [
+        1990056
+       ]
+      },
+      {
+       "value": "Ж-д цистерна",
+       "types": [
+        1990059
+       ]
+      },
+      {
+       "value": "Замыкание электропроводки",
+       "types": [
+        1990061
+       ]
+      },
+      {
+       "value": "Зоопарк",
+       "types": [
+        1990062
+       ]
+      },
+      {
+       "value": "Игровой клуб",
+       "types": [
+        1990063
+       ]
+      },
+      {
+       "value": "Издательство",
+       "types": [
+        1990064
+       ]
+      },
+      {
+       "value": "Институт",
+       "types": [
+        1990065
+       ]
+      },
+      {
+       "value": "кабельный коллектор",
+       "types": [
+        1990066
+       ]
+      },
+      {
+       "value": "Кадетский корпус",
+       "types": [
+        1990067
+       ]
+      },
+      {
+       "value": "Кафе",
+       "types": [
+        1990068
+       ]
+      },
+      {
+       "value": "Киностудия",
+       "types": [
+        1990070
+       ]
+      },
+      {
+       "value": "Кинотеатр",
+       "types": [
+        1990071
+       ]
+      },
+      {
+       "value": "Кладбище",
+       "types": [
+        1990072
+       ]
+      },
+      {
+       "value": "Клиника",
+       "types": [
+        1990073
+       ]
+      },
+      {
+       "value": "Клуб",
+       "types": [
+        1990074
+       ]
+      },
+      {
+       "value": "Книгохранилище",
+       "types": [
+        1990075
+       ]
+      },
+      {
+       "value": "Козырек подъезда",
+       "types": [
+        1990076
+       ]
+      },
+      {
+       "value": "Колледж",
+       "types": [
+        1990077
+       ]
+      },
+      {
+       "value": "Комбинат",
+       "types": [
+        1990078
+       ]
+      },
+      {
+       "value": "Консерватория",
+       "types": [
+        1990079
+       ]
+      },
+      {
+       "value": "Конюшня",
+       "types": [
+        1990080
+       ]
+      },
+      {
+       "value": "Корт",
+       "types": [
+        1990189
+       ]
+      },
+      {
+       "value": "Костер",
+       "types": [
+        1990081
+       ]
+      },
+      {
+       "value": "Котельная",
+       "types": [
+        1990082
+       ]
+      },
+      {
+       "value": "Крыша",
+       "types": [
+        1990083
+       ]
+      },
+      {
+       "value": "Лаборатория",
+       "types": [
+        1990084
+       ]
+      },
+      {
+       "value": "Лицей",
+       "types": [
+        1990087
+       ]
+      },
+      {
+       "value": "Магазин",
+       "types": [
+        1990088
+       ]
+      },
+      {
+       "value": "Манеж",
+       "types": [
+        1990089
+       ]
+      },
+      {
+       "value": "Мастерская",
+       "types": [
+        1990090
+       ]
+      },
+      {
+       "value": "Медсанчасть",
+       "types": [
+        1990092
+       ]
+      },
+      {
+       "value": "Мечеть",
+       "types": [
+        1990094
+       ]
+      },
+      {
+       "value": "Монастырь",
+       "types": [
+        1990095
+       ]
+      },
+      {
+       "value": "Мототранспорт",
+       "types": [
+        1990096
+       ]
+      },
+      {
+       "value": "Музей",
+       "types": [
+        1990097
+       ]
+      },
+      {
+       "value": "Нии",
+       "types": [
+        1990100
+       ]
+      },
+      {
+       "value": "Новостройка",
+       "types": [
+        1990101
+       ]
+      },
+      {
+       "value": "Обмотка труб",
+       "types": [
+        1990102
+       ]
+      },
+      {
+       "value": "Общежитие",
+       "types": [
+        1990103
+       ]
+      },
+      {
+       "value": "Офис",
+       "types": [
+        1990104
+       ]
+      },
+      {
+       "value": "Палатка",
+       "types": [
+        1990105
+       ]
+      },
+      {
+       "value": "Пансионат",
+       "types": [
+        1990106
+       ]
+      },
+      {
+       "value": "Планетарий",
+       "types": [
+        1990109
+       ]
+      },
+      {
+       "value": "Подстанция",
+       "types": [
+        1990113
+       ]
+      },
+      {
+       "value": "Покрышки автомобильные",
+       "types": [
+        1990115
+       ]
+      },
+      {
+       "value": "Полигон",
+       "types": [
+        1990116
+       ]
+      },
+      {
+       "value": "Поликлиника",
+       "types": [
+        1990117
+       ]
+      },
+      {
+       "value": "Порт",
+       "types": [
+        1990118
+       ]
+      },
+      {
+       "value": "Посольство",
+       "types": [
+        1990119
+       ]
+      },
+      {
+       "value": "Прачечная",
+       "types": [
+        1990120
+       ]
+      },
+      {
+       "value": "Префектура",
+       "types": [
+        1990121
+       ]
+      },
+      {
+       "value": "Приемник-распределитель",
+       "types": [
+        1990122
+       ]
+      },
+      {
+       "value": "Пристройка",
+       "types": [
+        1990123
+       ]
+      },
+      {
+       "value": "Провода",
+       "types": [
+        1990124
+       ]
+      },
+      {
+       "value": "Производственно-складское здание",
+       "types": [
+        1990125
+       ]
+      },
+      {
+       "value": "Прокуратура",
+       "types": [
+        1990127
+       ]
+      },
+      {
+       "value": "Ресторан",
+       "types": [
+        1990128
+       ]
+      },
+      {
+       "value": "Роддом",
+       "types": [
+        1990129
+       ]
+      },
+      {
+       "value": "Рынок",
+       "types": [
+        1990130
+       ]
+      },
+      {
+       "value": "Салон",
+       "types": [
+        1990131
+       ]
+      },
+      {
+       "value": "Санаторий",
+       "types": [
+        1990132
+       ]
+      },
+      {
+       "value": "Санэпидстанция",
+       "types": [
+        1990190
+       ]
+      },
+      {
+       "value": "Сарай",
+       "types": [
+        1990133
+       ]
+      },
+      {
+       "value": "Сауна",
+       "types": [
+        1990134
+       ]
+      },
+      {
+       "value": "Свалка",
+       "types": [
+        1990135
+       ]
+      },
+      {
+       "value": "Склад",
+       "types": [
+        1990137
+       ]
+      },
+      {
+       "value": "Собор",
+       "types": [
+        1990138
+       ]
+      },
+      {
+       "value": "Спортзал",
+       "types": [
+        1990139
+       ]
+      },
+      {
+       "value": "Спорткомплекс",
+       "types": [
+        1990140
+       ]
+      },
+      {
+       "value": "Стадион",
+       "types": [
+        1990141
+       ]
+      },
+      {
+       "value": "Станция телефонная",
+       "types": [
+        1990143
+       ]
+      },
+      {
+       "value": "Столовая",
+       "types": [
+        1990144
+       ]
+      },
+      {
+       "value": "Суд",
+       "types": [
+        1990145
+       ]
+      },
+      {
+       "value": "Таможня",
+       "types": [
+        1990148
+       ]
+      },
+      {
+       "value": "Телебашня",
+       "types": [
+        1990149
+       ]
+      },
+      {
+       "value": "Телецентр",
+       "types": [
+        1990150
+       ]
+      },
+      {
+       "value": "Техникум",
+       "types": [
+        1990151
+       ]
+      },
+      {
+       "value": "Типография",
+       "types": [
+        1990152
+       ]
+      },
+      {
+       "value": "Торговый центр",
+       "types": [
+        1990154
+       ]
+      },
+      {
+       "value": "Трамвай",
+       "types": [
+        1990156
+       ]
+      },
+      {
+       "value": "Трансформаторная будка",
+       "types": [
+        1990157
+       ]
+      },
+      {
+       "value": "Троллейбус",
+       "types": [
+        1990158
+       ]
+      },
+      {
+       "value": "Тэц",
+       "types": [
+        1990159
+       ]
+      },
+      {
+       "value": "Тюрьма",
+       "types": [
+        1990160
+       ]
+      },
+      {
+       "value": "Университет",
+       "types": [
+        1990161
+       ]
+      },
+      {
+       "value": "Училище",
+       "types": [
+        1990162
+       ]
+      },
+      {
+       "value": "Фабрика",
+       "types": [
+        1990163
+       ]
+      },
+      {
+       "value": "Хладокомбинат",
+       "types": [
+        1990164
+       ]
+      },
+      {
+       "value": "Хлебозавод",
+       "types": [
+        1990165
+       ]
+      },
+      {
+       "value": "Холодильник",
+       "types": [
+        1990166
+       ]
+      },
+      {
+       "value": "Храм",
+       "types": [
+        1990167
+       ]
+      },
+      {
+       "value": "Хранилище",
+       "types": [
+        1990168
+       ]
+      },
+      {
+       "value": "Церковь",
+       "types": [
+        1990169
+       ]
+      },
+      {
+       "value": "Цех",
+       "types": [
+        1990170
+       ]
+      },
+      {
+       "value": "Цирк",
+       "types": [
+        1990171
+       ]
+      },
+      {
+       "value": "Часовня",
+       "types": [
+        1990172
+       ]
+      },
+      {
+       "value": "Чердак",
+       "types": [
+        1990174
+       ]
+      },
+      {
+       "value": "Шахта лифта",
+       "types": [
+        1990175
+       ]
+      },
+      {
+       "value": "Шахта метро вентиляционная",
+       "types": [
+        1990176
+       ]
+      },
+      {
+       "value": "Шиномонтаж авто",
+       "types": [
+        1990177
+       ]
+      },
+      {
+       "value": "Школа-интернат",
+       "types": [
+        1990179
+       ]
+      },
+      {
+       "value": "Шпалы",
+       "types": [
+        1990180
+       ]
+      },
+      {
+       "value": "Элеватор",
+       "types": [
+        1990181
+       ]
+      },
+      {
+       "value": "Электроподстанция",
+       "types": [
+        1990184
+       ]
+      },
+      {
+       "value": "Электропроводка в подъезде",
+       "types": [
+        1990193
+       ]
+      }
+     ]
+    },
+    {
+     "id": "dangerousObject",
+     "label": "Опасный объект (пламя, дым)",
+     "kind": "single",
+     "showIf": {
+      "where": [
+       "Опасный объект"
+      ],
+      "signObject": [
+       "Открытое пламя / Дым"
+      ]
+     },
+     "options": [
+      {
+       "value": "Опасный объект",
+       "types": [
+        1060501
+       ],
+       "smokeTypes": [
+        1060502
+       ]
+      },
+      {
+       "value": "Газопровод",
+       "types": [
+        1060600
+       ]
+      },
+      {
+       "value": "Газохранилище",
+       "types": [
+        1060700
+       ]
+      },
+      {
+       "value": "Нефтепровод, нефтебаза",
+       "types": [
+        1060800
+       ]
+      },
+      {
+       "value": "Нефтехранилище",
+       "types": [
+        1060900
+       ]
+      },
+      {
+       "value": "Наземные коммуникации",
+       "types": [
+        1061001
+       ],
+       "smokeTypes": [
+        1061002
+       ]
+      },
+      {
+       "value": "Подземные коммуникации",
+       "types": [
+        1061101
+       ],
+       "smokeTypes": [
+        1061102
+       ]
+      },
+      {
+       "value": "Гидросооружение",
+       "types": [
+        1061201
+       ],
+       "smokeTypes": [
+        1061202
+       ]
+      }
+     ]
+    },
+    {
+     "id": "threat",
+     "label": "Угроза людям",
+     "kind": "yesno",
+     "flag": "threat",
+     "showIf": {
+      "where": [
+       "*"
+      ],
+      "anyOf": [
+       "streetObject",
+       "transportObject",
+       "houseKind",
+       "buildingObject",
+       "dangerousObject"
+      ]
+     }
+    },
+    {
+     "id": "houseInner",
+     "label": "Внутридомовые объекты (пламя, дым)",
+     "kind": "multi",
+     "showIf": {
+      "houseKind": [
+       "Дом многоквартирный"
+      ]
+     },
+     "options": [
+      {
+       "value": "Квартира",
+       "types": [
+        1050101
+       ],
+       "smokeTypes": [
+        1050102
+       ]
+      },
+      {
+       "value": "Балкон",
+       "types": [
+        1050201
+       ],
+       "smokeTypes": [
+        1050202
+       ]
+      },
+      {
+       "value": "Газовая колонка",
+       "types": [
+        1050301
+       ],
+       "smokeTypes": [
+        1050302
+       ]
+      },
+      {
+       "value": "Газовая плита",
+       "types": [
+        1050401
+       ],
+       "smokeTypes": [
+        1050402
+       ]
+      },
+      {
+       "value": "Лифт",
+       "types": [
+        1050501
+       ],
+       "smokeTypes": [
+        1050502
+       ]
+      },
+      {
+       "value": "Мусоропровод",
+       "types": [
+        1050601
+       ],
+       "smokeTypes": [
+        1050602
+       ]
+      },
+      {
+       "value": "Подъезд",
+       "types": [
+        1050701
+       ],
+       "smokeTypes": [
+        1050702
+       ]
+      },
+      {
+       "value": "Счетчик электричества",
+       "types": [
+        1050801
+       ],
+       "smokeTypes": [
+        1050802
+       ]
+      },
+      {
+       "value": "Электрическая проводка",
+       "types": [
+        1051001
+       ],
+       "smokeTypes": [
+        1051002
+       ]
+      },
+      {
+       "value": "Электрощит",
+       "types": [
+        1051101
+       ],
+       "smokeTypes": [
+        1051102
+       ]
+      },
+      {
+       "value": "Лестничная клетка",
+       "types": [
+        1051201
+       ],
+       "smokeTypes": [
+        1051202
+       ]
+      },
+      {
+       "value": "Подвал",
+       "types": [
+        1051301
+       ],
+       "smokeTypes": [
+        1051302
+       ]
+      },
+      {
+       "value": "Прочие внутридомовые объекты",
+       "types": [
+        1051501
+       ],
+       "smokeTypes": [
+        1051502
+       ]
+      },
+      {
+       "value": "Крыша",
+       "types": [
+        1990083
+       ]
+      }
+     ]
+    },
+    {
+     "id": "offense",
+     "label": "Правонарушение",
+     "kind": "toggle",
+     "flag": "offense",
+     "showIf": {
+      "streetObject": [
+       "*"
+      ]
+     },
+     "options": [
+      {
+       "value": "Есть правонарушение"
+      }
+     ]
+    },
+    {
+     "id": "offenseText",
+     "label": "Описание правонарушения",
+     "kind": "text",
+     "showIf": {
+      "offense": [
+       "*"
+      ]
+     }
+    },
+    {
+     "id": "med",
+     "label": "Медицинская помощь",
+     "kind": "yesno",
+     "flag": "med",
+     "showIf": {
+      "where": [
+       "Улица",
+       "Транспорт",
+       "Здание / объект",
+       "Опасный объект"
+      ],
+      "anyOf": [
+       "streetObject",
+       "transportObject",
+       "buildingObject",
+       "dangerousObject"
+      ]
+     }
+    },
+    {
+     "id": "evac",
+     "label": "Требуется эвакуация",
+     "kind": "yesno",
+     "flag": "evac",
+     "showIf": {
+      "where": [
+       "Улица",
+       "Транспорт",
+       "Здание / объект",
+       "Опасный объект"
+      ],
+      "anyOf": [
+       "streetObject",
+       "transportObject",
+       "buildingObject",
+       "dangerousObject"
+      ]
+     }
+    },
+    {
+     "id": "traffic",
+     "label": "Есть ли перекрытие движения",
+     "kind": "yesno",
+     "flag": "traffic",
+     "showIf": {
+      "where": [
+       "Дом",
+       "Здание / объект",
+       "Опасный объект"
+      ],
+      "anyOf": [
+       "houseKind",
+       "buildingObject",
+       "dangerousObject"
+      ]
+     }
+    },
+    {
+     "id": "gas",
+     "label": "Проведена ли газификация",
+     "kind": "yesnounknown",
+     "flag": "gas",
+     "showIf": {
+      "where": [
+       "Улица",
+       "Дом",
+       "Здание / объект"
+      ],
+      "anyOf": [
+       "streetObject",
+       "houseKind",
+       "buildingObject"
+      ]
+     }
+    },
+    {
+     "id": "objectFlags",
+     "label": "Особенности объекта",
+     "kind": "multi",
+     "showIf": {
+      "where": [
+       "Здание / объект",
+       "Опасный объект"
+      ]
+     },
+     "options": [
+      {
+       "value": "Объект из перечня (Деп. культуры)",
+       "flag": "objectList"
+      },
+      {
+       "value": "Стройка",
+       "flag": "construction"
+      },
+      {
+       "value": "Объект связи",
+       "flag": "comm"
+      }
+     ]
+    },
+    {
+     "id": "description",
+     "label": "Описание",
+     "kind": "text"
+    }
+   ]
+  },
+  "gas104": {
+   "id": "gas104",
+   "title": "Происшествие 104",
+   "groupId": 13,
+   "bySigns": true,
+   "rows": [
+    {
+     "id": "sign1",
+     "label": "Признаки происшествия",
+     "kind": "single",
+     "options": [
+      {
+       "value": "Запах газа вне помещения (на улице)",
+       "sign": "Запах газа на улице"
+      },
+      {
+       "value": "Запах газа в помещении (в квартире, в доме)",
+       "sign": "Запах газа в помещении"
+      },
+      {
+       "value": "Нарушение в работе газового оборудования",
+       "sign": "Нарушение работы газового оборудования"
+      },
+      {
+       "value": "Повреждение газопровода",
+       "sign": "Повреждение газопровода"
+      },
+      {
+       "value": "Повышенное давление газа",
+       "sign": "Повышенное давление газа"
+      }
+     ]
+    },
+    {
+     "id": "sign2",
+     "label": "Где / что",
+     "kind": "single",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     },
+     "dependsOn": "sign1",
+     "options": [
+      {
+       "value": "Коллектор",
+       "sign": "Коллектор",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010100
+       ]
+      },
+      {
+       "value": "Метро (тоннель)",
+       "sign": "Метро (тоннель)",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010200
+       ]
+      },
+      {
+       "value": "Подземный переход",
+       "sign": "Подземный переход",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010300
+       ]
+      },
+      {
+       "value": "Улица",
+       "sign": "Улица",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010400
+       ]
+      },
+      {
+       "value": "От колодца (из люка)",
+       "sign": "От колодца (из люка)",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010500
+       ]
+      },
+      {
+       "value": "У водоема",
+       "sign": "У водоема",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010600
+       ]
+      },
+      {
+       "value": "Прочее",
+       "sign": "Прочее",
+       "parent": "Запах газа вне помещения (на улице)",
+       "types": [
+        13010700
+       ]
+      },
+      {
+       "value": "Кухня",
+       "sign": "Кухня",
+       "parent": "Запах газа в помещении (в квартире, в доме)",
+       "types": [
+        13020100
+       ]
+      },
+      {
+       "value": "Квартира помещение",
+       "sign": "Квартира помещение",
+       "parent": "Запах газа в помещении (в квартире, в доме)"
+      },
+      {
+       "value": "Дом частный",
+       "sign": "Дом частный",
+       "parent": "Запах газа в помещении (в квартире, в доме)",
+       "types": [
+        13020300
+       ]
+      },
+      {
+       "value": "От газововго оборудования",
+       "sign": "От газововго оборудования",
+       "parent": "Запах газа в помещении (в квартире, в доме)",
+       "types": [
+        13020400
+       ]
+      },
+      {
+       "value": "В многоквартирном доме (подъезд и т.д.)",
+       "sign": "В многоквартирном доме (подъезд и т.д.)",
+       "parent": "Запах газа в помещении (в квартире, в доме)",
+       "types": [
+        13020500
+       ]
+      },
+      {
+       "value": "Прочее",
+       "sign": "Прочее",
+       "parent": "Запах газа в помещении (в квартире, в доме)",
+       "types": [
+        13020600
+       ]
+      },
+      {
+       "value": "Слабое горение",
+       "sign": "Слабое горение",
+       "parent": "Нарушение в работе газового оборудования",
+       "types": [
+        13030100
+       ]
+      },
+      {
+       "value": "Нет газа",
+       "sign": "Нет газа",
+       "parent": "Нарушение в работе газового оборудования"
+      },
+      {
+       "value": "Хлопок газа (Плита, колонка, котел)",
+       "sign": "Хлопок газа (Плита, колонка, котел)",
+       "parent": "Нарушение в работе газового оборудования",
+       "types": [
+        13030300
+       ]
+      },
+      {
+       "value": "Прочая неисправность газового оборудования",
+       "sign": "Прочая неисправность газового оборудования",
+       "parent": "Нарушение в работе газового оборудования",
+       "types": [
+        13030400
+       ]
+      },
+      {
+       "value": "Вечный Огонь погас",
+       "sign": "Вечный Огонь погас",
+       "parent": "Нарушение в работе газового оборудования",
+       "types": [
+        13030500
+       ]
+      },
+      {
+       "value": "Настенный снаружи дома",
+       "sign": "Настенный снаружи дома",
+       "parent": "Повреждение газопровода",
+       "types": [
+        13050100
+       ]
+      },
+      {
+       "value": "Другой (уличый)",
+       "sign": "Другой (уличый)",
+       "parent": "Повреждение газопровода",
+       "types": [
+        13050200
+       ]
+      },
+      {
+       "value": "Газовый шкаф пункт",
+       "sign": "Газовый шкаф пункт",
+       "parent": "Повреждение газопровода",
+       "types": [
+        13050300
+       ]
+      },
+      {
+       "value": "Дом частный",
+       "sign": "Дом частный",
+       "parent": "Повышенное давление газа",
+       "types": [
+        13040100
+       ]
+      },
+      {
+       "value": "Квартира помещение дом",
+       "sign": "Квартира помещение дом",
+       "parent": "Повышенное давление газа",
+       "types": [
+        13040200
+       ]
+      },
+      {
+       "value": "Промышленное предприятие",
+       "sign": "Промышленное предприятие",
+       "parent": "Повышенное давление газа",
+       "types": [
+        13040300
+       ]
+      },
+      {
+       "value": "Коммунально-бытовое предприятие",
+       "sign": "Коммунально-бытовое предприятие",
+       "parent": "Повышенное давление газа",
+       "types": [
+        13040400
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sign3",
+     "label": "Уточнение",
+     "kind": "single",
+     "showIf": {
+      "sign2": [
+       "*"
+      ]
+     },
+     "dependsOn": "sign2",
+     "options": [
+      {
+       "value": "Открыто",
+       "sign": "Открыто",
+       "parent": "Запах газа в помещении (в квартире, в доме)/Квартира помещение",
+       "types": [
+        13020201
+       ]
+      },
+      {
+       "value": "Закрыто",
+       "sign": "Закрыто",
+       "parent": "Запах газа в помещении (в квартире, в доме)/Квартира помещение",
+       "types": [
+        13020202
+       ]
+      },
+      {
+       "value": "После пожара",
+       "sign": "После пожара",
+       "parent": "Запах газа в помещении (в квартире, в доме)/Квартира помещение",
+       "types": [
+        13020203
+       ]
+      },
+      {
+       "value": "Нежилое",
+       "sign": "Нежилое",
+       "parent": "Запах газа в помещении (в квартире, в доме)/Квартира помещение",
+       "types": [
+        13020204
+       ]
+      },
+      {
+       "value": "Дом частный",
+       "sign": "Дом частный",
+       "parent": "Нарушение в работе газового оборудования/Нет газа",
+       "types": [
+        13030201
+       ]
+      },
+      {
+       "value": "Квартира помещение",
+       "sign": "Квартира помещение",
+       "parent": "Нарушение в работе газового оборудования/Нет газа",
+       "types": [
+        13030202
+       ]
+      },
+      {
+       "value": "Промышленное предприятие",
+       "sign": "Промышленное предприятие",
+       "parent": "Нарушение в работе газового оборудования/Нет газа",
+       "types": [
+        13030203
+       ]
+      },
+      {
+       "value": "Коммунально-бытовое предприятие",
+       "sign": "Коммунально-бытовое предприятие",
+       "parent": "Нарушение в работе газового оборудования/Нет газа",
+       "types": [
+        13030204
+       ]
+      },
+      {
+       "value": "Возгорание",
+       "sign": "Возгорание",
+       "parent": "Нарушение в работе газового оборудования/Хлопок газа (Плита, колонка, котел)",
+       "types": [
+        13030301
+       ]
+      }
+     ]
+    },
+    {
+     "id": "threat",
+     "label": "Угроза людям",
+     "kind": "yesno",
+     "flag": "threat",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     }
+    },
+    {
+     "id": "gasSource",
+     "label": "Газ магистральный или баллон",
+     "kind": "single",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     },
+     "options": [
+      {
+       "value": "Магистральный"
+      },
+      {
+       "value": "Баллон"
+      },
+      {
+       "value": "Не знает"
+      }
+     ]
+    },
+    {
+     "id": "description",
+     "label": "Описание",
+     "kind": "text"
+    }
+   ]
+  },
+  "explosion": {
+   "id": "explosion",
+   "title": "П: Взрыв",
+   "groupId": 3,
+   "bySigns": true,
+   "rows": [
+    {
+     "id": "sign1",
+     "label": "Где взрыв",
+     "kind": "single",
+     "options": [
+      {
+       "value": "Здание / Объект",
+       "sign": "Взрыв объект"
+      },
+      {
+       "value": "Транспорт",
+       "sign": "Взрыв транспорт"
+      },
+      {
+       "value": "Звуки похожие на взрыв, что взорвалось сообщить не может",
+       "sign": "Звуки похожие на взрыв, что взорвалось сообщить не может",
+       "types": [
+        3030000
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sign2",
+     "label": "Что взорвалось",
+     "kind": "single",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     },
+     "dependsOn": "sign1",
+     "options": [
+      {
+       "value": "Дом многоквартирный",
+       "sign": "Дом многоквартирный",
+       "parent": "Здание / Объект",
+       "types": [
+        3010100
+       ]
+      },
+      {
+       "value": "Дом частный",
+       "sign": "Дом частный",
+       "parent": "Здание / Объект",
+       "types": [
+        3010200
+       ]
+      },
+      {
+       "value": "Учебное заведение",
+       "sign": "Учебное заведение",
+       "parent": "Здание / Объект",
+       "types": [
+        3010300
+       ]
+      },
+      {
+       "value": "Административное здание",
+       "sign": "Административное здание",
+       "parent": "Здание / Объект",
+       "types": [
+        3010400
+       ]
+      },
+      {
+       "value": "Лечебное заведение",
+       "sign": "Лечебное заведение",
+       "parent": "Здание / Объект",
+       "types": [
+        3010500
+       ]
+      },
+      {
+       "value": "Общественное место",
+       "sign": "Общественное место",
+       "parent": "Здание / Объект",
+       "types": [
+        3010600
+       ]
+      },
+      {
+       "value": "Объект связи",
+       "sign": "Объект связи",
+       "parent": "Здание / Объект",
+       "types": [
+        3010700
+       ]
+      },
+      {
+       "value": "Бытовой газ",
+       "sign": "Бытовой газ",
+       "parent": "Здание / Объект",
+       "types": [
+        3010800
+       ]
+      },
+      {
+       "value": "Газовый баллон",
+       "sign": "Газовый баллон",
+       "parent": "Здание / Объект",
+       "types": [
+        3010900
+       ]
+      },
+      {
+       "value": "АЗС",
+       "sign": "АЗС",
+       "parent": "Здание / Объект",
+       "types": [
+        3011000
+       ]
+      },
+      {
+       "value": "Нефтепровод нефтехранилище",
+       "sign": "Нефтепровод нефтехранилище",
+       "parent": "Здание / Объект",
+       "types": [
+        3011100
+       ]
+      },
+      {
+       "value": "Газопровод газохранилище",
+       "sign": "Газопровод газохранилище",
+       "parent": "Здание / Объект",
+       "types": [
+        3011200
+       ]
+      },
+      {
+       "value": "Гидросооружение",
+       "sign": "Гидросооружение",
+       "parent": "Здание / Объект",
+       "types": [
+        3011300
+       ]
+      },
+      {
+       "value": "Опасный объект производство",
+       "sign": "Опасный объект производство",
+       "parent": "Здание / Объект",
+       "types": [
+        3011400
+       ]
+      },
+      {
+       "value": "Коммуникации подземные (Колодцы люки шахты)/наземные",
+       "sign": "Коммуникации подземные (Колодцы люки шахты)/наземные",
+       "parent": "Здание / Объект",
+       "types": [
+        3011500
+       ]
+      },
+      {
+       "value": "Мачта освещения ЛЭП",
+       "sign": "Мачта освещения ЛЭП",
+       "parent": "Здание / Объект",
+       "types": [
+        3011600
+       ]
+      },
+      {
+       "value": "Мост эстакада подземный/ наземный переход тоннель",
+       "sign": "Мост эстакада подземный/ наземный переход тоннель",
+       "parent": "Здание / Объект",
+       "types": [
+        3011700
+       ]
+      },
+      {
+       "value": "Улица",
+       "sign": "Улица",
+       "parent": "Здание / Объект",
+       "types": [
+        3011800
+       ]
+      },
+      {
+       "value": "Прочие объекты",
+       "sign": "Прочие объекты",
+       "parent": "Здание / Объект",
+       "types": [
+        3011900
+       ]
+      },
+      {
+       "value": "Метро",
+       "sign": "Метро",
+       "parent": "Транспорт",
+       "types": [
+        3020100
+       ]
+      },
+      {
+       "value": "МЦК",
+       "sign": "МЦК",
+       "parent": "Транспорт",
+       "types": [
+        3020200
+       ]
+      },
+      {
+       "value": "Транспорт автомашина (легковая, грузовая)",
+       "sign": "Транспорт автомашина (легковая, грузовая)",
+       "parent": "Транспорт",
+       "types": [
+        3020300
+       ]
+      },
+      {
+       "value": "Спецтранспорт (МВД, Росграврия, МЧС, 103, 104, МГТС)",
+       "sign": "Спецтранспорт (МВД, Росграврия, МЧС, 103, 104, МГТС)",
+       "parent": "Транспорт",
+       "types": [
+        3020400
+       ]
+      },
+      {
+       "value": "Транспорт общественный",
+       "sign": "Транспорт общественный",
+       "parent": "Транспорт",
+       "types": [
+        3020500
+       ]
+      },
+      {
+       "value": "Мост эстакада подземный/ наземный переход тоннель",
+       "sign": "Мост эстакада подземный/ наземный переход тоннель",
+       "parent": "Транспорт",
+       "types": [
+        3020600
+       ]
+      },
+      {
+       "value": "Улица",
+       "sign": "Улица",
+       "parent": "Транспорт",
+       "types": [
+        3020700
+       ]
+      },
+      {
+       "value": "Транспорт жд",
+       "sign": "Транспорт жд",
+       "parent": "Транспорт",
+       "types": [
+        3020800
+       ]
+      },
+      {
+       "value": "Транспорт воздушный",
+       "sign": "Транспорт воздушный",
+       "parent": "Транспорт",
+       "types": [
+        3020900
+       ]
+      },
+      {
+       "value": "Транспорт водный",
+       "sign": "Транспорт водный",
+       "parent": "Транспорт",
+       "types": [
+        3021000
+       ]
+      },
+      {
+       "value": "Транспорт прочее",
+       "sign": "Транспорт прочее",
+       "parent": "Транспорт",
+       "types": [
+        3021100
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sign3",
+     "label": "Уточнение",
+     "kind": "single",
+     "showIf": {
+      "sign2": [
+       "*"
+      ]
+     },
+     "dependsOn": "sign2",
+     "options": [
+      {
+       "value": "Вагон/поезд",
+       "sign": "Вагон/поезд",
+       "parent": "Транспорт/Метро",
+       "types": [
+        3020101
+       ]
+      },
+      {
+       "value": "Перегон /тоннель / вестибюль станции/ платформа/ переход/ эскалатор /депо",
+       "sign": "Перегон /тоннель / вестибюль станции/ платформа/ переход/ эскалатор /депо",
+       "parent": "Транспорт/Метро",
+       "types": [
+        3020102
+       ]
+      },
+      {
+       "value": "Вагон/поезд",
+       "sign": "Вагон/поезд",
+       "parent": "Транспорт/МЦК",
+       "types": [
+        3020201
+       ]
+      },
+      {
+       "value": "Перегон /тоннель / вестибюль станции/ платформа/ переход/ эскалатор /депо",
+       "sign": "Перегон /тоннель / вестибюль станции/ платформа/ переход/ эскалатор /депо",
+       "parent": "Транспорт/МЦК",
+       "types": [
+        3020202
+       ]
+      },
+      {
+       "value": "Автобус, троллейбус, трамвай, маршрутка",
+       "sign": "Автобус, троллейбус, трамвай, маршрутка",
+       "parent": "Транспорт/Транспорт общественный",
+       "types": [
+        3020501
+       ]
+      },
+      {
+       "value": "Автовокзал",
+       "sign": "Автовокзал",
+       "parent": "Транспорт/Транспорт общественный",
+       "types": [
+        3020502
+       ]
+      },
+      {
+       "value": "Остановка / конечная станция",
+       "sign": "Остановка / конечная станция",
+       "parent": "Транспорт/Транспорт общественный",
+       "types": [
+        3020503
+       ]
+      },
+      {
+       "value": "Пассажирский, грузовой",
+       "sign": "Пассажирский, грузовой",
+       "parent": "Транспорт/Транспорт жд",
+       "types": [
+        3020801
+       ]
+      },
+      {
+       "value": "Вокзал жд платформа жд станция",
+       "sign": "Вокзал жд платформа жд станция",
+       "parent": "Транспорт/Транспорт жд",
+       "types": [
+        3020802
+       ]
+      },
+      {
+       "value": "жд пути депо",
+       "sign": "жд пути депо",
+       "parent": "Транспорт/Транспорт жд",
+       "types": [
+        3020803
+       ]
+      },
+      {
+       "value": "Самолет, вертолет",
+       "sign": "Самолет, вертолет",
+       "parent": "Транспорт/Транспорт воздушный",
+       "types": [
+        3020901
+       ]
+      },
+      {
+       "value": "Аэропорт, взлетная полоса",
+       "sign": "Аэропорт, взлетная полоса",
+       "parent": "Транспорт/Транспорт воздушный",
+       "types": [
+        3020902
+       ]
+      },
+      {
+       "value": "Пассажирский, грузовой",
+       "sign": "Пассажирский, грузовой",
+       "parent": "Транспорт/Транспорт водный",
+       "types": [
+        3021001
+       ]
+      },
+      {
+       "value": "Порт, причал",
+       "sign": "Порт, причал",
+       "parent": "Транспорт/Транспорт водный",
+       "types": [
+        3021002
+       ]
+      }
+     ]
+    },
+    {
+     "id": "burning",
+     "label": "Есть возгорание",
+     "kind": "yesno",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     }
+    },
+    {
+     "id": "collapseThreat",
+     "label": "Есть угроза обрушения",
+     "kind": "yesno",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     }
+    },
+    {
+     "id": "damage",
+     "label": "Какие видят разрушения",
+     "kind": "text",
+     "showIf": {
+      "sign1": [
+       "*"
+      ]
+     }
+    },
+    {
+     "id": "description",
+     "label": "Описание",
+     "kind": "text"
+    }
+   ]
+  }
+ }
+}
