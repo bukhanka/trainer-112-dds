@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import type { Role, User } from "@prisma/client";
 import { db } from "../db";
 import { audit } from "../audit";
+import { isProtectedDemoLogin } from "./demo";
 import { verifyPassword } from "./password";
 
 export const SESSION_COOKIE = "sid";
@@ -53,7 +54,7 @@ export async function login(loginName: string, password: string): Promise<LoginR
 
   if (!(await verifyPassword(password, user.passwordHash))) {
     const failed = user.failedLogins + 1;
-    const lock = failed >= MAX_FAILED_LOGINS;
+    const lock = failed >= MAX_FAILED_LOGINS && !isProtectedDemoLogin(user.login);
     await db.user.update({
       where: { id: user.id },
       data: {

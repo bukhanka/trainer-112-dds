@@ -5,14 +5,11 @@ import { z } from "zod";
 import type { Role } from "@prisma/client";
 import { audit } from "@/lib/audit";
 import { hashPassword, passwordProblem } from "@/lib/auth/password";
+import { isProtectedDemoLogin } from "@/lib/auth/demo";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
 export type ActionState = { ok?: string; error?: string };
-
-const PROTECTED = new Set(
-  process.env.DEMO_MODE === "true" ? ["admin", "teacher", "student1", "student2", "student3", "student4", "student5"] : [],
-);
 
 const createSchema = z.object({
   login: z.string().trim().toLowerCase().regex(/^[a-z0-9_.-]{3,32}$/, "Логин: 3–32 латинских буквы, цифры, _ . -"),
@@ -54,7 +51,7 @@ export async function setBlocked(userId: string, blocked: boolean): Promise<Acti
   const user = await db.user.findUnique({ where: { id: userId } });
   if (!user) return { error: "Пользователь не найден" };
   if (user.id === admin.id) return { error: "Нельзя заблокировать себя" };
-  if (PROTECTED.has(user.login)) return { error: "Демо-учётку на стенде менять нельзя" };
+  if (isProtectedDemoLogin(user.login)) return { error: "Демо-учётку на стенде менять нельзя" };
 
   await db.$transaction([
     db.user.update({ where: { id: userId }, data: { isBlocked: blocked, failedLogins: 0, lockedUntil: null } }),
@@ -77,7 +74,7 @@ export async function resetPassword(userId: string, password: string): Promise<A
   const admin = await requireUser(["ADMIN"]);
   const user = await db.user.findUnique({ where: { id: userId } });
   if (!user) return { error: "Пользователь не найден" };
-  if (PROTECTED.has(user.login)) return { error: "Демо-учётку на стенде менять нельзя" };
+  if (isProtectedDemoLogin(user.login)) return { error: "Демо-учётку на стенде менять нельзя" };
   const problem = passwordProblem(password);
   if (problem) return { error: problem };
 
