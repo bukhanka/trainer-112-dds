@@ -144,7 +144,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
           {missed ? <span className="rounded bg-arm-late px-1.5 text-[11px] font-bold" title="Пропущенные доклады">{missed}</span> : null}
         </button>
       ) : (
-        <aside className="fixed bottom-[76px] right-3 z-30 flex max-h-[calc(100vh-96px)] w-[min(370px,calc(100vw-24px))] flex-col border border-arm-dark/30 bg-white text-[13px] text-arm-dark shadow-2xl">
+        <aside className="fixed bottom-[76px] right-3 z-30 flex max-h-[calc(100vh-96px)] w-[min(370px,calc(100vw-24px))] flex-col overflow-hidden border border-arm-dark/30 bg-white text-[13px] text-arm-dark shadow-2xl">
           <header className="flex items-center gap-2 bg-arm-dark px-3 py-2 text-white">
             <Phone className="h-4 w-4" />
             <span className="flex-1 truncate">
@@ -201,14 +201,14 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
 
           {current ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="border-b px-3 py-2">
+              <div className="shrink-0 border-b px-3 py-2">
                 <div className="font-semibold">{current.name}</div>
                 <div className="text-[11px] text-arm-desc">
                   {current.role} · {KIND_LABEL[current.kind]}
                   {current.incidentNumber ? ` · карточка ${current.incidentNumber}` : ""}
                 </div>
               </div>
-              <div ref={messagesRef} className="min-h-[160px] flex-1 space-y-2 overflow-y-auto bg-arm-panel px-3 py-2">
+              <div ref={messagesRef} className="min-h-[64px] flex-1 space-y-2 overflow-y-auto bg-arm-panel px-3 py-2 [@media(min-height:640px)]:min-h-[180px]">
                 {current.messages.map((m, i) => (
                   <div key={i} className={`flex ${m.role === "trainee" ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[85%] px-2 py-1 ${m.role === "trainee" ? "bg-arm-blue text-white" : "bg-white"}`}>
@@ -220,12 +220,12 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 {busy ? <div className="text-[11px] text-arm-desc">…</div> : null}
               </div>
               {voice.canListen ? (
-                <div className="flex flex-wrap items-center gap-2 border-t px-2 pt-2">
+                <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-2 pt-2">
                   <PushToTalk state={voice.state} onStart={() => void talk()} onStop={voice.stop} disabled={busy} />
                   {voice.error ? <span className="text-[11px] text-arm-late">{voice.error}</span> : null}
                 </div>
               ) : null}
-              <form onSubmit={send} className="flex gap-2 border-t px-2 py-2">
+              <form onSubmit={send} className="flex shrink-0 gap-2 border-t px-2 py-2">
                 <input
                   autoFocus
                   value={draft}
@@ -239,7 +239,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                   Сказать
                 </button>
               </form>
-              <button onClick={() => hangUp(current.id)} className="flex items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110">
+              <button onClick={() => hangUp(current.id)} className="flex shrink-0 items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110">
                 <HandsetDown className="h-4 w-4" /> Положить трубку
               </button>
             </div>
