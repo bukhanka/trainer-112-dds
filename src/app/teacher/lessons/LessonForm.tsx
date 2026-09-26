@@ -24,7 +24,7 @@ const CARD_SOURCES: { value: TeacherSettings["cardSource"]; label: string; hint:
 ];
 
 function defaultTitle() {
-  return `Занятие ${new Date().toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}`;
+  return `Занятие ${new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit" })}`;
 }
 
 export function LessonForm({

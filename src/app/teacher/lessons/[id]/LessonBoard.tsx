@@ -113,10 +113,10 @@ function SeatTile({ seat, now, lessonId }: { seat: SeatState; now: number; lesso
   return (
     <article className={`flex min-w-0 flex-col gap-2 rounded border-2 bg-white p-3 ${border}`} aria-label={`${seat.label}: ${seat.studentName}`}>
       <header className="flex items-center gap-2">
-        <span className="font-semibold">{seat.label}</span>
-        <span className={`rounded px-1.5 py-0.5 text-xs font-semibold text-white ${is112 ? "bg-arm-orange" : "bg-arm-blue"}`}>{is112 ? "112" : "ДДС"}</span>
-        {seat.serviceName && <span className="truncate text-xs text-arm-desc" title={seat.serviceName}>{seat.serviceName}</span>}
-        {seat.queue > 0 && <span className="ml-auto rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">в очереди {seat.queue}</span>}
+        <span className="shrink-0 whitespace-nowrap font-semibold">{seat.label}</span>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold text-white ${is112 ? "bg-arm-orange" : "bg-arm-blue"}`}>{is112 ? "112" : "ДДС"}</span>
+        {seat.serviceName && <span className="min-w-0 truncate text-xs text-arm-desc" title={seat.serviceName}>{seat.serviceName}</span>}
+        {seat.queue > 0 && <span className="ml-auto shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">в очереди {seat.queue}</span>}
       </header>
       <div className="text-base font-semibold leading-tight">{seat.studentName}</div>
       {seat.level && (

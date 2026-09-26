@@ -21,7 +21,7 @@ export function formatDelta(sec: number | null | undefined): string {
   return `${r > 0 ? "+" : "−"}${formatDuration(Math.abs(r))}`;
 }
 
-export function formatDateTime(value: Date | string | null | undefined): string {
+export function formatDateTime(value: Date | string | null | undefined, withSeconds = false): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("ru-RU", {
     timeZone: TZ,
@@ -30,6 +30,7 @@ export function formatDateTime(value: Date | string | null | undefined): string 
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    ...(withSeconds ? { second: "2-digit" } : {}),
   });
 }
 

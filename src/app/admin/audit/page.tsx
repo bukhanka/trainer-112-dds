@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AUDIT_LABELS, auditWhere, readFilter } from "@/lib/admin/audit-query";
 import { db } from "@/lib/db";
+import { formatDateTime } from "@/lib/format";
 
 const PAGE_SIZE = 50;
 
@@ -67,7 +68,7 @@ export default async function AuditPage({ searchParams }: PageProps<"/admin/audi
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-t align-top">
-                <td className="whitespace-nowrap p-2 text-xs">{r.at.toLocaleString("ru-RU")}</td>
+                <td className="whitespace-nowrap p-2 text-xs">{formatDateTime(r.at, true)}</td>
                 <td className="p-2">{r.actor ?? "—"}</td>
                 <td className={`p-2 ${r.action === "system.error" || r.action.includes("fail") ? "text-arm-late" : ""}`}>
                   {AUDIT_LABELS[r.action] ?? r.action}

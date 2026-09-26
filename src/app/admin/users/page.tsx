@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { formatDateTime } from "@/lib/format";
 import { CreateUserForm, UserRowActions } from "./UserForms";
 
 const ROLE = { ADMIN: "Администратор", TEACHER: "Преподаватель", STUDENT: "Обучающийся" } as const;
@@ -40,7 +41,7 @@ export default async function UsersPage() {
                       "активен"
                     )}
                   </td>
-                  <td className="p-2 text-xs">{u.lastLoginAt ? u.lastLoginAt.toLocaleString("ru-RU") : "—"}</td>
+                  <td className="p-2 text-xs">{u.lastLoginAt ? formatDateTime(u.lastLoginAt, true) : "—"}</td>
                   <td className="p-2">
                     <UserRowActions userId={u.id} blocked={u.isBlocked} />
                   </td>

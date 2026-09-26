@@ -32,6 +32,17 @@ async function shot(page: Page, name: string, path: string, settle = 1500) {
   console.log(`✓ ${name}.png  ${path}`);
 }
 
+/** Scrolls so that the section with this heading sits at the top of the frame. */
+async function shotSection(page: Page, name: string, path: string, heading: string, settle = 1500) {
+  await page.goto(`${BASE}${path}`);
+  await wait(settle);
+  const box = await page.getByText(heading, { exact: true }).first().boundingBox();
+  if (box) await page.evaluate((y) => window.scrollTo(0, y), Math.max(0, box.y - 90));
+  await wait(400);
+  await page.screenshot({ path: `${OUT}/${name}.png` });
+  console.log(`✓ ${name}.png  ${path} → ${heading}`);
+}
+
 async function main() {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" });
   const group = await db.group.findFirstOrThrow({ where: { name: "Учебная группа № 1" } });
@@ -54,7 +65,8 @@ async function main() {
   const lessonId = ((await created.json()) as { id: string }).id;
   try {
     await teacher.page.request.post(`${BASE}/api/teacher/lessons/${lessonId}/start`);
-    await shot(teacher.page, "00-login", "/login", 500);
+    const anon = await browser.newContext({ viewport: { width: 1600, height: 900 }, locale: "ru-RU", timezoneId: "Europe/Moscow" });
+    await shot(await anon.newPage(), "00-login", "/login", 800); // signed out: a signed-in page would redirect
 
     // ДДС: let the feed fill up, then open a card and its status line.
     const dds = await signedIn(browser, "student2", "Student2026");
@@ -101,6 +113,9 @@ async function main() {
     await shot(teacher.page, "10-weights", "/teacher/weights");
     await shot(teacher.page, "11-scenarios", "/teacher/scenarios");
     await shot(teacher.page, "12-scenario-from-text", "/teacher/scenarios/new");
+    await shotSection(teacher.page, "16-teacher-forecast", "/teacher/reports", "Прогноз на следующее занятие");
+    await shotSection(teacher.page, "17-forecast-vs-fact", "/teacher/lessons/demo-lesson-1/report", "Прогноз ↔ факт");
+    await shotSection(teacher.page, "18-forecast-history", "/teacher/reports", "Прогноз ↔ факт по занятиям");
 
     const admin = await signedIn(browser, "admin", "Admin2026");
     await shot(admin.page, "13-admin-health", "/admin", 2000);

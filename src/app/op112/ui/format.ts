@@ -1,5 +1,8 @@
 /** Small formatting helpers of the 112 workstation. */
 
+/** The training centre works in Moscow time; the server and the browser may sit in other zones. */
+const MSK = "Europe/Moscow";
+
 /** «+7 (916) 126-34-71» from whatever the operator types; partial input stays partial. */
 export function formatPhone(input: string): string {
   let d = input.replace(/\D/g, "");
@@ -31,13 +34,13 @@ export function mmss(totalSec: number): string {
 
 export function hhmm(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("ru-RU", { timeZone: MSK, hour: "2-digit", minute: "2-digit" });
 }
 
 export function dateTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return `${d.toLocaleDateString("ru-RU")} в ${d.toLocaleTimeString("ru-RU")}`;
+  return `${d.toLocaleDateString("ru-RU", { timeZone: MSK })} в ${d.toLocaleTimeString("ru-RU", { timeZone: MSK })}`;
 }
 
 export { channelOf } from "@/lib/op112/phone";

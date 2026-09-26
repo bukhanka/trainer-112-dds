@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import type { Health } from "@/lib/admin/health";
+import { formatDateTime, formatTime } from "@/lib/format";
 
 const fetcher = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
 
@@ -14,7 +15,7 @@ export function HealthPanel({ initial }: { initial: Health }) {
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-semibold">Состояние системы</h1>
         <span className="text-xs text-arm-desc">
-          обновлено {new Date(data.at).toLocaleTimeString("ru-RU")}
+          обновлено {formatTime(data.at, true)}
           {error ? " · нет связи с сервером" : " · раз в 5 с"}
         </span>
       </div>
@@ -28,7 +29,7 @@ export function HealthPanel({ initial }: { initial: Health }) {
         <Tile label="Ошибок сервера за час" value={String(data.errorsLastHour)} bad={data.errorsLastHour > 0} />
         <Tile
           label="Последняя резервная копия"
-          value={data.lastBackup ? `${new Date(data.lastBackup.at).toLocaleString("ru-RU")} · ${data.lastBackup.status === "ok" ? "успешно" : data.lastBackup.status}` : "ещё не было"}
+          value={data.lastBackup ? `${formatDateTime(data.lastBackup.at)} · ${data.lastBackup.status === "ok" ? "успешно" : data.lastBackup.status}` : "ещё не было"}
           bad={data.lastBackup?.status === "failed"}
         />
       </div>

@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { runBackup } from "@/lib/admin/backup";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { formatDateTime } from "@/lib/format";
 import { getSetting } from "@/lib/settings";
 
 async function backupNow() {
@@ -47,7 +48,7 @@ export default async function BackupsPage() {
           <tbody>
             {rows.map((b) => (
               <tr key={b.id} className="border-t">
-                <td className="p-2 text-xs">{b.createdAt.toLocaleString("ru-RU")}</td>
+                <td className="p-2 text-xs">{formatDateTime(b.createdAt, true)}</td>
                 <td className="p-2">{b.kind === "manual" ? "вручную" : "по расписанию"}</td>
                 <td className="p-2 font-mono text-xs">{b.fileName}</td>
                 <td className="p-2">{b.sizeBytes ? `${(Number(b.sizeBytes) / 1e6).toFixed(1)} МБ` : "—"}</td>
