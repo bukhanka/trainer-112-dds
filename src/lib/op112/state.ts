@@ -41,7 +41,6 @@ export type IncidentDto = {
   important: boolean;
   draft: Op112CardDraft;
   plates: PlateDto[];
-  scenarioTitle: string | null;
 };
 
 export type JournalRow = {
@@ -94,7 +93,7 @@ export function plateDto(row: IncidentService & { service: Service }): PlateDto 
 }
 
 export function incidentDto(
-  incident: Incident & { services: (IncidentService & { service: Service })[]; scenario?: { title: string } | null },
+  incident: Incident & { services: (IncidentService & { service: Service })[] },
   updatedLabel?: string | null,
 ): IncidentDto {
   return {
@@ -107,8 +106,8 @@ export function incidentDto(
     updatedLabel: updatedLabel ?? null,
     important: incident.important,
     draft: draftFromIncident(incident),
+    // The scenario stays hidden until the review: its title alone would hint at the answer.
     plates: incident.services.map(plateDto).sort((a, b) => Number(b.isMain) - Number(a.isMain)),
-    scenarioTitle: incident.scenario?.title ?? null,
   };
 }
 
@@ -130,7 +129,7 @@ export async function buildState(user: SessionUser): Promise<Op112State> {
     db.incident.findFirst({
       where: { createdBySeatId: seat.id, status: { in: ["draft", "registered"] } },
       orderBy: { createdAt: "desc" },
-      include: { services: { include: { service: true }, orderBy: { addedAt: "asc" } }, scenario: { select: { title: true } } },
+      include: { services: { include: { service: true }, orderBy: { addedAt: "asc" } } },
     }),
     db.incident.findMany({
       where: { createdBySeatId: seat.id, lessonId: seat.lessonId, status: { in: ["registered", "worked", "empty"] } },

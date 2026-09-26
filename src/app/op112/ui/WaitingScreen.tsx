@@ -51,6 +51,7 @@ export function WaitingScreen(p: {
 }) {
   const [noScenarios, setNoScenarios] = useState(false);
   const [answering, setAnswering] = useState(false);
+  const [retry, setRetry] = useState(0);
   const ringing = p.state.call?.status === "RINGING" ? p.state.call : null;
   const ringingId = ringing?.id ?? null;
   const { refresh, paused } = p;
@@ -65,12 +66,13 @@ export function WaitingScreen(p: {
           .then(() => refresh())
           .catch((e) => {
             if (e instanceof ApiError && e.code === "no_scenarios") setNoScenarios(true);
+            else setRetry((n) => n + 1); // a network hiccup: try again a bit later
           });
       },
-      2000 + Math.random() * 2500,
+      (retry ? 5000 : 2000) + Math.random() * 2500,
     );
     return () => clearTimeout(t);
-  }, [ringingId, paused, noScenarios, refresh]);
+  }, [ringingId, paused, noScenarios, refresh, retry]);
 
   const answer = async () => {
     if (!ringing || answering) return;
