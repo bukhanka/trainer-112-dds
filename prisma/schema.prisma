@@ -418,6 +418,7 @@ model Attempt {
   createdAt         DateTime         @default(now())
 
   @@index([lessonId, studentId])
+  @@index([studentId, createdAt]) // the level and the forecast replay one student's attempts
 }
 
 model WeightProfile {
