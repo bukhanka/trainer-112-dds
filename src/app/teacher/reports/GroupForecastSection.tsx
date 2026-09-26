@@ -1,13 +1,9 @@
 import { RangeBar } from "@/components/charts";
+import { signedWhole } from "@/components/forecast";
 import { Section } from "@/components/ui";
 import { FORECAST, type TimeForecast } from "@/lib/adaptive/forecast";
 import type { GroupForecast } from "@/lib/adaptive/teacher";
 import { formatDuration } from "@/lib/format";
-
-const signed = (x: number) => {
-  const r = Math.round(x);
-  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)}`;
-};
 
 function TimeCell({ t, label }: { t: TimeForecast | null; label: string }) {
   if (!t) return null;
@@ -65,7 +61,7 @@ export function GroupForecastSection({ data }: { data: GroupForecast }) {
                     )}
                   </td>
                   <td className={`py-1.5 pr-3 text-right tabular-nums ${!r.score ? "text-arm-desc" : r.score.trend >= 1 ? "text-emerald-700" : r.score.trend <= -1 ? "text-red-700" : ""}`}>
-                    {r.score && r.score.lessons > 1 ? signed(r.score.trend) : "—"}
+                    {r.score && r.score.lessons > 1 ? signedWhole(r.score.trend) : "—"}
                   </td>
                   <td className="py-1.5 pr-3 text-xs">
                     <TimeCell t={r.time.OP112} label="112" />
@@ -111,8 +107,8 @@ export function GroupForecastSection({ data }: { data: GroupForecast }) {
       <p className="mt-2 text-xs text-arm-desc">
         По подтверждённым попыткам ваших занятий. Ожидаемый балл — сглаженный средний балл занятий плюс тренд; интервал рассчитан так, чтобы факт попадал в
         него 8 раз из 10. «Уложится в норматив» — вероятность по времени последних попыток роли. Зона риска: ожидаемый балл ниже {FORECAST.riskScore} или
-        вероятность уложиться в норматив ниже {Math.round(FORECAST.riskOnTime * 100)} %. Уровень — рейтинг «как в шахматах», в скобках — рекомендуемая
-        сложность заданий.
+        вероятность уложиться в норматив ниже {Math.round(FORECAST.riskOnTime * 100)} %. Уровень — рейтинг «как в шахматах» (черновики в нём весят вдвое меньше
+        подтверждённых попыток), в скобках — рекомендуемая сложность заданий.
       </p>
     </Section>
   );

@@ -7,7 +7,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import { lessonSettingsSchema } from "@/lib/lessons/settings";
 import type { ForecastAttempt } from "./forecast";
-import type { RatingAttempt } from "./rating";
+import type { RatingAttempt, RatingRole } from "./rating";
 
 type Client = PrismaClient | Prisma.TransactionClient;
 
@@ -38,16 +38,16 @@ export type HistoryAttempt = ForecastAttempt &
     lessonSettings: unknown;
   };
 
-function normsOf(settings: unknown): { typingSec: number; ackSec: number } {
+/** The lesson's time norm of a role: 112 — card typing, ДДС — «Принята / Не принята». */
+export function normFor(settings: unknown, role: RatingRole): number {
   const parsed = lessonSettingsSchema.safeParse(settings ?? {});
   const s = parsed.success ? parsed.data : lessonSettingsSchema.parse({});
-  return { typingSec: s.typingSec, ackSec: s.ackSec };
+  return role === "OP112" ? s.typingSec : s.ackSec;
 }
 
 const seconds = (from: Date, to: Date) => Math.round((to.getTime() - from.getTime()) / 1000);
 
 export function toHistoryAttempt(r: Row): HistoryAttempt {
-  const norms = normsOf(r.lesson?.settings);
   let timeSec: number | null = null;
   if (r.kind === "DDS" && r.incidentService) {
     const answer = r.incidentService.events?.[0];
@@ -69,7 +69,7 @@ export function toHistoryAttempt(r: Row): HistoryAttempt {
     reviewedAt: r.reviewedAt,
     difficulty: r.scenario?.difficulty ?? null,
     timeSec,
-    normSec: r.kind === "OP112" ? norms.typingSec : norms.ackSec,
+    normSec: normFor(r.lesson?.settings, r.kind),
   };
 }
 

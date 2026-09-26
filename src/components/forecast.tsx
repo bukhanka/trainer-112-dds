@@ -14,6 +14,12 @@ export function points(x: number): string {
 /** «+2,5» / «−3» / «0». */
 export const signedPoints = (x: number) => `${x > 0 ? "+" : x < 0 ? "−" : ""}${num(Math.abs(x))}`;
 
+/** Rounded to a whole number first, so 0,3 is «0», not «+0». */
+export function signedWhole(x: number): string {
+  const r = Math.round(x);
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)}`;
+}
+
 /** Four numbers of forecast accuracy, shared by the lesson report and «Отчёты». */
 export function AccuracyStats({ acc, what }: { acc: Accuracy; what: [string, string, string] }) {
   const better = acc.mae != null && acc.baselineMae != null ? Math.round((acc.baselineMae - acc.mae) * 10) / 10 : null;

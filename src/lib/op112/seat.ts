@@ -5,7 +5,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
 import { isPractice } from "@/lib/lessons/form";
-import { lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
+import { adaptiveChoice, lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
 
 export type Op112Seat = Prisma.SeatGetPayload<{ include: { lesson: true } }>;
 
@@ -151,11 +151,10 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     where: { createdBySeatId: seat.id, scenarioId: { not: null } },
     _max: { createdAt: true },
   });
-  const lastUse = new Map(used.map((u) => [u.scenarioId, u._max.createdAt?.getTime() ?? 0]));
-  if (!seat.scenarioIds.length && settings.adaptive) {
-    const lastUsed = new Map(used.flatMap((u) => (u.scenarioId ? [[u.scenarioId, u._max.createdAt?.getTime() ?? 0] as const] : [])));
+  const lastUse = new Map(used.flatMap((u) => (u.scenarioId ? [[u.scenarioId, u._max.createdAt?.getTime() ?? 0] as const] : [])));
+  if (!seat.scenarioIds.length && adaptiveChoice(seat.lesson.settings)) {
     const level = await studentRating(seat.studentId, "OP112");
-    return pickAdaptive(pool, { target: level.difficulty, lastUsed });
+    return pickAdaptive(pool, { target: level.difficulty, lastUsed: lastUse });
   }
   const fresh = pool.filter((s) => !lastUse.has(s.id));
   if (fresh.length) return fresh[0];

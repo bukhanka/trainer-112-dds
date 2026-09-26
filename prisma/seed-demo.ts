@@ -465,7 +465,10 @@ async function buildLesson(opts: {
   // the same choice as the workstations make (src/lib/adaptive/pick.ts).
   const adaptivePool = [...opts.fx.values()].map((f) => ({ id: f.ticketRef, difficulty: f.difficulty }));
   const difficultyOf = new Map([...opts.fx.values()].map((f) => [f.id, f.difficulty]));
-  const earlier = await loadRatingAttempts(seats.map((s) => s.studentId), { client: db });
+  // Only what happened before the lesson: a re-run of the seed must not see today's attempts.
+  const earlier = new Map(
+    [...(await loadRatingAttempts(seats.map((s) => s.studentId), { client: db })).entries()].map(([id, list]) => [id, list.filter((a) => a.createdAt < opts.start)]),
+  );
 
   for (const seat of seats) {
     const adaptive = !seat.plan.tasks.length && opts.settings.adaptive === true;

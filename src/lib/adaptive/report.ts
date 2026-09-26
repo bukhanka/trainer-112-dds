@@ -1,7 +1,8 @@
 /**
  * Levels of a lesson's students for the teacher's report: the rating before the lesson (attempts up
  * to its start), after it (plus the lesson's own attempts) and the difficulty of the tasks they had.
- * Pure function over plain rows.
+ * Both are replayed with today's review decisions, so the change shows only what the lesson itself
+ * did (the level as it stood at the start is kept in the forecast snapshot). Pure function.
  */
 import { computeRating, type RatingAttempt, type RatingRole } from "./rating";
 
@@ -24,7 +25,7 @@ export type LevelRow = LevelSeat & {
 export function lessonLevels(input: { lessonId: string; start: Date; seats: LevelSeat[]; attempts: Map<string, RatingAttempt[]> }): LevelRow[] {
   return input.seats.map((seat) => {
     const all = input.attempts.get(seat.studentId) ?? [];
-    const before = computeRating(seat.role, all, { until: input.start });
+    const before = computeRating(seat.role, all.filter((a) => a.createdAt < input.start));
     const after = computeRating(
       seat.role,
       all.filter((a) => a.createdAt < input.start || a.lessonId === input.lessonId),

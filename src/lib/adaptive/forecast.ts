@@ -8,7 +8,7 @@
  * starting from the first lesson with no trend. The forecast is level + trend. The interval is ±t·σ,
  * meant to hold the fact 8 times out of 10: σ is how far the same method missed on the student's own
  * past lessons, pulled towards 12 points while the history is short, and t is Student's 80 % quantile
- * (1.64 with little history down to 1.28 with a long one) — the fewer misses seen, the wider.
+ * (1.89 after one lesson down to 1.28 on a long history) — the fewer misses seen, the wider.
  *
  * Meeting the time norm. From the last confirmed attempts in the role of the place: the logarithm of
  * the time is treated as normally distributed (times are skewed — a few long ones), so
@@ -173,7 +173,7 @@ export function forecastScore(attempts: ForecastAttempt[], opts: { cutoff?: Date
   };
 }
 
-/** Standard normal distribution function (Abramowitz–Stegun 7.1.26, error below 1e-7). */
+/** Standard normal distribution function (Abramowitz–Stegun 7.1.26, error below 1.5e-7). */
 export function normalCdf(z: number): number {
   const x = Math.abs(z) / Math.SQRT2;
   const t = 1 / (1 + 0.3275911 * x);
@@ -208,9 +208,10 @@ export type Risk = { atRisk: boolean; reasons: string[] };
 
 export function riskOf(score: ScoreForecast | null, times: (TimeForecast | null)[]): Risk {
   const reasons: string[] = [];
-  if (score && score.expected < FORECAST.riskScore) reasons.push(`ожидаемый балл ${Math.round(score.expected)} — ниже ${FORECAST.riskScore}`);
+  // Compare the numbers the teacher sees: 59.6 is shown as 60 and is not «below 60».
+  if (score && Math.round(score.expected) < FORECAST.riskScore) reasons.push(`ожидаемый балл ${Math.round(score.expected)} — ниже ${FORECAST.riskScore}`);
   for (const t of times) {
-    if (t && t.pOnTime < FORECAST.riskOnTime) reasons.push(`${t.role === "OP112" ? "112" : "ДДС"}: в норматив — ${Math.round(t.pOnTime * 100)} %`);
+    if (t && Math.round(t.pOnTime * 100) < FORECAST.riskOnTime * 100) reasons.push(`${t.role === "OP112" ? "112" : "ДДС"}: в норматив — ${Math.round(t.pOnTime * 100)} %`);
   }
   return { atRisk: reasons.length > 0, reasons };
 }

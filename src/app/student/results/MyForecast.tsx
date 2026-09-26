@@ -1,13 +1,9 @@
 import { RangeBar } from "@/components/charts";
+import { signedWhole } from "@/components/forecast";
 import { Section } from "@/components/ui";
 import type { StudentForecastView } from "@/lib/adaptive/student";
 import { ROLE_LABEL } from "@/lib/adaptive/rating";
 import { countLabel, formatDuration } from "@/lib/format";
-
-const signed = (x: number) => {
-  const r = Math.round(x);
-  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)}`;
-};
 
 /** «Мой прогноз на следующее занятие»: expected score with its interval, the time norm by role, the level. */
 export function MyForecast({ view }: { view: StudentForecastView }) {
@@ -30,9 +26,11 @@ export function MyForecast({ view }: { view: StudentForecastView }) {
             </div>
             <p className="text-sm">
               Скорее всего — от <b className="tabular-nums">{Math.round(score.low)}</b> до <b className="tabular-nums">{Math.round(score.high)}</b>.{" "}
-              {Math.abs(score.trend) >= 1 ? (
+              {score.lessons < 2 ? (
+                <span className="text-arm-desc">Тренд появится после второго проверенного занятия.</span>
+              ) : Math.abs(score.trend) >= 1 ? (
                 <span className={score.trend > 0 ? "text-emerald-700" : "text-red-700"}>
-                  {score.trend > 0 ? "Результат растёт" : "Результат снижается"}: {signed(score.trend)} за занятие.
+                  {score.trend > 0 ? "Результат растёт" : "Результат снижается"}: {signedWhole(score.trend)} за занятие.
                 </span>
               ) : (
                 <span className="text-arm-desc">Результат держится ровно.</span>

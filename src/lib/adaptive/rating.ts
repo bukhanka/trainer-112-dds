@@ -145,13 +145,3 @@ export function computeRating(role: RatingRole, attempts: RatingAttempt[], opts:
 export function ratingsByRole(attempts: RatingAttempt[], opts: { until?: Date } = {}): Record<RatingRole, Rating> {
   return { OP112: computeRating("OP112", attempts, opts), DDS: computeRating("DDS", attempts, opts) };
 }
-
-/** Short words for the level, for tiles and tables. */
-export function levelWord(rating: Rating): string {
-  if (!rating.attempts) return "новичок";
-  if (rating.difficulty <= 2) return "начальный";
-  if (rating.difficulty <= 4) return "базовый";
-  if (rating.difficulty <= 6) return "уверенный";
-  if (rating.difficulty <= 8) return "сильный";
-  return "эксперт";
-}

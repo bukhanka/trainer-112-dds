@@ -6,19 +6,12 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
-import { lessonSettingsSchema } from "@/lib/lessons/settings";
 import { accuracy, forecastScore, forecastTime, type Accuracy } from "./forecast";
-import { loadHistory, type HistoryAttempt } from "./history";
+import { loadHistory, normFor, type HistoryAttempt } from "./history";
 import { teacherLessons } from "./levels";
 import { computeRating, type RatingRole } from "./rating";
 
 type Client = PrismaClient | Prisma.TransactionClient;
-
-export function normFor(settings: unknown, role: RatingRole): number {
-  const parsed = lessonSettingsSchema.safeParse(settings ?? {});
-  const s = parsed.success ? parsed.data : lessonSettingsSchema.parse({});
-  return role === "OP112" ? s.typingSec : s.ackSec;
-}
 
 /** The forecast of every seat of a lesson from the history before `at`. Pure. */
 export function snapshotRows(input: {
