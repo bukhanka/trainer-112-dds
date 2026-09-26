@@ -109,7 +109,8 @@ export async function evaluatePlate(plateId: string, now = new Date()): Promise<
 export async function evaluateSeatPlates(seat: { id: string; lessonId: string; serviceId: number | null }): Promise<number> {
   if (!seat.serviceId) return 0;
   const plates = await db.incidentService.findMany({
-    where: { serviceId: seat.serviceId, incident: seatFeedWhere(seat), attempts: { none: { seatId: seat.id, kind: "DDS" } } },
+    // A shared 112 card may already be reviewed for another place with the same service — leave it.
+    where: { serviceId: seat.serviceId, incident: seatFeedWhere(seat), attempts: { none: { kind: "DDS" } } },
     select: { id: true },
   });
   for (const p of plates) await evaluatePlate(p.id);
