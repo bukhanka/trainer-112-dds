@@ -1,0 +1,153 @@
+/**
+ * End-to-end check of a class lesson through the HTTP API — the same calls the screens make.
+ * The teacher creates and starts a lesson with a 112 place and a ДДС place; the 112 student takes the
+ * call, talks to the AI caller and saves the card; the card reaches the ДДС place, which accepts it;
+ * the teacher watches the board, stops the lesson and gets the attempts of both places.
+ *
+ *   pnpm exec tsx scripts/e2e-lesson.ts --base http://localhost:3100 [--keep]
+ *
+ * Needs a running server and the demo seed. The lesson is deleted at the end unless --keep.
+ */
+import { PrismaClient } from "@prisma/client";
+
+const args = process.argv.slice(2);
+const BASE = args[args.indexOf("--base") + 1] && args.includes("--base") ? args[args.indexOf("--base") + 1] : "http://localhost:3100";
+const KEEP = args.includes("--keep");
+const db = new PrismaClient();
+
+type Res = { status: number; body: Record<string, unknown> };
+let failures = 0;
+
+function check(ok: boolean, what: string, detail = "") {
+  console.log(`${ok ? "✓" : "✗"} ${what}${detail ? ` — ${detail}` : ""}`);
+  if (!ok) failures++;
+  return ok;
+}
+
+class Client {
+  private cookie = "";
+  constructor(readonly login: string) {}
+  async signIn(password: string) {
+    const res = await fetch(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login: this.login, password }),
+    });
+    this.cookie = res.headers.get("set-cookie")?.split(";")[0] ?? "";
+    return res.ok;
+  }
+  async call(method: string, path: string, body?: unknown): Promise<Res> {
+    const res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: { cookie: this.cookie, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      parsed = { raw: text.slice(0, 200) };
+    }
+    return { status: res.status, body: parsed };
+  }
+}
+
+async function main() {
+  const group = await db.group.findFirstOrThrow({ where: { name: "Учебная группа № 1" } });
+  const [s1, s2] = await Promise.all(["student1", "student2"].map((login) => db.user.findUniqueOrThrow({ where: { login } })));
+  const scenario = await db.scenario.findFirstOrThrow({ where: { ticketRef: "Б4-1" } });
+  const dds = await db.service.findFirstOrThrow({ where: { shortName: "Поселение Северное Бутово" } });
+
+  const teacher = new Client("teacher");
+  const op = new Client("student1");
+  const disp = new Client("student2");
+  check(await teacher.signIn("Teacher2026"), "преподаватель вошёл");
+  check(await op.signIn("Student2026"), "ученик 1 вошёл (место 112)");
+  check(await disp.signIn("Student2026"), "ученик 2 вошёл (место ДДС)");
+
+  // 1. Lesson: a 112 place with ticket Б4-1 and a ДДС place of the district from the ticket's address.
+  const created = await teacher.call("POST", "/api/teacher/lessons", {
+    title: "Проверка 112 → ДДС",
+    groupId: group.id,
+    settings: { cardSource: "students", tempoSec: 60, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true },
+    seats: [
+      { studentId: s1.id, role: "OP112", scenarioIds: [scenario.id] },
+      { studentId: s2.id, role: "DDS", serviceId: dds.id },
+    ],
+  });
+  const lessonId = ((created.body.lesson as { id?: string } | undefined)?.id ?? created.body.id) as string | undefined;
+  if (!check(created.status < 300 && !!lessonId, "занятие создано", `HTTP ${created.status} ${JSON.stringify(created.body).slice(0, 160)}`)) return;
+  try {
+    const started = await teacher.call("POST", `/api/teacher/lessons/${lessonId}/start`);
+    check(started.status < 300, "занятие запущено", `HTTP ${started.status}`);
+
+    // 2. The 112 place: the call rings, the operator answers and asks.
+    const ring = await op.call("POST", "/api/op112/ring");
+    const callId = (ring.body.call as { id?: string } | undefined)?.id;
+    if (!check(!!callId, "вызов поступил на место 112", `HTTP ${ring.status} ${JSON.stringify(ring.body).slice(0, 120)}`)) return;
+    const answered = await op.call("POST", `/api/op112/calls/${callId}/answer`);
+    const incident = answered.body.incident as { id: string; number: number } | null;
+    const opening = ((answered.body.call as { messages?: { text: string }[] } | null)?.messages ?? [])[0]?.text;
+    if (!check(!!incident, "вызов принят, карточка открыта", `№ ${incident?.number}; заявитель: «${opening ?? ""}»`)) return;
+
+    for (const q of ["Служба 112, что у вас случилось?", "Уточните точный адрес, номер дома", "Есть пострадавшие? Дом газифицирован?"]) {
+      const said = await op.call("POST", `/api/op112/calls/${callId}/messages`, { text: q });
+      const reply = (said.body.lines as { role: string; text: string }[] | undefined)?.find((l) => l.role === "counterpart")?.text;
+      check(said.status === 200 && !!reply, `оператор: «${q}»`, `заявитель: «${reply ?? ""}»`);
+    }
+
+    // 3. Save the card; the district ДДС is added by hand so the check does not depend on the tag panels.
+    const saved = await op.call("POST", `/api/op112/incidents/${incident!.id}/save`, {
+      draft: {
+        caller: { fullName: "Сидорова Анна Викторовна", status: "очевидец" },
+        address: { city: "Москва", street: "ул. Грина", house: "11", district: "Северное Бутово", okrug: "ЮЗАО" },
+        flags: {},
+        cards: [],
+        answers: {},
+        description: "Горит балкон на 13 этаже, открытое пламя, пострадавших не видят. Ул. Грина, 11, библиотека № 193.",
+        manualServiceIds: [dds.id],
+      },
+    });
+    const plates = ((saved.body.incident as { plates?: { shortName: string; status: string }[] } | null)?.plates ?? []).map((p) => `${p.shortName}: ${p.status}`);
+    check(saved.status === 200 && plates.length > 0, "карточка сохранена и оповещены службы", plates.join(", "));
+    const worked = await op.call("POST", `/api/op112/incidents/${incident!.id}/worked`);
+    check(worked.status === 200, "оператор нажал «отработана»");
+
+    // 4. The ДДС place gets the card and accepts it within 30 s.
+    await disp.call("GET", "/api/dds/state");
+    const feed = await disp.call("GET", "/api/dds/feed");
+    const rows = (feed.body.rows ?? feed.body.items ?? []) as { number: number; typeLabel?: string; address?: string }[];
+    const row = rows.find((r) => r.number === incident!.number);
+    check(!!row, "карточка пришла в ленту ДДС", row ? `${row.address ?? ""}` : `в ленте ${rows.length} карточек, HTTP ${feed.status}`);
+    const accepted = await disp.call("POST", `/api/dds/incidents/${incident!.number}/status`, {
+      status: "ACCEPTED",
+      crewNumber: "12",
+      comment: "Принята, направлен дежурный наряд 12",
+    });
+    check(accepted.status === 200, "ДДС поставила «Принята» с нарядом", `HTTP ${accepted.status} ${accepted.status === 200 ? "" : JSON.stringify(accepted.body).slice(0, 120)}`);
+
+    // 5. The teacher: board, stop, attempts of both places.
+    const board = await teacher.call("GET", `/api/teacher/lessons/${lessonId}/board`);
+    check(board.status === 200, "доска класса отвечает", `мест: ${((board.body.seats as unknown[]) ?? []).length}`);
+    const stopped = await teacher.call("POST", `/api/teacher/lessons/${lessonId}/stop`);
+    check(stopped.status < 300, "занятие остановлено");
+    const attempts = await db.attempt.findMany({ where: { lessonId }, select: { kind: true, score: true, criteria: true } });
+    const byKind = (k: string) => attempts.filter((a) => a.kind === k);
+    check(byKind("OP112").length === 1, "попытка места 112 создана", `балл ${byKind("OP112")[0]?.score ?? "—"}, проверок ${(byKind("OP112")[0]?.criteria as unknown[] | undefined)?.length ?? 0}`);
+    check(byKind("DDS").length === 1, "попытка места ДДС создана", `балл ${byKind("DDS")[0]?.score ?? "—"}, проверок ${(byKind("DDS")[0]?.criteria as unknown[] | undefined)?.length ?? 0}`);
+  } finally {
+    if (!KEEP && lessonId) await db.lesson.delete({ where: { id: lessonId } }).catch(() => undefined);
+  }
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    failures++;
+  })
+  .finally(async () => {
+    await db.$disconnect();
+    console.log(failures ? `\nОшибок: ${failures}` : "\nВсё прошло");
+    process.exit(failures ? 1 : 0);
+  });

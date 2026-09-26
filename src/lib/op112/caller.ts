@@ -287,7 +287,7 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
     if (hit) say(hit);
   }
   // «Не знаю» only when nothing else was said: a caller does not mix it into a real answer.
-  if (!parts.length && unknown.length) return { text: styled(p, unknown.join(" ")), revealed: [] };
+  if (!parts.length && unknown.length) return { text: styled(p, sentences(unknown)), revealed: [] };
 
   if (!parts.length) {
     if (/выезжа|выехал|направ|высыла|передал|будут|едут|ожидайте|помощь (уже )?едет/.test(t)) {
@@ -303,5 +303,14 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
     };
     return { text: filler[p.temper ?? ""] ?? "Не поняла вопрос. Что мне сказать?", revealed: [] };
   }
-  return { text: styled(p, parts.join(" ")), revealed: expandRevealed([...new Set(revealed)], cards) };
+  return { text: styled(p, sentences(parts)), revealed: expandRevealed([...new Set(revealed)], cards) };
+}
+
+/** Separate facts into sentences: «пострадавших не видит» + «Дом 14 этажей» → «…не видит. Дом 14 этажей». */
+function sentences(parts: string[]): string {
+  return parts
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (/[.!?…]$/.test(s) ? s : `${s}.`))
+    .join(" ");
 }
