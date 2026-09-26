@@ -1,0 +1,9 @@
+# HTTPS in front of the app.
+#   Public stand: SITE_ADDRESS=trainer.example.ru  → certificate from Let's Encrypt.
+#   Classroom LAN: SITE_ADDRESS=192.168.1.10 and TLS_MODE="tls internal" → Caddy's own CA;
+#   install deploy/caddy-data/.../root.crt on the pupils' PCs (docs/install.md), the browser then allows the microphone.
+{$SITE_ADDRESS:localhost} {
+	{$TLS_MODE}
+	encode gzip
+	reverse_proxy app:3000
+}

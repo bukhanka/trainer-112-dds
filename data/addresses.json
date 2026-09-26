@@ -1,0 +1,903 @@
+{
+ "note": "Московские адреса из билетов → район и округ. Назначено вручную по знанию Москвы; confidence — насколько уверены.",
+ "addresses": [
+  {
+   "address": "МЖД Киевская 1 км, стр. 2",
+   "street": "МЖД Киевская 1 км",
+   "house": null,
+   "building": null,
+   "structure": "2",
+   "object": null,
+   "district": "Дорогомилово",
+   "okrug": "ЗАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б1-1"
+   ]
+  },
+  {
+   "address": "Леонтьевский пер., д. 16, стр. 1",
+   "street": "Леонтьевский пер.",
+   "house": "16",
+   "building": null,
+   "structure": "1",
+   "object": null,
+   "district": "Пресненский",
+   "okrug": "ЦАО",
+   "confidence": "high",
+   "tickets": [
+    "Б1-2",
+    "Б21-1"
+   ]
+  },
+  {
+   "address": "ул. Берзарина, д. 21, корп. 1",
+   "street": "ул. Берзарина",
+   "house": "21",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Хорошёво-Мнёвники",
+   "okrug": "СЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б2-1"
+   ]
+  },
+  {
+   "address": "ул. Сущёвский Вал, д. 5, стр. 1",
+   "street": "ул. Сущёвский Вал",
+   "house": "5",
+   "building": null,
+   "structure": "1",
+   "object": null,
+   "district": "Марьина роща",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б2-2"
+   ]
+  },
+  {
+   "address": "бульв. Маршала Рокоссовского, д. 25, двор",
+   "street": "бульв. Маршала Рокоссовского",
+   "house": "25",
+   "building": null,
+   "structure": null,
+   "object": "двор",
+   "district": "Богородское",
+   "okrug": "ВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б3-2"
+   ]
+  },
+  {
+   "address": "ул. Грина, д. 11",
+   "street": "ул. Грина",
+   "house": "11",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Северное Бутово",
+   "okrug": "ЮЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б4-1"
+   ]
+  },
+  {
+   "address": "Зеленоград, корп. 902",
+   "street": "Зеленоград, корп. 902",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Старое Крюково",
+   "okrug": "ЗелАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б4-3"
+   ]
+  },
+  {
+   "address": "ул. Цюрупы, д. 12, корп. 6",
+   "street": "ул. Цюрупы",
+   "house": "12",
+   "building": "6",
+   "structure": null,
+   "object": null,
+   "district": "Черёмушки",
+   "okrug": "ЮЗАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б5-1"
+   ]
+  },
+  {
+   "address": "Коломенская наб., д. 18",
+   "street": "Коломенская наб.",
+   "house": "18",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Нагатинский Затон",
+   "okrug": "ЮАО",
+   "confidence": "high",
+   "tickets": [
+    "Б5-2"
+   ]
+  },
+  {
+   "address": "ул. Красный Казанец, д. 19Б",
+   "street": "ул. Красный Казанец",
+   "house": "19Б",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Вешняки",
+   "okrug": "ВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б6-2"
+   ]
+  },
+  {
+   "address": "ул. Декабристов, ТК «Золотой Вавилон»",
+   "street": "ул. Декабристов",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "ТК «Золотой Вавилон»",
+   "district": "Отрадное",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б7-1"
+   ]
+  },
+  {
+   "address": "ул. Маршала Соколовского, д. 1",
+   "street": "ул. Маршала Соколовского",
+   "house": "1",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Щукино",
+   "okrug": "СЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б7-3"
+   ]
+  },
+  {
+   "address": "ул. Кировоградская, д. 15, ТЦ «Электронный рай»",
+   "street": "ул. Кировоградская",
+   "house": "15",
+   "building": null,
+   "structure": null,
+   "object": "ТЦ «Электронный рай»",
+   "district": "Чертаново Центральное",
+   "okrug": "ЮАО",
+   "confidence": "high",
+   "tickets": [
+    "Б8-1"
+   ]
+  },
+  {
+   "address": "",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Марушкинское",
+   "okrug": "ТиНАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б8-2",
+    "Б18-1"
+   ]
+  },
+  {
+   "address": "ул. Таманская, д. 75, корп. 2, озеро Круглое, пляж",
+   "street": "ул. Таманская",
+   "house": "75",
+   "building": "2",
+   "structure": null,
+   "object": "озеро Круглое, пляж",
+   "district": "Хорошёво-Мнёвники",
+   "okrug": "СЗАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б8-3"
+   ]
+  },
+  {
+   "address": "станция метро «Арбатская» (Филёвская линия)",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "станция метро «Арбатская» (Филёвская линия)",
+   "district": "Арбат",
+   "okrug": "ЦАО",
+   "confidence": "high",
+   "tickets": [
+    "Б9-1"
+   ]
+  },
+  {
+   "address": "ж/д станция Текстильщики, касса",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "ж/д станция Текстильщики, касса",
+   "district": "Текстильщики",
+   "okrug": "ЮВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б10-1"
+   ]
+  },
+  {
+   "address": "пр-т Маршала Жукова, д. 20, корп. 2",
+   "street": "пр-т Маршала Жукова",
+   "house": "20",
+   "building": "2",
+   "structure": null,
+   "object": null,
+   "district": "Хорошёво-Мнёвники",
+   "okrug": "СЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б10-3"
+   ]
+  },
+  {
+   "address": "Дмитровское ш., д. 110, остановка «Лианозовский электромеханический завод»",
+   "street": "Дмитровское ш.",
+   "house": "110",
+   "building": null,
+   "structure": null,
+   "object": "остановка «Лианозовский электромеханический завод»",
+   "district": "Лианозово",
+   "okrug": "СВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б11-1"
+   ]
+  },
+  {
+   "address": "ул. Беломорская, д. 10, корп. 2",
+   "street": "ул. Беломорская",
+   "house": "10",
+   "building": "2",
+   "structure": null,
+   "object": null,
+   "district": "Левобережный",
+   "okrug": "САО",
+   "confidence": "medium",
+   "tickets": [
+    "Б11-2"
+   ]
+  },
+  {
+   "address": "Кусковский лесопарк",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "Кусковский лесопарк",
+   "district": "Вешняки",
+   "okrug": "ВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б13-1"
+   ]
+  },
+  {
+   "address": "МКАД, 103 км",
+   "street": "МКАД, 103 км",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Гольяново",
+   "okrug": "ВАО",
+   "confidence": "low",
+   "tickets": [
+    "Б13-3"
+   ]
+  },
+  {
+   "address": "Ленинградское ш., д. 112, корп. 4",
+   "street": "Ленинградское ш.",
+   "house": "112",
+   "building": "4",
+   "structure": null,
+   "object": null,
+   "district": "Ховрино",
+   "okrug": "САО",
+   "confidence": "medium",
+   "tickets": [
+    "Б14-2"
+   ]
+  },
+  {
+   "address": "Комсомольская пл., д. 2А, у «Бургер Кинга»",
+   "street": "Комсомольская пл.",
+   "house": "2А",
+   "building": null,
+   "structure": null,
+   "object": "у «Бургер Кинга»",
+   "district": "Красносельский",
+   "okrug": "ЦАО",
+   "confidence": "high",
+   "tickets": [
+    "Б14-3"
+   ]
+  },
+  {
+   "address": "ул. Зверинецкая, д. 22",
+   "street": "ул. Зверинецкая",
+   "house": "22",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Соколиная гора",
+   "okrug": "ВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б15-3"
+   ]
+  },
+  {
+   "address": "ул. Знаменские Садки, д. 7, корп. 2",
+   "street": "ул. Знаменские Садки",
+   "house": "7",
+   "building": "2",
+   "structure": null,
+   "object": null,
+   "district": "Северное Бутово",
+   "okrug": "ЮЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б16-3"
+   ]
+  },
+  {
+   "address": "Большой Сухаревский пер., д. 19, стр. 2",
+   "street": "Большой Сухаревский пер.",
+   "house": "19",
+   "building": null,
+   "structure": "2",
+   "object": null,
+   "district": "Мещанский",
+   "okrug": "ЦАО",
+   "confidence": "high",
+   "tickets": [
+    "Б17-1"
+   ]
+  },
+  {
+   "address": "ул. Твардовского, д. вл. 2, корп. 1, магазин «Лента», у касс",
+   "street": "ул. Твардовского",
+   "house": "вл. 2",
+   "building": "1",
+   "structure": null,
+   "object": "магазин «Лента», у касс",
+   "district": "Строгино",
+   "okrug": "СЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б17-2"
+   ]
+  },
+  {
+   "address": "Дмитровское ш., д. 155, корп. 1, у магазина «Пятёрочка»",
+   "street": "Дмитровское ш.",
+   "house": "155",
+   "building": "1",
+   "structure": null,
+   "object": "у магазина «Пятёрочка»",
+   "district": "Северный",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б17-3"
+   ]
+  },
+  {
+   "address": "Огородный пр-д, д. 12, во дворе",
+   "street": "Огородный пр-д",
+   "house": "12",
+   "building": null,
+   "structure": null,
+   "object": "во дворе",
+   "district": "Бутырский",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б18-3"
+   ]
+  },
+  {
+   "address": "платформа Лианозово, переход со стороны рынка",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "платформа Лианозово, переход со стороны рынка",
+   "district": "Лианозово",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б19-3"
+   ]
+  },
+  {
+   "address": "Олонецкий пр-д, д. 4",
+   "street": "Олонецкий пр-д",
+   "house": "4",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Бабушкинский",
+   "okrug": "СВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б20-1"
+   ]
+  },
+  {
+   "address": "ул. Кастанаевская, д. 42, корп. 2, во дворе",
+   "street": "ул. Кастанаевская",
+   "house": "42",
+   "building": "2",
+   "structure": null,
+   "object": "во дворе",
+   "district": "Фили-Давыдково",
+   "okrug": "ЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б20-3"
+   ]
+  },
+  {
+   "address": "парковка ресторана у Живописной бухты",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "парковка ресторана у Живописной бухты",
+   "district": "Хорошёво-Мнёвники",
+   "okrug": "СЗАО",
+   "confidence": "low",
+   "tickets": [
+    "Б21-3"
+   ]
+  },
+  {
+   "address": "ул. Маршала Василевского, д. 13, корп. 3",
+   "street": "ул. Маршала Василевского",
+   "house": "13",
+   "building": "3",
+   "structure": null,
+   "object": null,
+   "district": "Щукино",
+   "okrug": "СЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б22-1"
+   ]
+  },
+  {
+   "address": "ул. Белозерская, д. 11Б",
+   "street": "ул. Белозерская",
+   "house": "11Б",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Бибирево",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б22-3"
+   ]
+  },
+  {
+   "address": "ул. Тихомирова, д. 15, корп. 1",
+   "street": "ул. Тихомирова",
+   "house": "15",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Северное Медведково",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б23-1"
+   ]
+  },
+  {
+   "address": "пос. Малино, ул. Лесная, д. 5",
+   "street": "пос. Малино, ул. Лесная",
+   "house": "5",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Крюково",
+   "okrug": "ЗелАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б23-2"
+   ]
+  },
+  {
+   "address": "ул. Домодедовская, д. 34, корп. 1",
+   "street": "ул. Домодедовская",
+   "house": "34",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Орехово-Борисово Южное",
+   "okrug": "ЮАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б23-3"
+   ]
+  },
+  {
+   "address": "ул. Вешняковская, д. 37",
+   "street": "ул. Вешняковская",
+   "house": "37",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Вешняки",
+   "okrug": "ВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б24-1"
+   ]
+  },
+  {
+   "address": "Погонный пр-д, д. 1, корп. 4, детская площадка во дворе",
+   "street": "Погонный пр-д",
+   "house": "1",
+   "building": "4",
+   "structure": null,
+   "object": "детская площадка во дворе",
+   "district": "Богородское",
+   "okrug": "ВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б24-2"
+   ]
+  },
+  {
+   "address": "ул. Красная Пресня, напротив метро «Улица 1905 года»",
+   "street": "ул. Красная Пресня",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "напротив метро «Улица 1905 года»",
+   "district": "Пресненский",
+   "okrug": "ЦАО",
+   "confidence": "high",
+   "tickets": [
+    "Б24-3"
+   ]
+  },
+  {
+   "address": "ул. Фабрициуса, д. 18, остановка «ул. Штурвальная»",
+   "street": "ул. Фабрициуса",
+   "house": "18",
+   "building": null,
+   "structure": null,
+   "object": "остановка «ул. Штурвальная»",
+   "district": "Южное Тушино",
+   "okrug": "СЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б25-1"
+   ]
+  },
+  {
+   "address": "Ходынский б-р, д. 3, дворец спорта «Мегаспорт»",
+   "street": "Ходынский б-р",
+   "house": "3",
+   "building": null,
+   "structure": null,
+   "object": "дворец спорта «Мегаспорт»",
+   "district": "Хорошёвский",
+   "okrug": "САО",
+   "confidence": "high",
+   "tickets": [
+    "Б26-1"
+   ]
+  },
+  {
+   "address": "ул. Лескова, д. 6Б, центр для пожилых «Союз»",
+   "street": "ул. Лескова",
+   "house": "6Б",
+   "building": null,
+   "structure": null,
+   "object": "центр для пожилых «Союз»",
+   "district": "Бибирево",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б26-3"
+   ]
+  },
+  {
+   "address": "Тихорецкий б-р, д. 12, корп. 1, двор у магазина «Билла»",
+   "street": "Тихорецкий б-р",
+   "house": "12",
+   "building": "1",
+   "structure": null,
+   "object": "двор у магазина «Билла»",
+   "district": "Люблино",
+   "okrug": "ЮВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б27-1"
+   ]
+  },
+  {
+   "address": "Садовое кольцо",
+   "street": "Садовое кольцо",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Тверской",
+   "okrug": "ЦАО",
+   "confidence": "low",
+   "tickets": [
+    "Б27-2"
+   ]
+  },
+  {
+   "address": "Ленинский пр-т, д. 57",
+   "street": "Ленинский пр-т",
+   "house": "57",
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Гагаринский",
+   "okrug": "ЮЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б27-3"
+   ]
+  },
+  {
+   "address": "ул. Матвеевская, д. 28, корп. 1",
+   "street": "ул. Матвеевская",
+   "house": "28",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Очаково-Матвеевское",
+   "okrug": "ЗАО",
+   "confidence": "high",
+   "tickets": [
+    "Б28-1"
+   ]
+  },
+  {
+   "address": "Садовое кольцо, напротив МИД",
+   "street": "Садовое кольцо",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "напротив МИД",
+   "district": "Хамовники",
+   "okrug": "ЦАО",
+   "confidence": "low",
+   "tickets": [
+    "Б28-2"
+   ]
+  },
+  {
+   "address": "Комсомольская пл., д. 5, Ярославский вокзал, платформа № 3",
+   "street": "Комсомольская пл.",
+   "house": "5",
+   "building": null,
+   "structure": null,
+   "object": "Ярославский вокзал, платформа № 3",
+   "district": "Красносельский",
+   "okrug": "ЦАО",
+   "confidence": "high",
+   "tickets": [
+    "Б28-3"
+   ]
+  },
+  {
+   "address": "парк Лосиный остров",
+   "street": null,
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "парк Лосиный остров",
+   "district": "Ярославский",
+   "okrug": "СВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б29-1"
+   ]
+  },
+  {
+   "address": "пр-д Шокальского, д. 67, корп. 1",
+   "street": "пр-д Шокальского",
+   "house": "67",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Северное Медведково",
+   "okrug": "СВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б29-3"
+   ]
+  },
+  {
+   "address": "ул. Ташкентская, д. 25, корп. 1",
+   "street": "ул. Ташкентская",
+   "house": "25",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Выхино-Жулебино",
+   "okrug": "ЮВАО",
+   "confidence": "high",
+   "tickets": [
+    "Б30-1"
+   ]
+  },
+  {
+   "address": "ул. Тюменская",
+   "street": "ул. Тюменская",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Гольяново",
+   "okrug": "ВАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б30-2"
+   ]
+  },
+  {
+   "address": "пос. ЛМС, мкр Солнечный, д. 20, частный дом",
+   "street": "пос. ЛМС, мкр Солнечный",
+   "house": "20",
+   "building": null,
+   "structure": null,
+   "object": "частный дом",
+   "district": "Вороновское",
+   "okrug": "ТиНАО",
+   "confidence": "high",
+   "tickets": [
+    "Б30-3"
+   ]
+  },
+  {
+   "address": "ул. Большая Ордынка",
+   "street": "ул. Большая Ордынка",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Якиманка",
+   "okrug": "ЦАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б31-1"
+   ]
+  },
+  {
+   "address": "Рублёвское ш., напротив ТЦ «Европарк»",
+   "street": "Рублёвское ш.",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "напротив ТЦ «Европарк»",
+   "district": "Кунцево",
+   "okrug": "ЗАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б31-2"
+   ]
+  },
+  {
+   "address": "ул. Вавилова, д. 81, корп. 1",
+   "street": "ул. Вавилова",
+   "house": "81",
+   "building": "1",
+   "structure": null,
+   "object": null,
+   "district": "Академический",
+   "okrug": "ЮЗАО",
+   "confidence": "medium",
+   "tickets": [
+    "Б31-3"
+   ]
+  },
+  {
+   "address": "ул. Маргелова",
+   "street": "ул. Маргелова",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": null,
+   "district": "Хорошёвский",
+   "okrug": "САО",
+   "confidence": "medium",
+   "tickets": [
+    "Б32-1"
+   ]
+  },
+  {
+   "address": "Волгоградский пр-т, остановка «Завод Спецэлектрод»",
+   "street": "Волгоградский пр-т",
+   "house": null,
+   "building": null,
+   "structure": null,
+   "object": "остановка «Завод Спецэлектрод»",
+   "district": "Текстильщики",
+   "okrug": "ЮВАО",
+   "confidence": "low",
+   "tickets": [
+    "Б32-2"
+   ]
+  }
+ ],
+ "unresolved": [
+  {
+   "ticket": "Б2-3",
+   "said": "Москва, набережная Яузы, в сторону области, напротив Большого Нижнего пруда",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б3-3",
+   "said": "Съезд с МКАД (внутр.) на Симферопольское ш. в сторону области, 100 метров не доезжая до Симферопольского ш. (точка на карте), обочина",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б6-1",
+   "said": "МКАД, внутренняя сторона, 1 км не доезжая до съезда на ул. Генерала Дорохова",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б9-3",
+   "said": "Москва, Бережковский мост, ТТК внутренняя сторона, середина моста",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б12-3",
+   "said": "Над МКАД между ул. Свободы и АЗС Shell, внешняя сторона (МКАД, 73 км)",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б25-2",
+   "said": "Москва, МКАД, от Варшавского шоссе в сторону Каширского, напротив ТЦ «Вегас», в левом ряду",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б26-2",
+   "said": "Москва, МКАД, напротив рынка «Мельница», если ехать от Рублёвского шоссе, в средних рядах",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  },
+  {
+   "ticket": "Б32-3",
+   "said": "МКАД между 68 и 74 км",
+   "why": "район по описанию не определить однозначно (МКАД, мост, водоём) — нужна точка на карте"
+  }
+ ]
+}
