@@ -243,6 +243,14 @@ export function AttemptReview(p: AttemptReviewProps) {
           <section className="flex flex-col gap-2 rounded border border-arm-gray/70 bg-white p-4">
             {p.reviewStatus === "PENDING" ? (
               <>
+                <textarea
+                  className="min-h-16 rounded border border-arm-gray p-2 text-sm outline-none focus:border-arm-blue"
+                  placeholder="Комментарий или рекомендация ученику (необязательно)"
+                  value={comment}
+                  maxLength={2000}
+                  onChange={(e) => setComment(e.target.value)}
+                  aria-label="Комментарий ученику"
+                />
                 <Button variant="success" disabled={busy} onClick={() => send({ action: "confirm", comment: comment.trim() || undefined }, "Оценка подтверждена")}>
                   ✓ Верно — подтвердить
                 </Button>
