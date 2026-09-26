@@ -19,7 +19,7 @@ RUN pnpm exec prisma generate \
 
 FROM node:22-alpine AS runner
 # pg_dump for backups; Prisma CLI (with its own dependencies) for migrations at start.
-RUN apk add --no-cache postgresql16-client tzdata \
+RUN apk add --no-cache postgresql16-client tzdata su-exec \
  && npm install -g prisma@6.19.3 \
  && npm cache clean --force
 WORKDIR /app
@@ -35,6 +35,8 @@ COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/bcryptjs ./node_modules/bcryptjs
 COPY docker-entrypoint.sh cluster.cjs ./
+# The server runs as the unprivileged «node» user (see docker-entrypoint.sh); it writes only backups and the Next.js cache.
+RUN mkdir -p /backups /app/.next/cache && chown -R node:node /backups /app/.next/cache
 VOLUME ["/backups"]
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
