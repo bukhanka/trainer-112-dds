@@ -7,6 +7,7 @@ import { tagsToAnswers } from "./card";
 import { draftFromIncident } from "./draft";
 import { addressLine } from "./gazetteer";
 import { findActiveSeat, hasDdsSeat, isSelfTraining, lessonSettings, operatorNumber, type Op112Seat } from "./seat";
+import { currentSessionId } from "./session-key";
 import type { CallLine, Op112CardDraft } from "./types";
 
 export type PlateDto = {
@@ -116,7 +117,7 @@ export function armNumber(seat: Op112Seat): string {
 }
 
 export async function buildState(user: SessionUser): Promise<Op112State> {
-  const seat = await findActiveSeat(user.id);
+  const seat = await findActiveSeat(user.id, await currentSessionId());
   const base = {
     serverNow: new Date().toISOString(),
     user: { fullName: user.fullName, operatorNo: operatorNumber(user.login) },

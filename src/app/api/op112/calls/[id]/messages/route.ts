@@ -1,8 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { jsonError, op112User, ownCall, readJson } from "@/lib/op112/access";
-import { callerReply, type Persona } from "@/lib/op112/caller";
+import { jsonError, op112User, ownCall, personaOfCall, readJson } from "@/lib/op112/access";
+import { callerReply } from "@/lib/op112/caller";
 import type { CallLine } from "@/lib/op112/types";
 
 const bodySchema = z.object({ text: z.string().trim().min(1).max(1000) });
@@ -18,7 +18,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/calls/[id
   const body = bodySchema.safeParse(await readJson(req));
   if (!body.success) return jsonError("bad_request", 400);
 
-  const persona = ((call.counterpart ?? {}) as { persona?: Persona }).persona;
+  const persona = await personaOfCall(call);
   const history = (Array.isArray(call.messages) ? call.messages : []) as CallLine[];
   const said: CallLine = { role: "trainee", text: body.data.text, at: new Date().toISOString() };
   const reply = persona

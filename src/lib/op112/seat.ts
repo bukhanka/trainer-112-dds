@@ -8,18 +8,32 @@ export type Op112Seat = Prisma.SeatGetPayload<{ include: { lesson: true } }>;
 
 /** Marker in Lesson.settings for a lesson a student started alone («Тренировка без занятия»). */
 export const SELF_TRAINING_KEY = "selfTraining";
+/** The login session such a lesson belongs to (Lesson.settings.sessionId). */
+export const SELF_SESSION_KEY = "sessionId";
 
-export function isSelfTraining(settings: unknown): boolean {
-  return Boolean(settings && typeof settings === "object" && (settings as Record<string, unknown>)[SELF_TRAINING_KEY]);
+function settingsOf(settings: unknown): Record<string, unknown> {
+  return settings && typeof settings === "object" ? (settings as Record<string, unknown>) : {};
 }
 
-/** A seat of a running lesson; a teacher's lesson wins over personal training. */
-export async function findActiveSeat(userId: string): Promise<Op112Seat | null> {
-  const seats = await db.seat.findMany({
-    where: { studentId: userId, role: "OP112", lesson: { status: "RUNNING" } },
-    include: { lesson: true },
-    orderBy: { createdAt: "desc" },
-  });
+export function isSelfTraining(settings: unknown): boolean {
+  return Boolean(settingsOf(settings)[SELF_TRAINING_KEY]);
+}
+
+/** A lesson seat is visible to every session of its student; a practice seat — only to the session that started it. */
+export function seatVisibleTo(seat: { lesson: { settings: unknown } }, sessionId: string | null): boolean {
+  if (!isSelfTraining(seat.lesson.settings)) return true;
+  return Boolean(sessionId) && settingsOf(seat.lesson.settings)[SELF_SESSION_KEY] === sessionId;
+}
+
+/** A seat of a running lesson; a teacher's lesson wins over practice. */
+export async function findActiveSeat(userId: string, sessionId: string | null): Promise<Op112Seat | null> {
+  const seats = (
+    await db.seat.findMany({
+      where: { studentId: userId, role: "OP112", lesson: { status: "RUNNING" } },
+      include: { lesson: true },
+      orderBy: { createdAt: "desc" },
+    })
+  ).filter((s) => seatVisibleTo(s, sessionId));
   return seats.find((s) => !isSelfTraining(s.lesson.settings)) ?? seats[0] ?? null;
 }
 
@@ -37,14 +51,33 @@ export function lessonSettings(seat: Op112Seat): LessonSettings {
   }
 }
 
-/** Start (or reuse) a personal lesson with one 112 seat, so a student can train without a teacher. */
-export async function startSelfTraining(user: SessionUser): Promise<Op112Seat> {
-  const existing = await db.seat.findFirst({
+/**
+ * Start (or reuse) practice: a personal lesson with one 112 seat for this login session, so a student
+ * can train without a teacher and two people signed in with one account do not share it.
+ */
+export async function startSelfTraining(user: SessionUser, sessionId: string): Promise<Op112Seat> {
+  const mine = await db.seat.findMany({
     where: { studentId: user.id, role: "OP112", lesson: { status: "RUNNING" } },
     include: { lesson: true },
     orderBy: { createdAt: "desc" },
   });
-  if (existing && isSelfTraining(existing.lesson.settings)) return existing;
+  const existing = mine.find((s) => isSelfTraining(s.lesson.settings) && seatVisibleTo(s, sessionId));
+  if (existing) return existing;
+
+  // Practice of sessions that are over (logout, expiry) is closed, so it does not hang as a running lesson.
+  const stale = mine.filter((s) => isSelfTraining(s.lesson.settings));
+  if (stale.length) {
+    const alive = new Set(
+      (
+        await db.session.findMany({
+          where: { id: { in: stale.map((s) => String(settingsOf(s.lesson.settings)[SELF_SESSION_KEY] ?? "")) }, expiresAt: { gt: new Date() } },
+          select: { id: true },
+        })
+      ).map((x) => x.id),
+    );
+    const finished = stale.filter((s) => !alive.has(String(settingsOf(s.lesson.settings)[SELF_SESSION_KEY] ?? ""))).map((s) => s.lessonId);
+    if (finished.length) await db.lesson.updateMany({ where: { id: { in: finished } }, data: { status: "FINISHED", finishedAt: new Date() } });
+  }
 
   // The lesson belongs to the student's group teacher, so the teacher sees these attempts too.
   const membership = await db.groupMember.findFirst({ where: { userId: user.id }, include: { group: true } });
@@ -53,7 +86,7 @@ export async function startSelfTraining(user: SessionUser): Promise<Op112Seat> {
     (await db.user.findFirst({ where: { role: "TEACHER", isBlocked: false }, orderBy: { createdAt: "asc" } }))?.id ??
     user.id;
 
-  const settings = { ...lessonSettingsSchema.parse({ hints: true }), [SELF_TRAINING_KEY]: true };
+  const settings = { ...lessonSettingsSchema.parse({ hints: true }), [SELF_TRAINING_KEY]: true, [SELF_SESSION_KEY]: sessionId };
   const lesson = await db.lesson.create({
     data: {
       title: `Самостоятельная тренировка — ${user.fullName}`,

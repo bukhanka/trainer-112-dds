@@ -1,13 +1,13 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { jsonError, op112User, ownCall } from "@/lib/op112/access";
-import { callerOpening, type Persona } from "@/lib/op112/caller";
+import { jsonError, op112User, ownCall, personaOfCall } from "@/lib/op112/access";
+import { callerOpening } from "@/lib/op112/caller";
 import { operatorNumber } from "@/lib/op112/seat";
 import { armNumber, buildState } from "@/lib/op112/state";
 import type { CallLine } from "@/lib/op112/types";
 import { channelOf } from "@/lib/op112/phone";
 
-type Counterpart = { phone?: string; scenarioId?: string; persona?: Persona };
+type Counterpart = { phone?: string; scenarioId?: string };
 
 // «Принять»: the call becomes active, a new card opens and its typing timer starts.
 export async function POST(_req: Request, ctx: RouteContext<"/api/op112/calls/[id]/answer">) {
@@ -20,7 +20,8 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/op112/calls/[i
   if (call.seat.lesson.status !== "RUNNING") return jsonError("lesson_finished", 409);
 
   const cp = (call.counterpart ?? {}) as Counterpart;
-  const opening = cp.persona ? await callerOpening(cp.persona) : { text: "Алло! Помогите!", revealed: [] };
+  const persona = await personaOfCall(call);
+  const opening = persona ? await callerOpening(persona) : { text: "Алло! Помогите!", revealed: [] };
   const now = new Date();
   const line: CallLine = { role: "counterpart", text: opening.text, at: now.toISOString(), revealed: opening.revealed };
 

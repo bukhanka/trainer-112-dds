@@ -79,45 +79,76 @@ function toMessages(history: CallLine[]): ChatMessage[] {
   return history.map((m) => ({ role: m.role === "trainee" ? "user" : "assistant", content: m.text }));
 }
 
+// ─── Model access that never leaves the trainee without an answer ────────────
+
+/** A caller must answer within seconds; a stuck model is replaced by the rule-based caller. */
+const REPLY_TIMEOUT_MS = Math.min(Number(process.env.AI_TIMEOUT_MS ?? 45_000), 20_000);
+/** After a model failure (key expired, server down) the rules answer for a while without waiting on it again. */
+const COOL_DOWN_MS = 2 * 60_000;
+let modelDownUntil = 0;
+
+class ReplyTimeout extends Error {}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new ReplyTimeout(`no reply in ${ms} ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+/** The model's line, or null when the rules must answer (no model, a failure, a timeout). */
+async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () => string): Promise<CallerReply | null> {
+  if (Date.now() < modelDownUntil) return null;
+  try {
+    return clean(await withTimeout(chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, mock }), REPLY_TIMEOUT_MS), cards);
+  } catch (err) {
+    // A model that answers but cannot keep to JSON still gets a plain reply; its disclosures are guessed.
+    if (err instanceof Error && /invalid JSON/i.test(err.message)) {
+      try {
+        const text = await withTimeout(chat(messages, { temperature: 0.6, maxTokens: 200 }), REPLY_TIMEOUT_MS);
+        if (text.trim()) return { text: text.trim(), revealed: expandRevealed(guessRevealed(text, cards), cards) };
+      } catch {
+        /* fall through to the rules */
+      }
+    }
+    modelDownUntil = Date.now() + COOL_DOWN_MS;
+    console.error("op112 caller: model unavailable, answering by rules", err instanceof Error ? err.message.slice(0, 200) : err);
+    return null;
+  }
+}
+
 /** First words when the operator picks up. */
 export async function callerOpening(p: Persona): Promise<CallerReply> {
-  const mock = () => asJson(mockOpening(p));
   const cards = factCards(p);
-  try {
-    const out = await chatJson(
-      [
-        { role: "system", content: systemPrompt(p, cards) },
-        { role: "user", content: "(Оператор снял трубку: «Служба 112, здравствуйте».) Скажи первую фразу: кратко, что случилось." },
-      ],
-      replySchema,
-      { temperature: 0.7, maxTokens: 200, mock },
-    );
-    return clean(out, cards);
-  } catch {
-    return mockOpening(p);
-  }
+  const line = await modelLine(
+    [
+      { role: "system", content: systemPrompt(p, cards) },
+      { role: "user", content: "(Оператор снял трубку: «Служба 112, здравствуйте».) Скажи первую фразу: кратко, что случилось." },
+    ],
+    cards,
+    () => asJson(mockOpening(p)),
+  );
+  return line ?? mockOpening(p);
 }
 
 export async function callerReply(p: Persona, history: CallLine[], operatorText: string): Promise<CallerReply> {
   const cards = factCards(p);
-  const mock = () => asJson(mockReply(p, history, operatorText));
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt(p, cards) },
     ...toMessages(history),
     { role: "user", content: operatorText },
   ];
-  try {
-    const out = await chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, mock });
-    return clean(out, cards);
-  } catch {
-    // A model that cannot do JSON still gets a plain reply; disclosed facts are then guessed.
-    try {
-      const text = await chat(messages, { temperature: 0.6, maxTokens: 200, mock: () => mockReply(p, history, operatorText).text });
-      return { text, revealed: guessRevealed(text, cards) };
-    } catch {
-      return mockReply(p, history, operatorText);
-    }
-  }
+  const line = await modelLine(messages, cards, () => asJson(mockReply(p, history, operatorText)));
+  return line ?? mockReply(p, history, operatorText);
 }
 
 function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {

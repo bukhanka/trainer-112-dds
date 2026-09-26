@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import type { CallerPersona } from "@/lib/incident/types";
 import { jsonError, op112User } from "@/lib/op112/access";
 import { findActiveSeat, nextScenario } from "@/lib/op112/seat";
+import { currentSessionId } from "@/lib/op112/session-key";
 import { callDto } from "@/lib/op112/state";
 
 function randomPhone(): string {
@@ -15,7 +16,7 @@ function randomPhone(): string {
 export async function POST() {
   const user = await op112User();
   if (user instanceof Response) return user;
-  const seat = await findActiveSeat(user.id);
+  const seat = await findActiveSeat(user.id, await currentSessionId());
   if (!seat) return jsonError("no_seat", 409);
 
   const open = await db.incident.findFirst({ where: { createdBySeatId: seat.id, status: { in: ["draft", "registered"] } } });
