@@ -43,7 +43,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgresql://trainer:trainer@db:5432/trainer?schema=public
+      DATABASE_URL: postgresql://trainer:trainer@db:5432/trainer?schema=public&connection_limit=15&pool_timeout=20
     ports:
       - "3000:3000"
     volumes:

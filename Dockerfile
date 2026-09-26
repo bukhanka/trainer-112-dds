@@ -34,7 +34,7 @@ COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/bcryptjs ./node_modules/bcryptjs
-COPY docker-entrypoint.sh ./
+COPY docker-entrypoint.sh cluster.cjs ./
 VOLUME ["/backups"]
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
