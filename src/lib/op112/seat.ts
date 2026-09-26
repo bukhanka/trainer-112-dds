@@ -2,8 +2,10 @@
 import type { Prisma, Scenario } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth/session";
+import { studentRating } from "@/lib/adaptive/levels";
+import { pickAdaptive } from "@/lib/adaptive/pick";
 import { isPractice } from "@/lib/lessons/form";
-import { lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
+import { adaptiveChoice, lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
 
 export type Op112Seat = Prisma.SeatGetPayload<{ include: { lesson: true } }>;
 
@@ -132,7 +134,8 @@ const USABLE: Prisma.ScenarioWhereInput = {
 
 /**
  * Next scenario for a seat: the teacher's list for this place if any, otherwise approved scenarios
- * of the lesson's categories. Scenarios the seat has not had yet come first, easier first.
+ * of the lesson's categories. Scenarios the seat has not had yet come first: near the student's level
+ * when the lesson is adaptive (src/lib/adaptive), easier first when it is not.
  */
 export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
   const settings = lessonSettings(seat);
@@ -148,7 +151,11 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     where: { createdBySeatId: seat.id, scenarioId: { not: null } },
     _max: { createdAt: true },
   });
-  const lastUse = new Map(used.map((u) => [u.scenarioId, u._max.createdAt?.getTime() ?? 0]));
+  const lastUse = new Map(used.flatMap((u) => (u.scenarioId ? [[u.scenarioId, u._max.createdAt?.getTime() ?? 0] as const] : [])));
+  if (!seat.scenarioIds.length && adaptiveChoice(seat.lesson.settings)) {
+    const level = await studentRating(seat.studentId, "OP112");
+    return pickAdaptive(pool, { target: level.difficulty, lastUsed: lastUse });
+  }
   const fresh = pool.filter((s) => !lastUse.has(s.id));
   if (fresh.length) return fresh[0];
   return [...pool].sort((a, b) => (lastUse.get(a.id) ?? 0) - (lastUse.get(b.id) ?? 0))[0];

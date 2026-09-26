@@ -8,11 +8,13 @@
  */
 import type { Prisma, Seat } from "@prisma/client";
 import { db } from "@/lib/db";
-import type { LessonSettings } from "@/lib/lessons/settings";
+import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
 import { ddsCardOf, platesForPlace } from "@/lib/dds/scenario";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
+import { studentRating } from "@/lib/adaptive/levels";
+import { pickAdaptive } from "@/lib/adaptive/pick";
 
 type Tx = Prisma.TransactionClient;
 
@@ -56,7 +58,7 @@ async function openCount(tx: Tx, seat: SeatRef): Promise<number> {
 
 async function maybeGenerate(
   tx: Tx,
-  seat: Seat & { lesson: { id: string } },
+  seat: Seat & { lesson: { id: string; settings: Prisma.JsonValue } },
   settings: LessonSettings,
   now: Date,
 ): Promise<FlowInfo> {
@@ -75,7 +77,7 @@ async function maybeGenerate(
     if (wait > 0) return { ...base, nextCardInSec: Math.ceil(wait) };
   }
 
-  const scenario = await pickScenario(tx, seat, settings);
+  const scenario = await pickScenario(tx, seat, settings, adaptiveChoice(seat.lesson.settings));
   if (!scenario) return { ...base, noScenarios: true };
   await createCard(tx, seat, scenario, now);
   return { ...base, queue: queue + 1, nextCardInSec: queue + 1 >= settings.maxQueue ? null : settings.tempoSec };
@@ -85,6 +87,7 @@ const scenarioSelect = {
   id: true,
   title: true,
   category: true,
+  difficulty: true,
   caller: true,
   truth: true,
   ddsCard: true,
@@ -94,19 +97,25 @@ const scenarioSelect = {
 type PickedScenario = Prisma.ScenarioGetPayload<{ select: typeof scenarioSelect }>;
 
 /**
- * Tasks assigned to the place come first, in order; otherwise a random approved scenario of the
- * lesson's categories. Scenarios already shown at this place are used again only when the pool is exhausted.
+ * Tasks assigned to the place come first, in order; otherwise an approved scenario of the lesson's
+ * categories — near the student's level when the lesson is adaptive (src/lib/adaptive), at random
+ * when it is not. Scenarios already shown at this place are used again only when the pool is exhausted.
  */
-async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings): Promise<PickedScenario | null> {
+export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings, adaptive: boolean): Promise<PickedScenario | null> {
   const where: Prisma.ScenarioWhereInput = { status: "APPROVED" };
   if (seat.scenarioIds.length) where.id = { in: seat.scenarioIds };
   else if (settings.categories.length) where.category = { in: settings.categories };
 
   const pool = await tx.scenario.findMany({ where, select: scenarioSelect });
   if (!pool.length) return null;
-  const used = new Set(
-    (await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true } })).map((i) => i.scenarioId),
-  );
+  const feed = await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true, createdAt: true } });
+  if (!seat.scenarioIds.length && adaptive) {
+    const lastUsed = new Map<string, number>();
+    for (const i of feed) if (i.scenarioId) lastUsed.set(i.scenarioId, Math.max(lastUsed.get(i.scenarioId) ?? 0, i.createdAt.getTime()));
+    const level = await studentRating(seat.studentId, "DDS", tx);
+    return pickAdaptive(pool, { target: level.difficulty, lastUsed });
+  }
+  const used = new Set(feed.map((i) => i.scenarioId));
   const fresh = pool.filter((s) => !used.has(s.id));
   if (seat.scenarioIds.length && fresh.length) {
     const order = new Map(seat.scenarioIds.map((id, i) => [id, i]));

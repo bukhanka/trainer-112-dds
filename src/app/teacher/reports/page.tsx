@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { Badge, Empty, LESSON_STATUS, PageHeader } from "@/components/ui";
+import { getForecastHistory, getGroupForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { lessonScope } from "@/lib/teacher/access";
+import { ForecastHistorySection } from "./ForecastHistorySection";
+import { GroupForecastSection } from "./GroupForecastSection";
 
 export default async function ReportsPage() {
   const user = await requireUser(["TEACHER", "ADMIN"]);
+  const [forecast, history] = await Promise.all([getGroupForecast(user), getForecastHistory(user)]);
   const lessons = await db.lesson.findMany({
     where: { ...lessonScope(user), status: { not: "DRAFT" } },
     orderBy: { startedAt: "desc" },
@@ -34,6 +38,9 @@ export default async function ReportsPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4">
       <PageHeader title="Отчёты" subtitle="Отчёт занятия: время против норматива, ошибки, баллы, лидеры и отстающие, типичные ошибки группы. В отчёт идут только подтверждённые попытки." />
+      <GroupForecastSection data={forecast} />
+      <ForecastHistorySection data={history} />
+      <h2 className="text-base font-semibold text-arm-dark">Проведённые занятия</h2>
       {lessons.length ? (
         <ul className="divide-y divide-arm-gray/50 rounded border border-arm-gray/70 bg-white">
           {lessons.map((l) => {

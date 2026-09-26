@@ -12,9 +12,20 @@ export const lessonSettingsSchema = z.object({
   hints: z.boolean().default(false), // «режим чайника»: tips on fields and next steps
   brigadeReports: z.boolean().default(true), // brigade leaders call the ДДС with progress
   practice: z.boolean().default(false), // a student's own lesson started from the workstation («Тренировка без занятия»)
+  adaptive: z.boolean().default(true), // a place without assigned tasks gets tasks near the student's level (src/lib/adaptive)
 });
 
 export type LessonSettings = z.infer<typeof lessonSettingsSchema>;
+
+/**
+ * Whether a place without tasks gets them by the student's level: not when the teacher switched it off,
+ * and not in «одна карточка на всех» (Lesson.settings.sameCard of the teacher's form) — there every
+ * place must see the same cards even when no task is marked.
+ */
+export function adaptiveChoice(raw: unknown): boolean {
+  const s = raw && typeof raw === "object" ? (raw as { adaptive?: unknown; sameCard?: unknown }) : {};
+  return s.adaptive !== false && s.sameCard !== true;
+}
 
 export function parseLessonSettings(raw: unknown): LessonSettings {
   return lessonSettingsSchema.parse(raw ?? {});

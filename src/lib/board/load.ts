@@ -1,11 +1,12 @@
 import type { Lesson } from "@prisma/client";
+import { studentRatings, teacherLessons } from "@/lib/adaptive/levels";
 import { db } from "@/lib/db";
 import { parseTeacherSettings } from "@/lib/lessons/form";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { formatAddress } from "./address";
 import type { BoardInput } from "./state";
 
-/** Reads everything the board needs for one lesson in five queries. */
+/** Reads everything the board needs for one lesson: five queries, plus the attempts behind the students' levels. */
 export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
   const settings = parseTeacherSettings(lesson.settings);
   const [seats, incidents, calls, attempts] = await Promise.all([
@@ -18,7 +19,7 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
       where: { lessonId: lesson.id },
       orderBy: { createdAt: "asc" },
       include: {
-        scenario: { select: { title: true } },
+        scenario: { select: { title: true, difficulty: true } },
         services: {
           orderBy: { addedAt: "asc" },
           include: {
@@ -37,6 +38,11 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
       select: { seatId: true, incidentServiceId: true, reviewStatus: true, score: true, criteria: true, override: true },
     }),
   ]);
+  const levels = await studentRatings(seats.map((s) => s.studentId), { scope: teacherLessons(lesson.teacherId) });
+  const levelOf = (studentId: string, role: "OP112" | "DDS") => {
+    const r = levels.get(studentId)?.[role];
+    return r ? { rating: r.rating, difficulty: r.difficulty, attempts: r.attempts } : null;
+  };
 
   return {
     lesson: {
@@ -57,12 +63,14 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
       serviceId: s.serviceId,
       serviceName: s.service?.shortName ?? null,
       scenarioIds: s.scenarioIds,
+      level: levelOf(s.studentId, s.role),
     })),
     incidents: incidents.map((i) => ({
       id: i.id,
       number: i.number,
       scenarioId: i.scenarioId,
       title: i.scenario?.title ?? i.description?.slice(0, 80) ?? `Карточка ${i.number}`,
+      difficulty: i.scenario?.difficulty ?? null,
       address: formatAddress(i.address),
       source: i.source,
       createdBySeatId: i.createdBySeatId,

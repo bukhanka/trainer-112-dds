@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { BarChart } from "@/components/charts";
 import { Badge, Empty, PageHeader, Section, Stat } from "@/components/ui";
+import { getStudentForecast } from "@/lib/adaptive/student";
 import { requireUser } from "@/lib/auth/session";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { getStudentResults } from "@/lib/student/results";
 import { viewerSession } from "@/lib/student/viewer";
+import { MyForecast } from "./MyForecast";
 
 export default async function MyResultsPage() {
   const user = await requireUser(["STUDENT"]);
-  const r = await getStudentResults(user.id, await viewerSession());
+  const viewer = await viewerSession();
+  const [r, forecast] = await Promise.all([getStudentResults(user.id, viewer), getStudentForecast(user.id, viewer)]);
   const s = r.summary;
   const trend = s.lastLesson != null && s.prevLesson != null ? s.lastLesson - s.prevLesson : null;
 
@@ -27,6 +30,8 @@ export default async function MyResultsPage() {
         />
         <Stat label="Всего попыток" value={s.total} />
       </div>
+
+      <MyForecast view={forecast} />
 
       <Section title="Прогресс по занятиям">
         {r.progress.length ? (

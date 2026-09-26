@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
 import { Badge, LESSON_STATUS, LinkButton, PageHeader, Section } from "@/components/ui";
+import { studentRatings, teacherLessons } from "@/lib/adaptive/levels";
+import type { Rating } from "@/lib/adaptive/rating";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
@@ -27,7 +29,10 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
     }),
   ]);
   const scenarioIds = [...new Set(seats.flatMap((s) => s.scenarioIds))];
-  const scenarios = await db.scenario.findMany({ where: { id: { in: scenarioIds } }, select: { id: true, title: true } });
+  const [scenarios, levels] = await Promise.all([
+    db.scenario.findMany({ where: { id: { in: scenarioIds } }, select: { id: true, title: true } }),
+    studentRatings(seats.map((s) => s.studentId), { scope: teacherLessons(lesson.teacherId) }),
+  ]);
   const scenarioTitle = new Map(scenarios.map((s) => [s.id, s.title]));
   const settings = parseTeacherSettings(lesson.settings);
   const st = LESSON_STATUS[lesson.status];
@@ -76,6 +81,9 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
                 <th className="py-1 pr-3 font-medium">Ученик</th>
                 <th className="py-1 pr-3 font-medium">Роль</th>
                 <th className="py-1 pr-3 font-medium">Служба</th>
+                <th className="py-1 pr-3 font-medium" title="Текущий рейтинг ученика в роли места «как в шахматах» и сложность заданий, которую он подсказывает">
+                  Уровень сейчас
+                </th>
                 <th className="py-1 font-medium">Задания</th>
               </tr>
             </thead>
@@ -86,8 +94,15 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
                   <td className="py-1.5 pr-3">{s.student.fullName}</td>
                   <td className="py-1.5 pr-3">{s.role === "OP112" ? "Оператор 112" : "Диспетчер ДДС"}</td>
                   <td className="py-1.5 pr-3">{s.service?.shortName ?? "—"}</td>
+                  <td className="whitespace-nowrap py-1.5 pr-3 tabular-nums">
+                    <LevelCell level={levels.get(s.studentId)?.[s.role]} />
+                  </td>
                   <td className="py-1.5 text-xs">
-                    {s.scenarioIds.length ? s.scenarioIds.map((x) => scenarioTitle.get(x) ?? "удалён").join("; ") : <span className="text-arm-desc">из категорий</span>}
+                    {s.scenarioIds.length ? (
+                      s.scenarioIds.map((x) => scenarioTitle.get(x) ?? "удалён").join("; ")
+                    ) : (
+                      <span className="text-arm-desc">{settings.adaptive ? "из категорий, по уровню ученика" : "из категорий"}</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -96,5 +111,18 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
         </div>
       </Section>
     </div>
+  );
+}
+
+function LevelCell({ level }: { level: Rating | undefined }) {
+  if (!level) return <>—</>;
+  return (
+    <>
+      {level.rating}{" "}
+      <span className="text-xs text-arm-desc">
+        · задания ≈ {level.difficulty}
+        {level.attempts ? "" : " · новичок"}
+      </span>
+    </>
   );
 }
