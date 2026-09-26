@@ -2,6 +2,7 @@
 import type { Prisma, Scenario } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/auth/session";
+import { isPractice } from "@/lib/lessons/form";
 import { lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
 
 export type Op112Seat = Prisma.SeatGetPayload<{ include: { lesson: true } }>;
@@ -15,8 +16,9 @@ function settingsOf(settings: unknown): Record<string, unknown> {
   return settings && typeof settings === "object" ? (settings as Record<string, unknown>) : {};
 }
 
+/** Practice lessons: our marker or the teacher cabinet's «practice» (it hides them from class lists). */
 export function isSelfTraining(settings: unknown): boolean {
-  return Boolean(settingsOf(settings)[SELF_TRAINING_KEY]);
+  return Boolean(settingsOf(settings)[SELF_TRAINING_KEY]) || isPractice(settings);
 }
 
 /** A lesson seat is visible to every session of its student; a practice seat — only to the session that started it. */
@@ -86,7 +88,7 @@ export async function startSelfTraining(user: SessionUser, sessionId: string): P
     (await db.user.findFirst({ where: { role: "TEACHER", isBlocked: false }, orderBy: { createdAt: "asc" } }))?.id ??
     user.id;
 
-  const settings = { ...lessonSettingsSchema.parse({ hints: true }), [SELF_TRAINING_KEY]: true, [SELF_SESSION_KEY]: sessionId };
+  const settings = { ...lessonSettingsSchema.parse({ hints: true }), practice: true, [SELF_TRAINING_KEY]: true, [SELF_SESSION_KEY]: sessionId };
   const lesson = await db.lesson.create({
     data: {
       title: `Самостоятельная тренировка — ${user.fullName}`,
