@@ -15,7 +15,8 @@
 curl -fsSL https://get.docker.com | sh
 git clone <адрес репозитория> trainer && cd trainer
 cp .env.example .env
-# в .env: DEMO_MODE=true, LLM_* / STT_* / TTS_* — адреса и ключи облачного сервиса
+# в .env: DEMO_MODE=true, LLM_* / STT_* / TTS_* — модели (пример для Google Vertex AI — в .env.example),
+# GOOGLE_KEY_FILE=/root/google-sa.json — ключ сервисного аккаунта на сервере (в контейнер монтируется только для чтения)
 SITE_ADDRESS=trainer.example.ru docker compose --profile app --profile https up -d --build
 ```
 

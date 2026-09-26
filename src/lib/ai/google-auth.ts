@@ -18,8 +18,20 @@ let account: ServiceAccount | null = null;
 let cached: { token: string; expiresAt: number } | null = null;
 let inflight: Promise<string> | null = null;
 
+let configured: boolean | null = null;
+
 export function googleCredentialsConfigured(): boolean {
-  return Boolean(process.env.GOOGLE_CREDENTIALS_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS);
+  if (configured !== null) return configured;
+  if (process.env.GOOGLE_CREDENTIALS_JSON) return (configured = true);
+  const file = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (!file) return (configured = false);
+  try {
+    // The container mounts an empty placeholder when no key is given.
+    configured = Boolean((JSON.parse(readFileSync(/*turbopackIgnore: true*/ file, "utf8")) as ServiceAccount).client_email);
+  } catch {
+    configured = false;
+  }
+  return configured;
 }
 
 function serviceAccount(): ServiceAccount {
