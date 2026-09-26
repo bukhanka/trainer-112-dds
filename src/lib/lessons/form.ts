@@ -14,6 +14,11 @@ export const teacherSettingsSchema = lessonSettingsSchema.extend({
 
 export type TeacherSettings = z.infer<typeof teacherSettingsSchema>;
 
+/** A student's own «тренировка без занятия» from the workstation: not a lesson of any teacher. */
+export function isPractice(settings: unknown): boolean {
+  return Boolean(settings && typeof settings === "object" && (settings as { practice?: unknown }).practice === true);
+}
+
 export function parseTeacherSettings(raw: unknown): TeacherSettings {
   const parsed = teacherSettingsSchema.safeParse(raw ?? {});
   return parsed.success ? parsed.data : teacherSettingsSchema.parse({});

@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { recomputeAllScores } from "@/lib/scoring/recompute";
-import { getActiveWeights, weightsSchema } from "@/lib/scoring/weights";
+import { getActiveWeights, runningLesson, weightsSchema } from "@/lib/scoring/weights";
 import { auditBy, jsonError, readJson, teacherApi } from "@/lib/teacher/access";
 
 export async function GET() {
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const weights = parsed.data;
   if (!Object.values(weights).some((w) => w > 0)) return jsonError("Хотя бы одна группа должна иметь вес больше нуля");
 
-  const running = await db.lesson.findFirst({ where: { status: "RUNNING" }, select: { title: true } });
+  const running = await runningLesson();
   if (running) return jsonError(`Идёт занятие «${running.title}»: пока оно не закончится, веса не меняются, чтобы оценки не поменялись посреди работы. Предпросмотр доступен.`, 409);
 
   const before = await getActiveWeights();

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { isPractice } from "@/lib/lessons/form";
 import type { Weights } from "./score";
 import { normalizeWeights } from "./weight-config";
 
@@ -12,4 +13,11 @@ export async function getActiveWeights(): Promise<{ weights: Weights; profileId:
     name: profile?.name ?? null,
     updatedAt: profile?.updatedAt ?? null,
   };
+}
+
+/** A running class lesson blocks saving weights; a student's self-practice does not. */
+export async function runningLesson(): Promise<{ title: string } | null> {
+  const running = await db.lesson.findMany({ where: { status: "RUNNING" }, select: { title: true, settings: true } });
+  const lesson = running.find((l) => !isPractice(l.settings));
+  return lesson ? { title: lesson.title } : null;
 }

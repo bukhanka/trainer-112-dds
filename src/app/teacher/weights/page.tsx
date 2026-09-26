@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
-import { getActiveWeights } from "@/lib/scoring/weights";
+import { getActiveWeights, runningLesson } from "@/lib/scoring/weights";
 import { attemptScope } from "@/lib/teacher/access";
 import { WeightsPanel, type PreviewAttempt } from "./WeightsPanel";
 
@@ -23,7 +23,7 @@ export default async function WeightsPage() {
         student: { select: { id: true, fullName: true } },
       },
     }),
-    db.lesson.findFirst({ where: { status: "RUNNING" }, select: { title: true } }),
+    runningLesson(),
   ]);
 
   // Only what the score needs travels to the browser.

@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { isPractice } from "@/lib/lessons/form";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 
 /** Start the lesson: from now on the workstations deliver cards and the plan is frozen. */
@@ -15,10 +16,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
   if (!seats.length) return jsonError("В занятии нет ни одного места");
 
   // A student works at one place at a time: two running lessons would split the card flow.
-  const busy = await db.seat.findMany({
-    where: { studentId: { in: seats.map((s) => s.studentId) }, lesson: { status: "RUNNING", id: { not: id } } },
-    select: { student: { select: { fullName: true } }, lesson: { select: { title: true } } },
-  });
+  // Self-practice at the workstation does not count: the teacher's lesson takes over the place.
+  const busy = (
+    await db.seat.findMany({
+      where: { studentId: { in: seats.map((s) => s.studentId) }, lesson: { status: "RUNNING", id: { not: id } } },
+      select: { student: { select: { fullName: true } }, lesson: { select: { title: true, settings: true } } },
+    })
+  ).filter((b) => !isPractice(b.lesson.settings));
   if (busy.length) {
     const who = busy.map((b) => `${b.student.fullName} («${b.lesson.title}»)`).join(", ");
     return jsonError(`Эти ученики уже на другом идущем занятии: ${who}. Завершите его или уберите их из мест.`, 409);

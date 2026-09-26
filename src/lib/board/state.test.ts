@@ -181,3 +181,31 @@ describe("buildBoard: errors", () => {
     expect(board.summary.pendingReview).toBe(0);
   });
 });
+
+describe("buildBoard: cards of the ДДС card flow", () => {
+  it("assigns a generated card to its target place, own service only", () => {
+    const a = seat("1", "DDS");
+    const b = seat("2", "DDS");
+    const bot = plate("p-bot", 20, "ACCEPTED", [["ACCEPTED", 10, null]], { serviceId: 1, serviceName: "Служба 101", delivery: "VIS" });
+    const board = buildBoard(input({ seats: [a, b], incidents: [incident("i1", [plate("p-own", 20, "ADDED"), bot], { targetSeatId: "2" })] }), NOW);
+    expect(board.seats[1].current?.number).toBe(1);
+    expect(board.seats[0].current).toBeNull();
+    const plates = board.cards[0].plates;
+    expect(plates.find((p) => p.name === "Служба 101")?.seat).toBeNull();
+    expect(plates.find((p) => p.name === "Поселение Вороновское")?.seat).toBe("Место 2");
+  });
+
+  it("shows a shared 112 card in the queue of every place of its service without blaming anyone", () => {
+    const board = buildBoard(
+      input({
+        seats: [seat("1", "DDS"), seat("2", "DDS"), seat("3", "OP112")],
+        incidents: [incident("i1", [plate("p1", 45, "ADDED")], { source: "op112", createdBySeatId: "3" })],
+      }),
+      NOW,
+    );
+    expect(board.seats[0].current?.number).toBe(1);
+    expect(board.seats[1].current?.number).toBe(1);
+    expect(board.seats[0].timer?.late).toBe(true);
+    expect(board.seats[0].red.notNotified + board.seats[1].red.notNotified).toBe(0);
+  });
+});

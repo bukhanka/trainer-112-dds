@@ -56,6 +56,8 @@ export type BoardInput = {
     address: string | null;
     source: string;
     createdBySeatId: string | null;
+    /** ДДС place a generated card was sent to (Incident.ddsSeatId of the card flow); null for shared 112 cards. */
+    targetSeatId?: string | null;
     createdAt: Date;
     openedAt: Date | null;
     savedAt: Date | null;
@@ -169,15 +171,21 @@ function sumFlags(list: RedFlags[]): RedFlags {
   });
 }
 
-/** Which ДДС place a plate belongs to: explicit target, then the place that acted on it, then by service and task. */
+/**
+ * Which ДДС place a plate belongs to: the place the card was sent to (own service only), then the
+ * place that acted on it, then the only place with this service, then the only place with this task.
+ * A card typed at a 112 place is shared by every ДДС place of its service until one of them acts.
+ */
 export function assignPlates(input: BoardInput): Map<string, string> {
   const dds = input.seats.filter((s) => s.role === "DDS");
   const ddsIds = new Set(dds.map((s) => s.id));
+  const serviceOf = new Map(dds.map((s) => [s.id, s.serviceId]));
   const attemptSeat = new Map(input.attempts.filter((a) => a.incidentServiceId).map((a) => [a.incidentServiceId!, a.seatId]));
   const out = new Map<string, string>();
   for (const inc of input.incidents) {
     for (const p of inc.plates) {
-      const explicit = p.seatId && ddsIds.has(p.seatId) ? p.seatId : null;
+      const target = inc.targetSeatId && serviceOf.get(inc.targetSeatId) === p.serviceId ? inc.targetSeatId : null;
+      const explicit = target ?? (p.seatId && ddsIds.has(p.seatId) ? p.seatId : null);
       const acted = p.events.find((e) => e.seatId && ddsIds.has(e.seatId))?.seatId ?? null;
       const graded = attemptSeat.get(p.id);
       let seat = explicit ?? acted ?? (graded && ddsIds.has(graded) ? graded : null);
@@ -235,10 +243,13 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
     };
 
     if (seat.role === "DDS") {
-      const mine = input.incidents
-        .flatMap((inc) => inc.plates.filter((p) => plateSeat.get(p.id) === seat.id).map((p) => ({ inc, p })))
-        .sort((a, b) => a.p.addedAt.getTime() - b.p.addedAt.getTime());
-      const open = mine.filter(({ p }) => !CLOSED.includes(p.status));
+      const byAdded = (a: { p: Plate }, b: { p: Plate }) => a.p.addedAt.getTime() - b.p.addedAt.getTime();
+      const mine = input.incidents.flatMap((inc) => inc.plates.filter((p) => plateSeat.get(p.id) === seat.id).map((p) => ({ inc, p }))).sort(byAdded);
+      // Shared cards nobody has taken yet wait in the feed of every place of their service.
+      const shared = input.incidents
+        .flatMap((inc) => inc.plates.filter((p) => !plateSeat.has(p.id) && !inc.targetSeatId && p.serviceId === seat.serviceId && inc.savedAt).map((p) => ({ inc, p })))
+        .filter(({ p }) => !CLOSED.includes(p.status));
+      const open = [...mine.filter(({ p }) => !CLOSED.includes(p.status)), ...shared].sort(byAdded);
       const cur = running ? open[0] : undefined;
       let timer: SeatTimer | null = null;
       if (cur) {

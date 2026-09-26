@@ -3,17 +3,19 @@ import { Badge, Empty, LESSON_STATUS, LinkButton, PageHeader } from "@/component
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
+import { isPractice } from "@/lib/lessons/form";
 import { lessonScope } from "@/lib/teacher/access";
 
 export default async function TeacherHome() {
   const user = await requireUser(["TEACHER", "ADMIN"]);
-  const lessons = await db.lesson.findMany({
+  const all = await db.lesson.findMany({
     where: lessonScope(user),
     orderBy: [{ createdAt: "desc" }],
     select: {
       id: true,
       title: true,
       status: true,
+      settings: true,
       createdAt: true,
       startedAt: true,
       finishedAt: true,
@@ -22,6 +24,8 @@ export default async function TeacherHome() {
       _count: { select: { seats: true, attempts: true } },
     },
   });
+  // Students' self-practice from the workstation is not a class lesson.
+  const lessons = all.filter((l) => !isPractice(l.settings));
   const pending = await db.attempt.groupBy({
     by: ["lessonId"],
     where: { reviewStatus: "PENDING", lessonId: { in: lessons.map((l) => l.id) } },

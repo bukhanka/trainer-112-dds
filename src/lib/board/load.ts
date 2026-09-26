@@ -65,6 +65,8 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
       address: formatAddress(i.address),
       source: i.source,
       createdBySeatId: i.createdBySeatId,
+      // Set by the ДДС card flow for generated cards; read loosely so the board works before and after that column exists.
+      targetSeatId: (i as { ddsSeatId?: string | null }).ddsSeatId ?? null,
       createdAt: i.createdAt,
       openedAt: i.openedAt,
       savedAt: i.savedAt,
