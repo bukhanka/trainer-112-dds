@@ -8,7 +8,7 @@
  *   LLM_REASONING=low, LLM_REASONING_TOKENS     — for reasoning models: effort and extra token budget
  *   STT_PROVIDER=openai|google, STT_BASE_URL, STT_API_KEY, STT_MODEL, STT_LOCATION
  *   TTS_PROVIDER=openai|google, TTS_BASE_URL, TTS_API_KEY, TTS_MODEL, TTS_VOICE_MALE, TTS_VOICE_FEMALE
- *   AI_MAX_CALLS_PER_MIN                        — budget guard for a public stand
+ *   AI_MAX_CALLS_PER_MIN, AI_MAX_CALLS_PER_DAY   — budget guard for a public stand
  *
  * Without LLM_BASE_URL the app runs in mock mode: deterministic answers, no network.
  */
@@ -94,21 +94,37 @@ async function llmAuthHeaders(): Promise<Record<string, string>> {
 // ─── budget guard ────────────────────────────────────────────────────────────
 
 const CALLS_PER_MIN = Number(process.env.AI_MAX_CALLS_PER_MIN ?? 300);
+/** 0 — no daily limit. On an open stand it caps what anyone with a demo login can spend in a day. */
+const CALLS_PER_DAY = Number(process.env.AI_MAX_CALLS_PER_DAY ?? 0);
 const windows: Record<"chat" | "voice", { start: number; calls: number }> = {
   chat: { start: 0, calls: 0 },
   voice: { start: 0, calls: 0 },
 };
+const days: Record<"chat" | "voice", { day: string; calls: number }> = {
+  chat: { day: "", calls: 0 },
+  voice: { day: "", calls: 0 },
+};
 
-/** Paid calls per minute for this process (chat and speech counted apart); above the limit callers fall back. */
-export function takeCall(kind: "chat" | "voice" = "chat"): boolean {
-  const now = Date.now();
+/**
+ * Paid calls per minute and per day (UTC) for this process, chat and speech counted apart; above a limit
+ * callers fall back to rules or the browser voice. With several server processes the limits add up.
+ */
+export function takeCall(kind: "chat" | "voice" = "chat", now = Date.now()): boolean {
   const w = windows[kind];
   if (now - w.start > 60_000) {
     w.start = now;
     w.calls = 0;
   }
+  const d = days[kind];
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (d.day !== today) {
+    d.day = today;
+    d.calls = 0;
+  }
+  if (w.calls >= CALLS_PER_MIN || (CALLS_PER_DAY > 0 && d.calls >= CALLS_PER_DAY)) return false;
   w.calls += 1;
-  return w.calls <= CALLS_PER_MIN;
+  d.calls += 1;
+  return true;
 }
 
 // ─── chat ────────────────────────────────────────────────────────────────────
