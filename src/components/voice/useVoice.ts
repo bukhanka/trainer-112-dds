@@ -48,6 +48,9 @@ export function useVoice() {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [caps, setCaps] = useState<Caps | null>(null);
+  // The first line of a call is often spoken before the capabilities arrive: wait for them instead of
+  // falling back to the browser voice.
+  const capsReady = useRef<Promise<Caps> | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const recognition = useRef<RecognitionLike | null>(null);
   const resolveText = useRef<((text: string) => void) | null>(null);
@@ -59,10 +62,11 @@ export function useVoice() {
   useEffect(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.getVoices(); // Chrome loads voices lazily
     const browserStt = !!createRecognition();
-    fetch("/api/voice/capabilities")
+    capsReady.current = fetch("/api/voice/capabilities")
       .then((r) => (r.ok ? r.json() : { stt: false, tts: false }))
-      .then((c: { stt: boolean; tts: boolean }) => setCaps({ ...c, browserStt }))
-      .catch(() => setCaps({ stt: false, tts: false, browserStt }));
+      .then((c: { stt: boolean; tts: boolean }) => ({ ...c, browserStt }))
+      .catch(() => ({ stt: false, tts: false, browserStt }));
+    void capsReady.current.then(setCaps);
     return () => {
       recorder.current?.stream.getTracks().forEach((t) => t.stop());
       recognition.current?.stop();
@@ -82,8 +86,9 @@ export function useVoice() {
     player.current?.pause();
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     const result = new Promise<string>((resolve) => (resolveText.current = resolve));
+    const known = caps ?? (await capsReady.current);
 
-    if (caps?.stt) {
+    if (known?.stt) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
         const rec = new MediaRecorder(stream);
@@ -113,7 +118,7 @@ export function useVoice() {
       return result;
     }
 
-    const r = caps?.browserStt ? createRecognition() : null;
+    const r = known?.browserStt ? createRecognition() : null;
     if (!r) {
       setError("Распознавание речи недоступно — введите реплику текстом");
       finish("");
@@ -144,7 +149,8 @@ export function useVoice() {
       if (!text) return;
       setState("speaking");
       try {
-        if (caps?.tts) {
+        const known = caps ?? (await capsReady.current);
+        if (known?.tts) {
           const res = await fetch("/api/voice/speak", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
