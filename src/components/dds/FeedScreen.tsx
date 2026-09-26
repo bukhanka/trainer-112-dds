@@ -8,6 +8,7 @@ import type { FeedRow } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
 import { ClockBlock } from "./ClockBlock";
 import { useDds } from "./DdsShell";
+import { ResultsPanel } from "./ResultsPanel";
 import { Bolt, Bookmark, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, MapPinOff, Search, Stopwatch } from "./icons";
 
 type FeedBody = { rows: FeedRow[]; total: number; page: number; pages: number; size: number };
@@ -84,6 +85,7 @@ export function FeedScreen() {
 
       <main className="flex-1 bg-arm-feed px-3 pb-8 text-white sm:px-4">
         <SeatStrip />
+        {state.seat.practice || state.seat.lessonStatus === "FINISHED" ? <ResultsPanel /> : null}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
           <button onClick={() => setCollapsed((c) => !c)} className="flex items-center gap-2 pl-4 text-[19px] font-bold sm:pl-8">
             Список происшествий {collapsed ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}

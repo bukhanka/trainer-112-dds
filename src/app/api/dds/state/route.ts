@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { apiUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { phoneState } from "@/lib/dds/calls";
+import { evaluateSeatPlates } from "@/lib/dds/review";
 import { seatForUser, seatInfo } from "@/lib/dds/seat";
 import { ensureDdsFlow, seatFeedWhere, settingsOf, type FlowInfo } from "@/lib/flow/dds-flow";
 
@@ -28,6 +29,8 @@ export async function GET(request: NextRequest) {
   };
   // The flow moves only from the owner's screen: a watching teacher must not deal cards.
   if (!readOnly) flow = await ensureDdsFlow(seat.id);
+  // A finished lesson gets its review even if the teacher's side did not trigger it.
+  if (seat.lesson.status === "FINISHED" && seat.studentId === user.id) await evaluateSeatPlates(seat);
 
   const waiting = seat.serviceId
     ? await db.incidentService.count({

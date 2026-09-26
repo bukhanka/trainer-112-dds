@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { seatFeedWhere, settingsOf, SYSTEM_ACTOR } from "@/lib/flow/dds-flow";
 import { shortName } from "./format";
+import { evaluatePlate } from "./review";
 import type { DdsSeat } from "./seat";
 import { checkTransition, isFirstAnswer, isLate, rulesFor } from "./status";
 
@@ -95,5 +96,14 @@ export async function setOwnStatus(
     before: { status: plate.status, crewNumber: plate.crewNumber },
     after: { status: input.status, crewNumber: check.crewNumber, comment: check.comment, late },
   });
+  // Review on a final answer; a plate reviewed before (Не принята → Принята) is reviewed again.
+  const reviewed = await db.attempt.count({ where: { incidentServiceId: plate.id, kind: "DDS" } });
+  if (["REJECTED", "FINISHED", "REFUSED"].includes(input.status) || reviewed) {
+    try {
+      await evaluatePlate(plate.id, now);
+    } catch (err) {
+      console.error("dds review failed", plate.id, err);
+    }
+  }
   return { ok: true, plateId: plate.id, status: input.status, late };
 }
