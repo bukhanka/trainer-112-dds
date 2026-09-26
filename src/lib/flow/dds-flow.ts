@@ -105,7 +105,7 @@ async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings): Promi
   const pool = await tx.scenario.findMany({ where, select: scenarioSelect });
   if (!pool.length) return null;
   const used = new Set(
-    (await tx.incident.findMany({ where: { ddsSeatId: seat.id }, select: { scenarioId: true } })).map((i) => i.scenarioId),
+    (await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true } })).map((i) => i.scenarioId),
   );
   const fresh = pool.filter((s) => !used.has(s.id));
   if (seat.scenarioIds.length && fresh.length) {

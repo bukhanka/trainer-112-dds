@@ -27,6 +27,7 @@ export function ResultsPanel() {
   const { data } = useSWR(withSeat("/api/dds/results", seatParam), getJson<ResultsBody>, { refreshInterval: 5000 });
   const rows = data?.rows ?? [];
   if (!rows.length && state.seat.lessonStatus === "RUNNING") return null;
+  if (!state.seat.mine && !rows.length) return null;
 
   return (
     <section className="mt-3 bg-arm-dark/70 text-[13px]">

@@ -20,22 +20,35 @@ const seatInclude = {
   student: { select: { id: true, fullName: true, login: true } },
 } satisfies Prisma.SeatInclude;
 
-/** The user's ДДС place in a running lesson (the latest one if there are several). */
-export async function runningDdsSeat(userId: string): Promise<DdsSeat | null> {
-  return db.seat.findFirst({
+type LessonSettingsRaw = { practice?: boolean; practiceKey?: string };
+const settingsRaw = (seat: DdsSeat) => (seat.lesson.settings ?? {}) as LessonSettingsRaw;
+
+/** A teacher's lesson is always the user's; a practice only if it was started in this login session. */
+function visibleTo(seat: DdsSeat, key: string | null): boolean {
+  const s = settingsRaw(seat);
+  return !s.practice || !s.practiceKey || s.practiceKey === key;
+}
+
+/** The user's ДДС place in a running lesson: a teacher's lesson first, then this session's practice. */
+export async function runningDdsSeat(userId: string, key: string | null = null): Promise<DdsSeat | null> {
+  const seats = await db.seat.findMany({
     where: { studentId: userId, role: "DDS", lesson: { status: "RUNNING" } },
     include: seatInclude,
     orderBy: { lesson: { startedAt: "desc" } },
+    take: 50,
   });
+  return seats.find((st) => !settingsRaw(st).practice) ?? seats.find((st) => visibleTo(st, key)) ?? null;
 }
 
 /** The user's latest ДДС place, running or finished — to show the results after the lesson. */
-export async function latestDdsSeat(userId: string): Promise<DdsSeat | null> {
-  return db.seat.findFirst({
+export async function latestDdsSeat(userId: string, key: string | null = null): Promise<DdsSeat | null> {
+  const seats = await db.seat.findMany({
     where: { studentId: userId, role: "DDS", lesson: { status: { in: ["RUNNING", "FINISHED"] } } },
     include: seatInclude,
     orderBy: { createdAt: "desc" },
+    take: 50,
   });
+  return seats.find((st) => visibleTo(st, key)) ?? null;
 }
 
 export type SeatAccess = { seat: DdsSeat; readOnly: boolean };
@@ -44,7 +57,7 @@ export type SeatAccess = { seat: DdsSeat; readOnly: boolean };
  * Resolve the place for a request. Students: always their own running (or latest) place; the seat
  * parameter is honoured only if it is theirs. Teachers: places of their lessons, read-only. Admins: any, read-only.
  */
-export async function seatForUser(user: SessionUser, seatId?: string | null): Promise<SeatAccess | null> {
+export async function seatForUser(user: SessionUser, seatId?: string | null, key: string | null = null): Promise<SeatAccess | null> {
   if (seatId) {
     const seat = await db.seat.findUnique({ where: { id: seatId }, include: seatInclude });
     if (!seat || seat.role !== "DDS") return null;
@@ -54,9 +67,9 @@ export async function seatForUser(user: SessionUser, seatId?: string | null): Pr
     }
     return null;
   }
-  const running = await runningDdsSeat(user.id);
+  const running = await runningDdsSeat(user.id, key);
   if (running) return { seat: running, readOnly: false };
-  const latest = await latestDdsSeat(user.id);
+  const latest = await latestDdsSeat(user.id, key);
   return latest ? { seat: latest, readOnly: true } : null;
 }
 
@@ -85,8 +98,8 @@ export type PracticeResult = { ok: true; seat: DdsSeat } | { ok: false; error: s
  * «Тренировка без занятия»: a personal running lesson with one ДДС place, so the workstation works
  * right after login, without a teacher.
  */
-export async function startPractice(user: SessionUser): Promise<PracticeResult> {
-  const existing = await runningDdsSeat(user.id);
+export async function startPractice(user: SessionUser, key: string | null = null): Promise<PracticeResult> {
+  const existing = await runningDdsSeat(user.id, key);
   if (existing) return { ok: true, seat: existing };
   const service = await practiceService();
   if (!service) return { ok: false, error: "Справочник служб пуст: попросите администратора загрузить службы." };
@@ -98,7 +111,7 @@ export async function startPractice(user: SessionUser): Promise<PracticeResult> 
       teacherId: user.id,
       status: "RUNNING",
       startedAt: now,
-      settings: PRACTICE_SETTINGS,
+      settings: { ...PRACTICE_SETTINGS, ...(key ? { practiceKey: key } : {}) },
       seats: { create: { studentId: user.id, role: "DDS", serviceId: service.id, label: "Самостоятельно" } },
     },
     include: { seats: true },

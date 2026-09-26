@@ -28,6 +28,11 @@ export async function activeWeights(): Promise<Weights> {
 
 const cp = (call: Pick<Call, "counterpart">) => (call.counterpart ?? {}) as Counterpart;
 
+/** Marks the reviews written here, so other tools' attempts (demo lessons) are never rewritten. */
+const PLACE_REVIEW = "dds-place";
+type Draft = { by?: string; final?: boolean } | null;
+const madeByPlace = (draft: unknown) => (draft as Draft)?.by === PLACE_REVIEW;
+
 /**
  * Review one plate of a ДДС place and store it. Returns the score, or null when nothing was stored.
  * `final` marks the review made at the end of the lesson, so it runs once per plate.
@@ -86,7 +91,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
   const data = {
     criteria: criteria as unknown as Prisma.InputJsonValue,
     score,
-    aiDraft: { summary: summarize(criteria, score), source: "rules", final: !!opts.final } as Prisma.InputJsonValue,
+    aiDraft: { summary: summarize(criteria, score), source: "rules", by: PLACE_REVIEW, final: !!opts.final } as Prisma.InputJsonValue,
   };
 
   // One review per plate and place even when the finish button and the poll race each other.
@@ -94,6 +99,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-review:${plate.id}`}))`;
     const existing = await tx.attempt.findFirst({ where: { incidentServiceId: plate.id, seatId, kind: "DDS" } });
     if (existing && existing.reviewStatus !== "PENDING") return existing.score; // the teacher has checked it
+    if (existing && !madeByPlace(existing.aiDraft)) return existing.score; // someone else's review (demo lessons): leave it
     if (existing) {
       await tx.attempt.updateMany({ where: { id: existing.id, reviewStatus: "PENDING" }, data });
     } else {
@@ -114,10 +120,11 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
   });
 }
 
-/** Calls cannot outlive the lesson: a ringing call is lost, a talk is over. */
+/** Calls of the ДДС places cannot outlive the lesson: a ringing call is lost, a talk is over. */
 export async function closeLessonCalls(lessonId: string, now = new Date()): Promise<void> {
-  await db.call.updateMany({ where: { lessonId, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
-  await db.call.updateMany({ where: { lessonId, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+  const dds = { lessonId, seat: { role: "DDS" as const } };
+  await db.call.updateMany({ where: { ...dds, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
+  await db.call.updateMany({ where: { ...dds, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
 }
 
 /**
@@ -128,15 +135,15 @@ export async function closeLessonCalls(lessonId: string, now = new Date()): Prom
 export async function evaluateSeatPlates(seat: { id: string; lessonId: string; serviceId: number | null }): Promise<number> {
   if (!seat.serviceId) return 0;
   const plates = await db.incidentService.findMany({
-    where: {
-      serviceId: seat.serviceId,
-      incident: seatFeedWhere(seat),
-      attempts: { none: { kind: "DDS", OR: [{ reviewStatus: { not: "PENDING" } }, { aiDraft: { path: ["final"], equals: true } }] } },
-    },
-    select: { id: true },
+    where: { serviceId: seat.serviceId, incident: seatFeedWhere(seat) },
+    select: { id: true, attempts: { where: { kind: "DDS" }, select: { reviewStatus: true, aiDraft: true } } },
   });
-  for (const p of plates) await evaluatePlate(p.id, new Date(), { final: true });
-  return plates.length;
+  // Not reviewed yet, or only by the place during the lesson and still waiting for the teacher.
+  const due = plates.filter((p) =>
+    p.attempts.every((a) => a.reviewStatus === "PENDING" && madeByPlace(a.aiDraft) && !(a.aiDraft as Draft)?.final),
+  );
+  for (const p of due) await evaluatePlate(p.id, new Date(), { final: true });
+  return due.length;
 }
 
 /** For the teacher's «finish lesson»: close the calls and review all ДДС places of the lesson. Safe to call repeatedly. */

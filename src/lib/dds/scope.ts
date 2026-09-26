@@ -21,6 +21,8 @@ export type SeatRef = Pick<Seat, "id" | "lessonId" | "serviceId">;
 /**
  * Cards shown at a ДДС place: cards generated for it, plus cards saved at the 112 places of the same
  * lesson that carry its service. The same rule serves every ДДС (#684: one algorithm for all).
+ * Generated cards made by other tools (the demo lessons) may name the place only in the «Добавлена»
+ * event of its plate instead of Incident.ddsSeatId — those count as the place's own too.
  */
 export function seatFeedWhere(seat: SeatRef): Prisma.IncidentWhereInput {
   const own: Prisma.IncidentWhereInput = { ddsSeatId: seat.id };
@@ -34,6 +36,12 @@ export function seatFeedWhere(seat: SeatRef): Prisma.IncidentWhereInput {
         source: { not: "generated" },
         NOT: { status: "draft" },
         services: { some: { serviceId: seat.serviceId } },
+      },
+      {
+        lessonId: seat.lessonId,
+        ddsSeatId: null,
+        source: "generated",
+        services: { some: { serviceId: seat.serviceId, events: { some: { status: "ADDED", seatId: seat.id } } } },
       },
     ],
   };

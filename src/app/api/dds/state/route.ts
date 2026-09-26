@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { apiUser } from "@/lib/auth/session";
+import { practiceKey } from "@/lib/dds/api";
 import { db } from "@/lib/db";
 import { phoneState } from "@/lib/dds/calls";
 import { closeLessonCalls, evaluateSeatPlates } from "@/lib/dds/review";
@@ -13,7 +14,7 @@ import { ensureDdsFlow, seatFeedWhere, settingsOf, type FlowInfo } from "@/lib/f
 export async function GET(request: NextRequest) {
   const user = await apiUser();
   if (user instanceof Response) return user;
-  const access = await seatForUser(user, request.nextUrl.searchParams.get("seat"));
+  const access = await seatForUser(user, request.nextUrl.searchParams.get("seat"), await practiceKey());
   if (!access) {
     const op112 = await db.seat.count({ where: { studentId: user.id, role: "OP112", lesson: { status: "RUNNING" } } });
     return Response.json({ serverNow: new Date().toISOString(), seat: null, op112Running: op112 > 0 });
