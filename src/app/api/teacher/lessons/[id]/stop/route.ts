@@ -1,5 +1,6 @@
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 import { db } from "@/lib/db";
+import { finishLessonEvaluation } from "@/lib/dds/review";
 
 /** Stop at any moment: cards stop flowing, attempts go to review. */
 export async function POST(request: Request, ctx: RouteContext<"/api/teacher/lessons/[id]/stop">) {
@@ -20,5 +21,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
     before: { status: "RUNNING", startedAt: lesson.startedAt?.toISOString() ?? null },
     after: { status: "FINISHED", finishedAt: finishedAt.toISOString() },
   });
+  // ДДС places: calls are closed and every plate is reviewed now, even if a student has closed the page.
+  try {
+    await finishLessonEvaluation(id);
+  } catch (err) {
+    console.error("dds review at lesson stop failed", id, err);
+  }
   return Response.json({ ok: true, finishedAt });
 }

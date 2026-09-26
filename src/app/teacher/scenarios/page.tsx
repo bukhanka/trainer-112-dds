@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Badge, Empty, PageHeader, fieldClass } from "@/components/ui";
+import { Badge, Empty, PageHeader, buttonClass, fieldClass } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDate } from "@/lib/format";
@@ -37,6 +37,11 @@ export default async function ScenariosPage(props: PageProps<"/teacher/scenarios
       <PageHeader
         title="Сценарии"
         subtitle="Всё, что сгенерировано, — черновик. В занятие попадают только утверждённые сценарии: целиком или раздел за разделом."
+        actions={
+          <Link href="/teacher/scenarios/new" className={buttonClass("primary")}>
+            + Сценарий из текста
+          </Link>
+        }
       />
       <div className="flex flex-wrap items-end gap-2">
         <nav className="flex flex-wrap gap-1" aria-label="Статус">

@@ -262,6 +262,8 @@ model Incident {
   scenario        Scenario? @relation(fields: [scenarioId], references: [id])
   source          String // generated | op112 | vis
   createdBySeatId String?
+  /// ДДС place a generated card was sent to (each place gets its own stream); null for cards saved at 112 places
+  ddsSeatId       String?
   operatorNo      String? // «Опер.»
   armNo           String? // «АРМ»
   status          String    @default("draft") // draft | registered | worked
@@ -288,6 +290,7 @@ model Incident {
   attempts Attempt[]
 
   @@index([lessonId, createdAt])
+  @@index([ddsSeatId, createdAt])
 }
 
 enum ServiceStatus {
