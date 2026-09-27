@@ -19,6 +19,13 @@ vi.mock("@/lib/admin/services", () => ({
   SERVICE_LABELS: { scheduler: "Планировщик", ai: "Модели ИИ", ddsFlow: "Поток карточек ДДС" },
   setService: async (...args: unknown[]) => void state.switched.push(args),
 }));
+vi.mock("@/lib/admin/integrity", () => ({
+  lastIntegrity: async () => null,
+  runIntegrityCheck: async () => {
+    state.checks++;
+    return { ok: true };
+  },
+}));
 vi.mock("@/lib/db", () => ({
   db: {
     auditLog: {
@@ -31,6 +38,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const services = await import("@/app/api/admin/services/route");
+const integrity = await import("@/app/api/admin/integrity/route");
 const exportCsv = (await import("@/app/api/admin/audit/export/route")).GET;
 const post = (body: unknown) => new Request("http://x/api/admin/services", { method: "POST", body: JSON.stringify(body) });
 
@@ -52,6 +60,8 @@ describe("administrator API", () => {
       const expected = user ? 403 : 401;
       expect((await services.GET()).status).toBe(expected);
       expect((await services.POST(post({ service: "ai", on: false }))).status).toBe(expected);
+      expect((await integrity.GET()).status).toBe(expected);
+      expect((await integrity.POST()).status).toBe(expected);
       expect((await exportCsv(new Request("http://x/api/admin/audit/export?scope=system"))).status).toBe(expected);
       expect(state.switched).toEqual([]);
       expect(state.checks).toBe(0);
@@ -64,5 +74,7 @@ describe("administrator API", () => {
     expect((await services.POST(post({ service: "ai", on: "no" }))).status).toBe(400);
     expect((await services.POST(post({ service: "ai", on: false }))).status).toBe(200);
     expect(state.switched).toEqual([["ai", false, state.user, null]]);
+    expect((await integrity.POST()).status).toBe(200);
+    expect(state.checks).toBe(1);
   });
 });

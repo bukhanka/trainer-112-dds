@@ -7,6 +7,7 @@ import { db } from "../db";
 import { getSetting } from "../settings";
 import { pruneBackups, runBackup } from "./backup";
 import { lastOccurrence, localDay } from "./days";
+import { lastIntegrity, runIntegrityCheck } from "./integrity";
 import { HEARTBEAT_SETTING, serviceOn, startStoppedServices } from "./services";
 
 // Built into the Docker image from prisma/demo-reset.ts; absent in development.
@@ -22,11 +23,13 @@ export const DEMO_RESET_WINDOW_MIN = 180;
 let started = false;
 let lastBackupDay = "";
 let lastDemoResetStart = 0;
+let lastIntegrityDay = "";
 let lastHousekeeping = 0;
 
 /**
- * Background jobs inside one app process (cluster.cjs gives them to the first worker): daily backup, hourly
- * cleanup of old backups, journal records and expired sessions, and — on the public demo stand — the nightly reset. The administrator can pause the jobs (Состояние → Службы); the demo reset still
+ * Background jobs inside one app process (cluster.cjs gives them to the first worker): daily backup, daily
+ * integrity check, hourly cleanup of old backups, journal records and expired sessions, and — on the public demo
+ * stand — the nightly reset. The administrator can pause the jobs (Состояние → Службы); the demo reset still
  * runs on the stand, since it is what starts every stopped service again.
  */
 export function startScheduler() {
@@ -67,6 +70,12 @@ async function tick() {
     });
     lastBackupDay = today;
     if (!done) await runBackup("scheduled");
+  }
+
+  const integrityAt = await getSetting("integrity.dailyAt", "05:00");
+  if (hhmm >= integrityAt && lastIntegrityDay !== today) {
+    lastIntegrityDay = today;
+    if ((await lastIntegrity())?.scheduledDay !== today) await runIntegrityCheck("scheduled");
   }
 
   if (Date.now() - lastHousekeeping > 3_600_000) {

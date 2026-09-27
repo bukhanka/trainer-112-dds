@@ -26,6 +26,8 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   "backup.dailyAt": "03:00",
   "backup.keepDays": 14,
   "demo.resetAt": "04:30", // public demo stand only (DEMO_MODE=true)
+  "integrity.dailyAt": "05:00", // after the backup and the demo reset
+  "integrity.minFreeGb": 2, // the integrity check fails below this free space
 };
 
 export const DEFAULT_WEIGHTS: Record<string, number> = {

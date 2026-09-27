@@ -1,19 +1,51 @@
+import Link from "next/link";
 import { collectHealth } from "@/lib/admin/health";
+import { lastIntegrity, type IntegrityReport } from "@/lib/admin/integrity";
 import { SERVICE_KEYS, SERVICE_LABELS } from "@/lib/admin/services";
 import { collectServicesStatus, type ServicesStatus } from "@/lib/admin/services-status";
 import { requireUser } from "@/lib/auth/session";
-import { formatTime } from "@/lib/format";
+import { formatDateTime, formatTime } from "@/lib/format";
+import { getSetting } from "@/lib/settings";
 import { HealthPanel } from "./HealthPanel";
+import { IntegrityPanel } from "./IntegrityPanel";
 import { ServicesPanel } from "./ServicesPanel";
 
 export default async function AdminHome() {
   await requireUser(["ADMIN"]); // the layout's check does not guard the page's own data (partial rendering)
-  const [health, services] = await Promise.all([collectHealth(), collectServicesStatus()]);
+  const [health, integrity, services, integrityAt] = await Promise.all([
+    collectHealth(),
+    lastIntegrity(),
+    collectServicesStatus(),
+    getSetting("integrity.dailyAt", "05:00").catch(() => "05:00"),
+  ]);
   return (
     <div className="flex flex-col gap-6">
+      {integrity && !integrity.ok && <IntegrityBanner report={integrity} />}
       <StoppedBanner services={services} />
       <HealthPanel initial={health} />
       <ServicesPanel initial={services} />
+      <IntegrityPanel initial={integrity} dailyAt={integrityAt} />
+    </div>
+  );
+}
+
+function IntegrityBanner({ report }: { report: IntegrityReport }) {
+  const failed = report.checks.filter((c) => !c.ok);
+  return (
+    <div role="alert" className="rounded border-2 border-arm-late bg-red-50 px-4 py-3 text-sm text-red-900">
+      <p className="font-semibold">
+        Контроль целостности {formatDateTime(report.at)}: {failed.length === 1 ? "найдена проблема" : `найдено проблем — ${failed.length}`}
+      </p>
+      <ul className="mt-1 list-disc pl-5">
+        {failed.map((c) => (
+          <li key={c.code}>
+            <b>{c.title}:</b> {c.detail}
+          </li>
+        ))}
+      </ul>
+      <Link href="#integrity" className="mt-1 inline-block underline">
+        Все проверки и повторная проверка ↓
+      </Link>
     </div>
   );
 }

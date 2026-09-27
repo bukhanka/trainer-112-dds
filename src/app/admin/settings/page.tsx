@@ -14,6 +14,8 @@ const FIELDS: Field[] = [
   { key: "audit.retentionDays", label: "Срок хранения журнала аудита, дн.", kind: "number", min: 183, max: 3650, hint: "не меньше 6 месяцев" },
   { key: "backup.dailyAt", label: "Время ежедневной резервной копии", kind: "time" },
   { key: "backup.keepDays", label: "Сколько дней хранить копии", kind: "number", min: 1, max: 365 },
+  { key: "integrity.dailyAt", label: "Время ежедневной проверки целостности", kind: "time", hint: "после резервной копии", fallback: "05:00" },
+  { key: "integrity.minFreeGb", label: "Проверка целостности: свободного места на диске не меньше, ГБ", kind: "number", min: 1, max: 1000, fallback: 2 },
 ];
 
 async function saveSettings(form: FormData) {
@@ -121,7 +123,7 @@ export default async function SettingsPage() {
       <section className="rounded border bg-white p-4 text-sm">
         <h2 className="mb-2 font-semibold">Задаются при установке (файл .env)</h2>
         <ul className="list-disc pl-5 text-arm-desc">
-          <li>Адреса и модели ИИ: языковая модель, распознавание и синтез речи — облачные или локальные.</li>
+          <li>Адреса и модели ИИ: языковая модель, распознавание и синтез речи — облачные или локальные. Выключить модели на ходу можно на странице «Состояние».</li>
           <li>База данных и значения по умолчанию для политик доступа (SESSION_HOURS, MAX_FAILED_LOGINS, LOCK_MINUTES).</li>
           <li>Каталог резервных копий (BACKUP_DIR).</li>
         </ul>
