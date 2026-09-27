@@ -175,14 +175,14 @@ export function repeatOf(truth: unknown): string | undefined {
 }
 
 /**
- * A repeat call rings only once the lesson has a saved card of the incident it repeats (at any place of the
- * lesson): otherwise there is nothing to link it to.
+ * A repeat call rings only once a 112 place of the lesson has saved a card of the incident it repeats: otherwise
+ * there is nothing to link it to (a card the system dealt to a ДДС place does not count).
  */
-async function withoutEarlyRepeats<T extends { truth: unknown }>(pool: T[], lessonId: string): Promise<T[]> {
+export async function withoutEarlyRepeats<T extends { truth: unknown }>(pool: T[], lessonId: string): Promise<T[]> {
   const refs = [...new Set(pool.map((s) => repeatOf(s.truth)).filter((r): r is string => Boolean(r)))];
   if (!refs.length) return pool;
   const cards = await db.incident.findMany({
-    where: { lessonId, status: { in: ["registered", "worked"] }, scenario: { ticketRef: { in: refs } } },
+    where: { lessonId, source: "op112", status: { in: ["registered", "worked"] }, scenario: { ticketRef: { in: refs } } },
     select: { scenario: { select: { ticketRef: true } } },
   });
   const played = new Set(cards.map((c) => c.scenario?.ticketRef));

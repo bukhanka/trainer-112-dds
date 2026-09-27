@@ -16,10 +16,18 @@ export function placeOf(address: IncidentAddress): string {
   return area ? `${line} (${area})` : line;
 }
 
-/** Saved cards of a lesson, newest first: what «Совпадение» and «создать связь» look through. */
+/**
+ * What «Совпадение» and «создать связь» look through: cards saved at the 112 places of the lesson. The cards the
+ * system deals to ДДС places by itself (source «generated», «оп. 0») were never taken by an operator here.
+ */
+export function lessonCardsWhere(lessonId: string, exceptId?: string) {
+  return { lessonId, source: "op112", status: { in: ["registered", "worked"] }, ...(exceptId ? { id: { not: exceptId } } : {}) };
+}
+
+/** Saved cards of the lesson's 112 places, newest first. */
 export async function lessonCards(lessonId: string, exceptId?: string): Promise<LessonCard[]> {
   const rows = await db.incident.findMany({
-    where: { lessonId, status: { in: ["registered", "worked"] }, ...(exceptId ? { NOT: { id: exceptId } } : {}) },
+    where: lessonCardsWhere(lessonId, exceptId),
     orderBy: { savedAt: "desc" },
     take: 60,
     select: {
