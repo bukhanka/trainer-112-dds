@@ -40,6 +40,27 @@ export async function inPlayAtDds(db: Pick<Reader, "incident">, lessonId: string
 }
 
 /** The pool without the busy scenarios, unless that leaves nothing. */
+/**
+ * Never the same situation twice in a row at a place while there is another: the first of the choices
+ * (from the most wanted to the widest) that offers something other than the last scenario.
+ */
+export function notRightAfter<T extends { id: string }>(choices: T[][], lastId: string | null | undefined): T[] {
+  if (lastId) {
+    for (const choice of choices) {
+      const other = choice.filter((s) => s.id !== lastId);
+      if (other.length) return other;
+    }
+  }
+  return choices[0];
+}
+
+/** The scenario of the latest card of a place. */
+export function latestScenario(cards: { scenarioId: string | null; createdAt: Date }[]): string | null {
+  let last: { scenarioId: string | null; createdAt: Date } | null = null;
+  for (const c of cards) if (c.scenarioId && (!last || c.createdAt > last.createdAt)) last = c;
+  return last?.scenarioId ?? null;
+}
+
 export function preferNotInPlay<T extends { id: string }>(pool: T[], busy: Set<string>): T[] {
   if (!busy.size) return pool;
   const free = pool.filter((s) => !busy.has(s.id));

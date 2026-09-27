@@ -11,6 +11,8 @@ const library = [
   s("m1", "медицина", "ЦАО", "Арбат", false),
 ];
 const dds = { role: "DDS" as const, scenarioIds: [] };
+/** The warnings about empty categories, without the one about a narrow choice (the test library is small). */
+const aboutEmpty = (...args: Parameters<typeof coverageWarnings>) => coverageWarnings(...args).filter((w) => !w.startsWith("Карточки будут повторяться"));
 const op = { role: "OP112" as const, scenarioIds: [] };
 
 describe("will every place get cards", () => {
@@ -29,7 +31,7 @@ describe("will every place get cards", () => {
     const c = lessonCoverage(library, settings, [dds]);
     expect(c.empty).toEqual(["медицина"]);
     expect(c.blocked).toBeNull();
-    expect(coverageWarnings(c, settings)).toEqual(["В категории «медицина» нет утверждённых сценариев — места получат карточки только из других категорий."]);
+    expect(aboutEmpty(c, settings)).toEqual(["В категории «медицина» нет утверждённых сценариев — места получат карточки только из других категорий."]);
   });
 
   it("blocks the start when places without tasks would get nothing", () => {
@@ -48,7 +50,7 @@ describe("will every place get cards", () => {
     expect(lessonCoverage(library, settings, [op, dds]).blocked).not.toBeNull();
     // No false warning for a lesson of 112 places only.
     const both = { categories: ["пожар", "медицина"] };
-    expect(coverageWarnings(lessonCoverage(library, both, [op]), both)).toEqual([]);
+    expect(aboutEmpty(lessonCoverage(library, both, [op]), both)).toEqual([]);
     expect(lessonCoverage(library, both, [op, dds]).empty).toEqual(["медицина"]);
   });
 
@@ -63,8 +65,19 @@ describe("will every place get cards", () => {
   it("names the location in the warning", () => {
     const settings = { categories: ["пожар", "ДТП"], location: { okrug: "ЦАО", district: "Арбат" } };
     const c = lessonCoverage(library, settings, [dds]);
-    expect(coverageWarnings(c, settings)).toEqual([
+    expect(aboutEmpty(c, settings)).toEqual([
       "В категории «ДТП» нет утверждённых сценариев в локации «ЦАО, Арбат» — места получат карточки только из других категорий.",
     ]);
+  });
+
+  it("warns in advance when places without tasks have only a few scenarios", () => {
+    const settings = { categories: ["пожар"] };
+    const c = lessonCoverage(library, settings, [dds]);
+    expect(c.few).toBe(2);
+    expect(coverageWarnings(c, settings)).toContain(
+      "Карточки будут повторяться: местам без заданий доступно 2 сценария. Добавьте категории, снимите ограничение локации или утвердите ещё сценарии.",
+    );
+    // Places with their own tasks draw nothing: no warning.
+    expect(coverageWarnings(lessonCoverage(library, settings, [{ role: "DDS", scenarioIds: ["f1"] }]), settings)).toEqual([]);
   });
 });

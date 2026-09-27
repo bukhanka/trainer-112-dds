@@ -6,6 +6,7 @@ import type { Seat } from "@prisma/client";
 const store = vi.hoisted(() => ({
   pool: [] as { id: string; difficulty: number; truth: unknown }[],
   openInDds: [] as { scenarioId: string }[],
+  used: [] as { scenarioId: string; _max: { createdAt: Date } }[],
 }));
 
 /** Tasks marked by hand are asked by id; everything else by status and category, which the pool here passes. */
@@ -14,7 +15,7 @@ const byIds = <T extends { id: string }>(rows: T[], where: { id?: { in?: string[
 vi.mock("@/lib/db", () => ({
   db: {
     scenario: { findMany: async ({ where }: { where: { id?: { in?: string[] } } }) => byIds(store.pool, where) },
-    incident: { groupBy: async () => [], findMany: async () => store.openInDds },
+    incident: { groupBy: async () => store.used, findMany: async () => store.openInDds },
     attempt: { findMany: async () => [] },
   },
 }));
@@ -35,6 +36,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   store.pool = [];
   store.openInDds = [];
+  store.used = [];
 });
 
 describe("ДДС place", () => {
@@ -83,6 +85,19 @@ describe("ДДС place", () => {
     expect(await pickScenario(tx({ busy112: ["shchukino"], ringing: ["mitino"] }), seat(), szao, true)).not.toBeNull();
   });
 
+  it("never deals the same situation twice in a row while there is another, busy at 112 or not", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const szao = settings({ location: { okrug: "СЗАО" } });
+    // The 112 place works on «shchukino», the last ДДС card was «mitino»: a repeat would follow without the rule.
+    const feed = [{ scenarioId: "mitino", createdAt: new Date() }];
+    for (const adaptive of [true, false]) {
+      expect((await pickScenario(tx({ busy112: ["shchukino"], feed }), seat(), szao, adaptive))?.id).toBe("shchukino");
+    }
+    // Only one scenario at all: it comes again rather than nothing.
+    const arbat = settings({ location: { okrug: "ЦАО" } });
+    expect((await pickScenario(tx({ feed: [{ scenarioId: "arbat", createdAt: new Date() }] }), seat(), arbat, true))?.id).toBe("arbat");
+  });
+
   it("keeps the teacher's order of tasks even when a 112 place has the same one", async () => {
     expect((await pickScenario(tx({ busy112: ["arbat"] }), seat(["arbat", "mitino"]), settings(), false))?.id).toBe("arbat");
   });
@@ -107,5 +122,9 @@ describe("112 place", () => {
     expect((await nextScenario(seat({})))?.id).toBe("mitino");
     store.openInDds = [{ scenarioId: "shchukino" }, { scenarioId: "mitino" }];
     expect(await nextScenario(seat({ adaptive: false }))).not.toBeNull();
+    // The last call was «mitino»: the next one is not «mitino» again, even though «shchukino» is open at a ДДС.
+    store.openInDds = [{ scenarioId: "shchukino" }];
+    store.used = [{ scenarioId: "mitino", _max: { createdAt: new Date() } }];
+    expect((await nextScenario(seat({})))?.id).toBe("shchukino");
   });
 });

@@ -6,7 +6,7 @@ import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
 import { isPractice } from "@/lib/lessons/form";
 import { adaptiveChoice, lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
-import { inPlayAtDds, preferNotInPlay } from "@/lib/lessons/in-play";
+import { inPlayAtDds, notRightAfter, preferNotInPlay } from "@/lib/lessons/in-play";
 import { inLessonLocation } from "@/lib/scenarios/place";
 
 export type Op112Seat = Prisma.SeatGetPayload<{ include: { lesson: true } }>;
@@ -151,14 +151,17 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     seat.lessonId,
   );
   if (!found.length) return null;
-  // A place drawing by itself does not ring with a situation open in a ДДС feed of the lesson (lessons/in-play.ts).
-  const pool = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAtDds(db, seat.lessonId));
   const used = await db.incident.groupBy({
     by: ["scenarioId"],
     where: { createdBySeatId: seat.id, scenarioId: { not: null } },
     _max: { createdAt: true },
   });
   const lastUse = new Map(used.flatMap((u) => (u.scenarioId ? [[u.scenarioId, u._max.createdAt?.getTime() ?? 0] as const] : [])));
+  // A place drawing by itself does not ring with a situation open in a ДДС feed of the lesson (lessons/in-play.ts),
+  // and never with the same situation twice in a row while there is another.
+  const free = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAtDds(db, seat.lessonId));
+  const last = [...lastUse.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const pool = notRightAfter([free, found], last);
   if (!seat.scenarioIds.length && adaptiveChoice(seat.lesson.settings)) {
     const level = await studentRating(seat.studentId, "OP112");
     return pickAdaptive(pool, { target: level.difficulty, lastUsed: lastUse });

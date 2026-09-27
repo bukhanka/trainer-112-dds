@@ -32,6 +32,8 @@ export type Coverage = {
   drawing: boolean;
   /** Why the lesson cannot start; null when every place gets cards. */
   blocked: string | null;
+  /** The smallest choice a place without tasks draws from (ДДС: approved, 112: also approved callers); null — none draws. */
+  few: number | null;
 };
 
 const quoted = (list: string[]) => list.map((c) => `«${c}»`).join(", ");
@@ -68,12 +70,24 @@ export function lessonCoverage(scenarios: CoverageScenario[], settings: Coverage
       `Местам без заданий нечего раздать: ${where || "в библиотеке"} нет утверждённых сценариев. ` +
       "Утвердите сценарии в разделе «Сценарии», выберите другие категории или локацию либо отметьте задания местам вручную.";
   }
-  return { counts, empty, pool, drawing, blocked };
+  const sizes = [...(ddsDraw ? [pool.dds] : []), ...(opDraw ? [pool.op112] : [])];
+  return { counts, empty, pool, drawing, blocked, few: sizes.length ? Math.min(...sizes) : null };
 }
 
 /** Warnings for the teacher before the start: a chosen category that gives nothing only narrows the choice. */
+/** Fewer scenarios than this for the places without tasks — the cards will come round again and again. */
+export const FEW_SCENARIOS = 5;
+
 export function coverageWarnings(c: Coverage, settings: CoverageSettings): string[] {
   if (!c.drawing || c.blocked) return [];
   const where = settings.location ? ` в локации «${placeLabel(settings.location)}»` : "";
-  return c.empty.map((name) => `В категории «${name}» нет утверждённых сценариев${where} — места получат карточки только из других категорий.`);
+  const out = c.empty.map((name) => `В категории «${name}» нет утверждённых сценариев${where} — места получат карточки только из других категорий.`);
+  const few = c.few;
+  if (few !== null && few < FEW_SCENARIOS) {
+    out.push(
+      `Карточки будут повторяться: местам без заданий доступно ${few} ${few === 1 ? "сценарий" : few < 5 ? "сценария" : "сценариев"}. ` +
+        "Добавьте категории, снимите ограничение локации или утвердите ещё сценарии.",
+    );
+  }
+  return out;
 }
