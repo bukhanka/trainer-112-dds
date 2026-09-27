@@ -254,7 +254,8 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
       code: "dds.comment_content",
       group: "comments",
       title: "В комментарии есть то, что требует эталон",
-      ok: hit.length >= Math.ceil(ref.finalMust.length / 2),
+      // The verdict follows what the evidence says: anything missing is a mistake.
+      ok: miss.length === 0,
       evidence: `${STATUS_LABEL[endComment.status]}: ${quote(endComment.comment)}${miss.length ? ` — не хватает: ${miss.join("; ")}` : ""}`,
       expected: ref.finalMust.join("; "),
       source: "rule",

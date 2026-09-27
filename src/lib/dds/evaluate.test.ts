@@ -212,13 +212,20 @@ describe("phraseCovered", () => {
     expect(phraseCovered("Не обслуживаем, передано в ООО «Практика»", "кому передано (ООО «Практика»)")).toBe(true);
   });
 
-  it("wants at least half of the must-haves in the final comment", () => {
-    const events = [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, "Работы выполнены, всё в порядке, закрываем")];
-    const list = Object.fromEntries(
-      evaluateDdsPlate(facts({ status: "FINISHED", events, dispatch: { crew: "23", at: at(10), via: "status" } })).map((c) => [c.code, c]),
-    );
-    expect(list["dds.comment_content"].ok).toBe(false);
-    expect(list["dds.comment_content"].evidence).toContain("не хватает");
+  it("wants every must-have of the reference in the final comment", () => {
+    const run = (comment: string) =>
+      Object.fromEntries(
+        evaluateDdsPlate(
+          facts({ status: "FINISHED", events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, comment)], dispatch: { crew: "23", at: at(10), via: "status" } }),
+        ).map((c) => [c.code, c]),
+      );
+    expect(run("Работы выполнены, всё в порядке, закрываем")["dds.comment_content"].ok).toBe(false);
+    // One of two: the evidence names what is missing, and the verdict agrees with it.
+    const half = run("Стояк перекрыт, вода подана")["dds.comment_content"];
+    expect(half.ok).toBe(false);
+    expect(half.evidence).toContain("не хватает: устран");
+    expect(run("Стояк перекрыт, течь устранена")["dds.comment_content"]).toMatchObject({ ok: true });
+    expect(run("Стояк перекрыт, течь устранена")["dds.comment_content"].evidence).not.toContain("не хватает");
   });
 
   it("does not judge the decision or the crew of an «open» reference, but still the 30 s and the comment", () => {
