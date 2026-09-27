@@ -316,4 +316,31 @@ describe("end of the lesson", () => {
     expect(miss.expected).toBe("«Наряд № {номер} прибыл…» или «Сообщение принято…» ({номер} — номер цифрами; «…» — дальше любой текст)");
     expect(run("Наряд № 23 прибыл, стояк перекрыт, течь устранена", "Наряд № {номер} прибыл…")["dds.comment_template"].ok).toBe(true);
   });
+
+  it("does not hold the report template against a refusal", () => {
+    const template = "Наряд № {номер} направлен…";
+    const rejected = byCode(
+      evaluateDdsPlate(
+        facts({
+          reference: liftRef,
+          status: "REJECTED",
+          events: [ev("ADDED", 0), ev("REJECTED", 20, "Адрес в районе Строгино, не наш район. Передано в ДДС района Строгино, дежурный Иванов")],
+          commentTemplate: template,
+        }),
+      ),
+    );
+    expect(rejected["dds.comment_template"]).toBeUndefined();
+    expect(rejected["dds.literacy"].ok).toBe(true);
+    const refused = byCode(
+      evaluateDdsPlate(
+        facts({
+          status: "REFUSED",
+          events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("REFUSED", 300, "Работы не проводились: заявитель отказался, сообщено в ДДС округа")],
+          dispatch: { crew: "23", at: at(10), via: "status" },
+          commentTemplate: template,
+        }),
+      ),
+    );
+    expect(refused["dds.comment_template"]).toBeUndefined();
+  });
 });

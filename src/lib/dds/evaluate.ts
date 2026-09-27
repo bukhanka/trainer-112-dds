@@ -261,17 +261,18 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     });
   }
 
-  // The lesson's own phrase for the final comment («Наряд № {номер} направлен…»), if the teacher set one.
+  // The lesson's own phrase for the final comment («Наряд № {номер} направлен…»), if the teacher set one. It is the
+  // syntax of the report on work done: a refusal («Не принята», «Отказ») has no crew and no results to fit it.
   const templates = parseTemplates(f.commentTemplate).filter((t) => !templateProblem(t)); // a broken line is shown in the form, not held against the student
-  if (endComment && templates.length && !noCrewClose) {
-    const hit = matchTemplate(endComment.comment ?? "", templates);
+  if (closing?.status === "FINISHED" && templates.length && !noCrewClose) {
+    const hit = matchTemplate(closing.comment ?? "", templates);
     const hints = describeTemplates(templates);
     out.push({
       code: "dds.comment_template",
       group: "comments",
       title: "Итоговый комментарий по шаблону занятия",
       ok: hit.ok,
-      evidence: `${STATUS_LABEL[endComment.status]}: ${quote(endComment.comment)} — ${hit.ok ? `совпадает с «${hit.template}»` : "по шаблону не написан"}`,
+      evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)} — ${hit.ok ? `совпадает с «${hit.template}»` : "по шаблону не написан"}`,
       expected: `${templates.map((t) => `«${t}»`).join(" или ")}${hints ? ` (${hints})` : ""}`,
       source: "rule",
     });
