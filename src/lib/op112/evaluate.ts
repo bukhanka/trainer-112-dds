@@ -303,6 +303,40 @@ function filledTag(card: EvalCard, row: string): string {
     .join(", ");
 }
 
+/** Stems of the numbers a caller says in words («семнадцатиэтажный», «на седьмом»), to find the line with the value. */
+const NUMBER_STEMS: Record<number, string> = {
+  1: "одн|перв", 2: "дв[аеу]|втор", 3: "тр[еёи]", 4: "четыр|четв[её]рт", 5: "пят", 6: "шест", 7: "сем|седьм", 8: "вос[еь]м", 9: "девят", 10: "десят",
+  11: "одиннадцат", 12: "двенадцат", 13: "тринадцат", 14: "четырнадцат", 15: "пятнадцат", 16: "шестнадцат", 17: "семнадцат", 18: "восемнадцат",
+  19: "девятнадцат", 20: "двадцат", 25: "двадцат[ьи]\\s*пят", 30: "тридцат",
+};
+
+/** The value of a fact in digits or in words; «семь» does not match «семнадцать». */
+function mentionsValue(text: string, value: string): boolean {
+  const t = low(text);
+  if (!/^\d+$/.test(value)) return t.includes(low(value).slice(0, 6));
+  if (new RegExp(`(^|\\D)${value}(\\D|$)`).test(t)) return true;
+  const n = Number(value);
+  const stem = NUMBER_STEMS[n];
+  return Boolean(stem) && new RegExp(`(^|[^а-яё])(?:${stem})${n < 10 ? "(?![а-яё]*надцат)" : ""}`).test(t);
+}
+
+/**
+ * A number of a panel row written in the description counts only next to the row's word: «дом 17 этажей» is the
+ * number of floors, «д. 17» is not. Returns the words that show it, or null.
+ */
+function tagInDescription(description: string, row: string, value: string): string | null {
+  const d = low(description);
+  if (!/^\d+$/.test(value)) return descriptionMisses(description, [low(value)]).length === 0 ? value.split("|")[0] : null;
+  const stem = (low(row).match(/[а-яё]{4,}/g) ?? []).sort((a, b) => b.length - a.length)[0]?.slice(0, 4);
+  if (!stem) return null;
+  for (const m of d.matchAll(new RegExp(`(^|\\D)(${value})(?=\\D|$)`, "g"))) {
+    const at = (m.index ?? 0) + m[1].length;
+    const near = description.slice(Math.max(0, at - 25), at + value.length + 25);
+    if (low(near).includes(stem)) return near.trim();
+  }
+  return null;
+}
+
 function descriptionMisses(description: string, keywords: string[]): string[] {
   const d = low(description);
   return keywords.filter((k) => !(keywordRegex(k)?.test(d) ?? false));
@@ -342,7 +376,10 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   const facts = persona ? factCards(persona) : [];
   const revealed = new Map<string, { fact: FactCard; line: CallLine }>();
   for (const f of facts) {
-    const line = messages.find((m) => m.role === "counterpart" && m.revealed?.includes(f.key));
+    // Of the lines that told this fact, the one that has its value: «Дом семнадцатиэтажный», not «на седьмом этаже».
+    const lines = messages.filter((m) => m.role === "counterpart" && m.revealed?.includes(f.key));
+    const value = f.expect?.kind === "tag" ? f.expect.value.split("|")[0] : null;
+    const line = (value ? lines.find((m) => mentionsValue(m.text, value)) : undefined) ?? lines[0];
     if (line) revealed.set(f.key, { fact: f, line });
   }
 
@@ -579,10 +616,13 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
         expected: `«${FLAG_TITLE[e.flag] ?? e.flag}»: ${yesNo(e.value)}`,
       });
     } else if (e.kind === "tag") {
-      // A panel row, or the same words in the description when the panel has no such row.
-      const ok = tagMatches(card, e.row, e.value) || descriptionMisses(card.description, [low(e.value)]).length === 0;
-      add(code, "services", title, ok, {
-        evidence: `${said} → «${e.row}»: ${filledTag(card, e.row) || "не заполнено"}`,
+      // A panel row, or the value in the description when the panel has no such row. The evidence says which.
+      const inPanel = tagMatches(card, e.row, e.value);
+      const inText = inPanel ? null : tagInDescription(card.description, e.row, e.value);
+      add(code, "services", title, inPanel || Boolean(inText), {
+        evidence: `${said} → ${
+          inPanel ? `«${e.row}»: ${filledTag(card, e.row)}` : inText ? `в описании: ${quote(inText, 80)}` : `«${e.row}»: ${filledTag(card, e.row) || "не заполнено"}, в описании нет`
+        }`,
         expected: `«${e.row}»: ${e.value.split("|")[0]}`,
       });
     } else if (e.kind === "description") {
@@ -680,6 +720,7 @@ export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): Cha
         "Ты — наставник, который разбирает работу оператора службы 112 на учебном тренажёре.",
         "Даны расшифровка разговора с заявителем и карточка происшествия, которую оператор заполнил.",
         "1) Найди расхождения «сказал ↔ заполнил»: заявитель ясно сообщил сведение (адрес, пострадавшие, газ, этажность, доступ, угроза, имя, телефон, что произошло), а в карточке его нет или записано иначе. Сведения, которых заявитель не говорил, не считай. Пересказ своими словами — не ошибка.",
+        "Поле карточки называется «Фамилия и имя заявителя»: отчество в нём не нужно, фамилия и имя без отчества — не расхождение.",
         "2) Оцени описание со слов заявителя: поймёт ли следующий диспетчер, что случилось, где и есть ли пострадавшие.",
         'Верни JSON: {"discrepancies":[{"field":"поле карточки","said":"точная цитата заявителя","filled":"что в карточке"}],"descriptionClear":true|false,"descriptionComment":"одно предложение"}',
         ...(said ? ["", "К пункту 1 (расхождения «сказал ↔ заполнил»):", said] : []),
@@ -690,13 +731,22 @@ export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): Cha
   ];
 }
 
+/** «Соколова Вера Ивановна» said, «Соколова Вера» written: the card asks for the surname and the name only. */
+export function nameWithoutPatronymic(d: { field: string; said: string; filled: string }): boolean {
+  if (!/(фио|имя|фамил|заявител)/i.test(d.field)) return false;
+  const words = (s: string) => low(s).replace(/ё/g, "е").split(/[^а-яa-z-]+/).filter((w) => w.length > 1);
+  const said = words(d.said);
+  const filled = words(d.filled);
+  return filled.length >= 2 && filled.every((w) => said.includes(w));
+}
+
 /** Transcript vs card by the model. Returns «не применимо» when no model is configured or it fails. */
 export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance): Promise<CriterionResult[]> {
   if (!aiEnabled()) return aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`);
   if (input.card.empty) return [];
   try {
     const res = await chatJson(op112AiMessages(input, guidance), aiSchema, { temperature: 0, maxTokens: 700 });
-    const list = res.discrepancies.slice(0, 6);
+    const list = res.discrepancies.filter((d) => !nameWithoutPatronymic(d)).slice(0, 6);
     return [
       {
         code: "op112.ai.said",
