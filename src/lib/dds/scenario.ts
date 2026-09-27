@@ -179,6 +179,15 @@ export function territorialLevel(shortName: string): "district" | "prefecture" |
  * Plates of a generated card for a place: the scenario's plates with the place's own service on them.
  * A territorial place takes the plate of the same level (it plays that ДДС); anyone else is added at the end.
  */
+/**
+ * Whether a card with these plates would reach this place in real work: its own service is on it, or a
+ * territorial plate of its level (the place plays that ДДС). A card with, say, only «Служба 103» would not.
+ */
+export function reachesPlace(plateNames: string[], own: { shortName: string }): boolean {
+  const level = territorialLevel(own.shortName);
+  return plateNames.some((name) => name === own.shortName || (level !== null && territorialLevel(name) === level));
+}
+
 export function platesForPlace<T extends { id: number; shortName: string }>(plates: T[], own: T): T[] {
   if (plates.some((p) => p.id === own.id)) return plates;
   const level = territorialLevel(own.shortName);

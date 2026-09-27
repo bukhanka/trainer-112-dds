@@ -41,6 +41,8 @@ describe("ДДС place: which card comes next", () => {
       incident: { findMany: async () => feed },
       call: { findMany: async () => [] },
       attempt: { findMany: async () => attempts },
+      // The place's service is unknown here: the plate preference steps aside.
+      service: { findUnique: async () => null, findMany: async () => [] },
     }) as never;
 
   it("keeps the teacher's order of assigned tasks, adaptive or not", async () => {
@@ -56,6 +58,32 @@ describe("ДДС place: which card comes next", () => {
     expect((await pickScenario(tx(pool), seat(), settings, true))?.id).toBe("easy");
     // The old way: a random fresh card.
     expect((await pickScenario(tx(pool), seat(), settings, false))?.id).toBe("hard2");
+  });
+
+  it("takes first the situations that would reach the place's ДДС in real work", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.1);
+    const services = new Map([
+      [191, "Поселение Вороновское"],
+      [3, "Служба 103"],
+      [60, "Поселение Щукино"],
+    ]);
+    const card = (ids: number[]) => ({ services: ids });
+    const pool = [
+      { ...s("only103", 5), ddsCard: card([3]) },
+      { ...s("district", 5), ddsCard: card([3, 60]) },
+    ];
+    const withServices = {
+      scenario: { findMany: async () => pool },
+      incident: { findMany: async () => [] },
+      call: { findMany: async () => [] },
+      attempt: { findMany: async () => [] },
+      service: {
+        findUnique: async ({ where }: { where: { id: number } }) => ({ shortName: services.get(where.id) }),
+        findMany: async ({ where }: { where: { id: { in: number[] } } }) => where.id.in.map((id) => ({ id, shortName: services.get(id) })),
+      },
+    } as never;
+    expect((await pickScenario(withServices, seat(), settings, false))?.id).toBe("district");
+    expect((await pickScenario(withServices, seat(), settings, true))?.id).toBe("district");
   });
 
   it("gives a strong student the hard card", async () => {

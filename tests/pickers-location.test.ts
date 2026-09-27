@@ -49,6 +49,7 @@ describe("ДДС place", () => {
       },
       call: { findMany: async () => (opts.ringing ?? []).map((scenarioId) => ({ counterpart: { scenarioId, name: "Заявитель" } })) },
       attempt: { findMany: async () => [] },
+      service: { findUnique: async () => null, findMany: async () => [] },
     }) as never;
   const settings = (patch: Record<string, unknown> = {}) => lessonSettingsSchema.parse(patch);
 

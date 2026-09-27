@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { botPlan, dueSteps } from "./bots";
-import { crewChain, crewExpected, ddsCardOf, platesForPlace, referenceFor, territorialLevel } from "./scenario";
+import { crewChain, crewExpected, ddsCardOf, platesForPlace, reachesPlace, referenceFor, territorialLevel } from "./scenario";
 
 const service = { id: 191, shortName: "Поселение Вороновское" };
 
@@ -179,6 +179,12 @@ describe("data/scenarios.json format", () => {
     expect(platesForPlace(plates, { id: 21, shortName: "Мослифт" }).map((p) => p.id)).toEqual([1, 60, 156, 21]);
     expect(platesForPlace(plates, { id: 1, shortName: "Служба 101" })).toBe(plates);
     expect(territorialLevel("Поселение ТиНАО")).toBe("prefecture");
+    // A district place is reached by a card with any district ДДС plate, not by a card for 103 alone.
+    const own = { shortName: "Поселение Вороновское" };
+    expect(reachesPlace(["Служба 101", "Поселение Щукино", "Поселение СЗАО"], own)).toBe(true);
+    expect(reachesPlace(["Служба 103"], own)).toBe(false);
+    expect(reachesPlace(["Служба 103"], { shortName: "Служба 103" })).toBe(true);
+    expect(reachesPlace(["Служба 101", "Поселение СЗАО"], { shortName: "Поселение ТиНАО" })).toBe(true);
     expect(territorialLevel("Служба 101")).toBeNull();
   });
 });
