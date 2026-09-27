@@ -20,7 +20,8 @@ import { describeTemplates, matchTemplate, parseTemplates, templateProblem } fro
 import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
 import { CREW_PACE_SEC, crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
-import type { DdsReferenceEntry } from "./scenario";
+import { mentionsCardNumber } from "./personas";
+import { saysCardErrorRight, type DdsReferenceEntry } from "./scenario";
 import { awaitsAnswer, isRecord, NO_CREW_COMMENT, PROGRESS, STATUS_LABEL, type ServiceRules } from "./status";
 
 export type PlateEvent = { status: ServiceStatus; comment: string | null; crewNumber: string | null; at: Date; late: boolean };
@@ -40,6 +41,10 @@ export type PlateFacts = {
   /** Incoming crew calls: rang / lost. */
   crewCalls: { rang: number; missed: number };
   callbacks: { at: Date; namedCardNumber: boolean }[];
+  /** Number of the card: a call to 112 about an error names it. */
+  cardNumber?: number;
+  /** Calls to 112 about this card (or naming it): when, and the dispatcher's lines. */
+  calls112?: { at: Date; lines: string[] }[];
   /** Moment of the review: closing of the plate or the end of the lesson. */
   now: Date;
   /** Abbreviations printed on the service plates (they count as official in the clarity check). */
@@ -420,6 +425,45 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
       expected: "«Вы звонили в 112 по поводу …» — номер карточки заявителю не называют",
       source: "rule",
     });
+  }
+
+  // ── an error in the card: the crew reports it, the dispatcher phones 112 (customer's answer of 27.09) ──
+  const error = ref?.cardError;
+  if (error && decision === "accept" && !noCrewClose) {
+    const heard = [...f.reports].filter((r) => r.status === "ARRIVED").sort((a, b) => a.at.getTime() - b.at.getTime())[0] ?? null;
+    if (heard) {
+      const after = (f.calls112 ?? []).filter((c) => c.at.getTime() >= heard.at.getTime() - 5_000);
+      const good = after.find((c) => {
+        const text = c.lines.join(" ");
+        return (f.cardNumber == null || mentionsCardNumber(text, f.cardNumber)) && saysCardErrorRight(text, error);
+      });
+      const quoteCall = (c: { at: Date; lines: string[] }) => `звонок в 112 в ${fmtDateTime(c.at).slice(11)}: ${quote(c.lines.join(" "))}`;
+      out.push({
+        code: "dds.card_error_reported",
+        group: "completeness",
+        title: "Об ошибке в карточке сообщено в 112",
+        ok: !!good,
+        evidence: good
+          ? `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)}; ${quoteCall(good)}`
+          : after.length
+            ? `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)}; ${quoteCall(after[0])} — не названы номер карточки и верные сведения`
+            : `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)} (в карточке ${error.inCard || error.what}, на месте ${error.onSite}), в 112 не звонили`,
+        expected: `Позвонить в 112 (набор «112»), назвать номер карточки и верные сведения: ${error.onSite}. Поля, заполненные службой 112, диспетчер ДДС не правит`,
+        source: "rule",
+      });
+      if (closing) {
+        const right = saysCardErrorRight(closing.comment ?? "", error);
+        out.push({
+          code: "dds.card_error_in_comment",
+          group: "comments",
+          title: "Итоги — по верным сведениям, а не по ошибке карточки",
+          ok: right,
+          evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}${right ? "" : ` — нет верных сведений (на месте ${error.onSite})`}`,
+          expected: `В итоговом комментарии — как на самом деле: ${error.onSite}`,
+          source: "rule",
+        });
+      }
+    }
   }
 
   // ── literacy: the refusal and final comments read without a phone call (rules; the model adds its own check) ──

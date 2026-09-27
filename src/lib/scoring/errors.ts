@@ -10,6 +10,8 @@ const BY_CODE: Record<string, string> = {
   // ДДС place
   "dds.open_in_time": "Карточка открыта позже норматива",
   "dds.first_record_in_time": "Первая запись (статус и текст) позже норматива",
+  "dds.card_error_reported": "Об ошибке в карточке не сообщено в 112",
+  "dds.card_error_in_comment": "В итогах не исправлена ошибка карточки",
   // Checks of reviews made before the customer's answer of 27.09 on the norms
   "dds.ack_in_time": "Нет ответа «Принята / Не принята» в норматив",
   "dds.crew_in_time": "Наряд не направлен в пределах отработки",

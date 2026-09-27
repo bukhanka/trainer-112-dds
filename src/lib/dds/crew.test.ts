@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { crewPlanFor, crewSchedule, dispatchOf, stageAt } from "./crew";
-import { callerMockReply, crewMockReply, crewRoster, mentionsCardNumber, reportLine, type CrewContext } from "./personas";
+import { callerMockReply, crewMockReply, crewRoster, mentionsCardNumber, operatorMockReply, reportLine, type CrewContext } from "./personas";
+import { referenceFor, saysCardErrorRight } from "./scenario";
 
 const at = (sec: number) => new Date(Date.UTC(2026, 8, 17, 8, 0, sec));
 
@@ -97,5 +98,27 @@ describe("personas", () => {
     expect(callerMockReply(c, "Карточка 36815003, что у вас?", 2)).toContain("номер");
     expect(callerMockReply(c, "А шум в трубе давно?", 4)).toBe("Шум в трубе слышен уже час.");
     expect(callerMockReply(c, "Добрый день", 1)).toContain("Да, звонила.");
+  });
+});
+
+describe("an error in the card on the phone", () => {
+  it("the crew tells it on arrival, the 112 operator takes the correction", () => {
+    const ctx: CrewContext = { crew: "23", leader: "Громов Сергей Иванович", title: "Аварийная бригада", address: "ул. Цюрупы, д. 12", what: "", plan: { cardError: "горит в корпусе 5" }, dispatched: true, stage: "ARRIVED" };
+    expect(reportLine("ARRIVED", ctx)).toMatch(/в карточке ошибка — горит в корпусе 5/);
+    expect(reportLine("ARRIVED", { ...ctx, plan: {} })).toMatch(/Осматриваемся/);
+    expect(operatorMockReply("В карточке ошибка, корпус не шестой", 1)).toMatch(/номер карточки/);
+    expect(operatorMockReply("Карточка 36815070 — ошибка, горит корпус 5", 1)).toMatch(/исправлю карточку/);
+  });
+
+  it("the reference carries the error to every service and reads the right information", () => {
+    const raw = {
+      services: [{ service: "Служба 101", decision: "ACCEPTED", chain: ["Начало реагирования", "Прибытие"] }],
+      cardError: { what: "корпус", inCard: "корп. 6", onSite: "корпус 5", report: "горит в корпусе 5", mustSay: ["корп\\S*\\s*5(?!\\d)", "(bad"] },
+    };
+    const ref = referenceFor(raw, { id: 1, shortName: "Служба 101" })!;
+    expect(ref.cardError?.mustSay).toHaveLength(1); // a broken pattern is left out
+    expect(ref.crew.cardError).toBe("горит в корпусе 5");
+    expect(saysCardErrorRight("горит корпус 5", ref.cardError!)).toBe(true);
+    expect(saysCardErrorRight("горит корпус 56", ref.cardError!)).toBe(false);
   });
 });

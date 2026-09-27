@@ -363,3 +363,46 @@ describe("end of the lesson", () => {
     expect(refused["dds.comment_template"]).toBeUndefined();
   });
 });
+
+describe("an error in the card (customer's answer of 27.09)", () => {
+  const error = {
+    what: "подъезд",
+    inCard: "под. 3",
+    onSite: "подъезд 5",
+    report: "в третьем подъезде чисто, дымит в пятом",
+    mustSay: ["(под\\.?|подъезд\\S*)\\s*№?\\s*5(?!\\d)", "пят\\S*\\s+подъезд"],
+  };
+  const withError = { ...pipeRef, cardError: error };
+  const base = {
+    reference: withError,
+    status: "FINISHED" as const,
+    cardNumber: 36815070,
+    dispatch: { crew: "23", at: at(12), via: "status" as const },
+    reports: [{ status: "ARRIVED" as const, at: at(100) }],
+  };
+  const events = (final: string) => [ev("ADDED", 0), ev("RECEIVED", 5), ev("ACCEPTED", 12, "Направлена бригада", "23"), ev("ARRIVED", 105, "На месте", "23"), ev("FINISHED", 300, final, "23")];
+
+  it("wants a call to 112 with the card number and the right information after the crew reported the error", () => {
+    const good = byCode(
+      evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт, течь устранена, подъезд 5"), calls112: [{ at: at(130), lines: ["Карточка 36815070: ошибка, не третий, а подъезд 5"] }] })),
+    );
+    expect(good["dds.card_error_reported"].ok).toBe(true);
+    expect(good["dds.card_error_reported"].evidence).toMatch(/звонок в 112 в/);
+    expect(good["dds.card_error_in_comment"].ok).toBe(true);
+
+    const noNumber = byCode(evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт, течь устранена"), calls112: [{ at: at(130), lines: ["В карточке ошибка, подъезд 5"] }] })));
+    expect(noNumber["dds.card_error_reported"].ok).toBe(false);
+    expect(noNumber["dds.card_error_reported"].evidence).toMatch(/не названы номер карточки/);
+    expect(noNumber["dds.card_error_in_comment"].ok).toBe(false);
+
+    const silent = byCode(evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт"), calls112: [] })));
+    expect(silent["dds.card_error_reported"].evidence).toMatch(/в 112 не звонили/);
+  });
+
+  it("does not judge the call before the crew arrived, nor a card without an error", () => {
+    const early = byCode(evaluateDdsPlate(facts({ ...base, reports: [], events: events("Стояк перекрыт") })));
+    expect(early["dds.card_error_reported"]).toBeUndefined();
+    const plain = byCode(evaluateDdsPlate(facts({ ...base, reference: pipeRef, events: events("Стояк перекрыт") })));
+    expect(plain["dds.card_error_reported"]).toBeUndefined();
+  });
+});

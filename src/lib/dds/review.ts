@@ -112,6 +112,12 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
   const reports = crewCalls.flatMap((c) => (cp(c).reports ?? []).map((r) => ({ status: r.status, at: new Date(r.at) })));
   const incoming = calls.filter((c) => c.kind === "BRIGADE_IN" && c.status !== "RINGING");
+  // Calls to 112 about the card: made from the card, or from the keypad with its number said.
+  const loose = await db.call.findMany({ where: { seatId, incidentId: null, kind: "SERVICE_OUT" } });
+  const to112 = [...calls, ...loose]
+    .filter((c) => cp(c).kind === "operator112")
+    .map((c) => ({ at: c.startedAt, lines: ((c.messages ?? []) as { role: string; text: string }[]).filter((m) => m.role === "trainee").map((m) => m.text) }))
+    .filter((c) => c.lines.length);
 
   const end = lesson.status === "FINISHED" && lesson.finishedAt ? lesson.finishedAt : now;
   const rules: CriterionResult[] = evaluateDdsPlate({
@@ -126,6 +132,8 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     reports,
     crewCalls: { rang: incoming.length, missed: incoming.filter((c) => c.status === "MISSED").length },
     callbacks: calls.filter((c) => c.kind === "CALLER_OUT").map((c) => ({ at: c.startedAt, namedCardNumber: !!cp(c).namedCardNumber })),
+    cardNumber: incident.number,
+    calls112: to112,
     now: end,
     knownAbbreviations: await knownAbbreviations(),
     commentTemplate: settings.commentTemplate,
