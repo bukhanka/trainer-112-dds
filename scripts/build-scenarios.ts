@@ -245,6 +245,7 @@ for (const t of TICKETS) {
     inMoscow: isMoscow,
     services,
     requiredQuestions: requiredQuestions(t, primaryTypes),
+    ...(deep ? { descriptionKeywords: deep.keywords } : {}),
     traps: t.trap ?? [],
   };
 

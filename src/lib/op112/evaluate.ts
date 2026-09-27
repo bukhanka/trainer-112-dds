@@ -39,6 +39,8 @@ export type EvalInput = {
   truth: ScenarioTruth | null;
   /** reference plates: the scenario's list, or what the engine picks for the reference card */
   expectedServices: number[];
+  /** set when the plates follow an acceptable alternative leaf the trainee chose instead of the main one */
+  expectedServicesBy?: string;
   messages: CallLine[];
   typingSec: number;
   catalog: ServiceLite[];
@@ -77,27 +79,111 @@ const KIND_GIST: Record<string, string> = {
   ДТП: "дтп|авари|столкн|наезд|сбил|врезал",
   Взрыв: "взрыв|взорв|хлоп",
 };
-const TAG_GIST: [RegExp, string][] = [
-  [/газ/, "газ"],
-  [/общественн|автобус/, "автобус|троллейбус|трамва|маршрут|транспорт"],
-  [/автомашин|автомобил/, "машин|автомоб|а/м|авто|тойот|ваз|иномарк"],
-  [/драк/, "драк|дерут|дерет|избива"],
-  [/хулиган/, "хулиган|громят|разбил|бит"],
-  [/подозрит|предмет/, "предмет|коробк|сумк|пакет|подозрит"],
-];
-const GENERIC_TAGS = /^(на улице|жилой дом|транспорт|открытое пламя|дым|пламя|сигнализация|квартира)$/;
 
-function gistFromTags(tags: unknown[]): string | undefined {
-  for (const raw of tags) {
-    if (typeof raw !== "string") continue;
-    const t = low(raw).trim();
-    if (GENERIC_TAGS.test(t)) continue;
-    const mapped = TAG_GIST.find(([re]) => re.test(t));
-    if (mapped) return mapped[1];
-    const word = t.split(/[^а-яa-z]+/).sort((a, b) => b.length - a.length)[0];
-    if (word && word.length >= 4) return word.slice(0, Math.min(5, word.length));
+/**
+ * The gist of the incident type in words a dispatcher writes. The final type is read first, then its signs from
+ * the most specific one: a category header («Человек в опасности», «Пропал / найден / похищен», «В квартире»,
+ * «Вокзал жд платформа жд») says nothing about what happened and must not become the gist.
+ */
+const TYPE_GIST: [RegExp, string][] = [
+  [/газ/, "газ"],
+  [/суицид|повесил|вены/, "суицид|повес|вены|таблет|снотворн|покончить|не хочет жить"],
+  [/тонет|утон|утопл|в вод|льдин/, "тонет|тонул|утоп|утон|в вод|льдин"],
+  [/похищ/, "похит|похищ|затащ|увез"],
+  [/пропал|потерял|заблуд|поиск/, "пропал|потерял|ушел|ушёл|не вернул|заблуд|ищ"],
+  [/подозрительн[а-я]* гражд|посторонн/, "подозрит|посторонн|незнаком|молод|мужчин|парен|человек"],
+  [/дтп.*заблокир|заблокированн/, "заблок|зажат|не может выбраться|застрял"],
+  [/открыть дверь|за дверью|закрыт в/, "двер|вскры|открыть|не открыва|закрыт|заперт|заблок"],
+  [/ножев/, "нож|ранен|порез"],
+  [/огнестрел|стрельб/, "стрел|огнестр|ранен"],
+  [/крики о помощи|кричит о помощи/, "крик|крича|кричит|помощ|помогите"],
+  [/изнасил/, "изнасил|насил"],
+  [/избит|телесн/, "избит|избил|удар|побил|травм|кров|ранен"],
+  [/в крови|кровотеч/, "кров|ранен|рана"],
+  [/констатац|смерт|труп|скончал|умер/, "смерт|скончал|умер|труп|мертв"],
+  [/судорог/, "судорог|припад|эпилеп"],
+  [/задыха|тяжело дышать|дыхан/, "задых|дыш|астм|удушь"],
+  [/отравлен/, "отрав|таблет|лекарств|препарат|выпил"],
+  [/головокруж/, "голов|кружит|сознан|обморок"],
+  [/без сознан|обморок/, "сознан|обморок|разбуд|не реагир|не отвечает|не дыш|хрип"],
+  [/парализ|инсульт/, "парализ|невнятн|перекош|инсульт|не двига"],
+  [/роды|беременн/, "роды|рожает|беремен|воды отошли|схватк"],
+  [/угроза обрушения|обрушен/, "обруш|упад|паден|трещин|крепл|рухн|разруш"],
+  [/сбит поездом|поездная травма|на рельсы/, "сбил|сбит|поезд|электрич|рельс"],
+  [/падени[ея] с высоты/, "упал|падени|сорвал"],
+  [/наезд на пешехода/, "пешеход|наезд|сбил"],
+  [/скрылась|скрылся/, "скрыл|уехал"],
+  [/угон|завладен/, "угон|угнал|угнали|завлад|отобрал"],
+  [/драк/, "драк|дерут|дерет|избива"],
+  [/хулиган|пьян/, "хулиган|пьян|нетрезв|ругает|пристает|пристаёт|громят|разбил|бит"],
+  [/подозрит|предмет/, "предмет|коробк|сумк|пакет|подозрит"],
+  [/травм/, "травм|упал|ушиб|перелом|кров|разбил"],
+];
+/** What burns, in the words people use for it; an object without such a list is not required. */
+const FIRE_OBJECT: [RegExp, string][] = [
+  [/общественн[а-я]* транспорт|автобус|троллейбус|трамва/, "автобус|троллейбус|трамва|маршрут|транспорт"],
+  [/автомашин|автомобил|машина/, "машин|автомоб|а/м|авто|тойот|ваз|иномарк"],
+  [/мусоропровод/, "мусоропровод|мусор"],
+  [/мусор/, "мусор|контейнер|бак"],
+  [/балкон/, "балкон|лоджи"],
+  [/трава|пух/, "трав|пух|поле|газон|сух"],
+  [/лес|парк|дерев/, "лес|парк|дерев"],
+  [/метро/, "метро|станци|платформ|вагон|тоннел"],
+  [/вокзал|жд транспорт/, "вокзал|станци|касс|платформ|поезд|электрич"],
+];
+
+/** The gist the description must carry beside the kind's own words; undefined when the type gives nothing sure. */
+export function gistOf(kind: string | undefined, finalType: string | undefined, tags: unknown[]): string | undefined {
+  const signs = tags.filter((t): t is string => typeof t === "string").map((t) => low(t).trim());
+  if (kind === "101") {
+    const text = low([finalType ?? "", ...signs].join(" "));
+    return FIRE_OBJECT.find(([re]) => re.test(text))?.[1];
+  }
+  for (const text of [low(finalType ?? ""), ...signs.reverse()]) {
+    const hit = TYPE_GIST.find(([re]) => re.test(text));
+    if (hit) return hit[1];
   }
   return undefined;
+}
+
+/** Keywords of the reference card: a fire needs «горит» and what burns; other kinds the gist of the type, else the kind. */
+function gistKeywords(kind: string | undefined, finalType: string | undefined, tags: unknown[]): string[] {
+  const own = gistOf(kind, finalType, tags);
+  const byKind = kind ? KIND_GIST[kind] : undefined;
+  const list = kind === "101" ? [byKind, own] : [own ?? byKind];
+  return list.filter((k): k is string => Boolean(k));
+}
+
+/** Words that tell service 103 there is someone hurt or ill. */
+export const VICTIM_WORDS =
+  "пострада|сознан|травм|ранен|рана|плохо|ожог|кров|бол|задых|судорог|разбил|ушиб|перелом|отрав|хрип|не дыш|рвот|парализ|сбил|сбит|упал";
+
+/**
+ * The first 100 characters go to service 103: they must carry the gist and, when someone is hurt, the victim.
+ * A medical call names the victim by its complaint («задыхается», «судороги»), so there the gist is enough.
+ * Returns those characters and the keyword sources they miss.
+ */
+export function firstHundredMisses(
+  description: string,
+  truth: { descriptionKeywords: string[]; kind?: string },
+  victims: boolean,
+): { first: string; missing: string[] } {
+  const first = description.trim().slice(0, 100);
+  const complaintNamesVictim = truth.kind === "103" && truth.descriptionKeywords.length > 0;
+  const need = [...truth.descriptionKeywords, ...(victims && !complaintNamesVictim ? [VICTIM_WORDS] : [])];
+  return { first, missing: descriptionMisses(first, need) };
+}
+
+/**
+ * Which leaves the reference plates follow. The system picks the plates from the leaf, so a leaf the reference
+ * accepts brings its own plates: judging them by the main leaf would count one choice as two mistakes (and a
+ * death reported at night, «Констатация смерти - ночь», would lose to the daytime reference).
+ * The main leaf on the card, or no accepted leaf at all, keeps the scenario's own list.
+ */
+export function referenceLeaves(truth: Pick<ScenarioTruth, "typeCodes" | "acceptableTypeCodes">, cardTypeCodes: number[]): { codes: number[]; alternative: boolean } {
+  if (!truth.typeCodes.length || cardTypeCodes.some((c) => truth.typeCodes.includes(c))) return { codes: truth.typeCodes, alternative: false };
+  const chosen = cardTypeCodes.filter((c) => truth.acceptableTypeCodes.includes(c));
+  return chosen.length ? { codes: chosen, alternative: true } : { codes: truth.typeCodes, alternative: false };
 }
 
 /** Scenario.truth from any editor → the shape the checks use; unknown or broken parts become empty. */
@@ -109,7 +195,9 @@ export function normalizeTruth(raw: unknown, catalog: ServiceLite[] = []): Scena
     .map((s) => (typeof s === "number" ? s : typeof s === "string" ? catalog.find((c) => c.shortName === s)?.id : s.serviceId))
     .filter((id): id is number => typeof id === "number");
   const address = Object.fromEntries(Object.entries(t.address).filter(([, v]) => typeof v === "string" && v)) as IncidentAddress;
-  const keywords = t.descriptionKeywords ?? [kind ? KIND_GIST[kind] : undefined, gistFromTags(t.tags)].filter((k): k is string => Boolean(k));
+  const keywords = t.descriptionKeywords?.length
+    ? t.descriptionKeywords
+    : gistKeywords(kind, t.finalType, t.tags);
   return {
     kind,
     typeCodes: t.typeCodes,
@@ -144,6 +232,7 @@ const FLAG_TITLE: Record<string, string> = {
   med: "Медицинская помощь",
   evac: "Требуется эвакуация",
   traffic: "Перекрытие движения",
+  tunnel: "Тоннель",
 };
 
 /**
@@ -350,7 +439,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     const extra = input.serviceIds.filter((id) => !expected.includes(id));
     add("op112.services.missing", "services", "Оповещены все нужные службы", shown.length ? missing.length === 0 : null, {
       evidence: missing.length ? `Не хватает: ${missing.map(name).join(", ")}` : "Все нужные службы в карточке",
-      expected: shown.map(name).join(", "),
+      expected: `${shown.map(name).join(", ")}${input.expectedServicesBy ? ` (по выбранному допустимому листу «${input.expectedServicesBy}»)` : ""}`,
     });
     add("op112.services.extra", "services", "Нет лишних служб", extra.length === 0, {
       evidence: extra.length ? `Лишние: ${extra.map(name).join(", ")}` : "Лишних нет",
@@ -383,11 +472,9 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   });
 
   // The first 100 characters go to service 103: the gist, and victims if any.
-  const first = card.description.trim().slice(0, 100);
-  const need = [...(truth?.descriptionKeywords ?? [])];
-  if (card.flags.victims || truth?.flags.victims) need.push("пострадав|сознан|травм|ранен|плохо|ожог|кров");
-  if (need.length) {
-    const miss = descriptionMisses(first, need);
+  const victims = Boolean(card.flags.victims || truth?.flags.victims);
+  if (truth?.descriptionKeywords.length || victims) {
+    const { first, missing: miss } = firstHundredMisses(card.description, { descriptionKeywords: truth?.descriptionKeywords ?? [], kind: truth?.kind }, victims);
     add("op112.description.first100", "literacy", "Суть и пострадавшие — в первых 100 символах описания", first ? miss.length === 0 : false, {
       evidence: first ? `В 103 уйдёт: ${quote(first, 110)}` : "Описание пустое",
       expected: miss.length ? `Добавить в начало: ${miss.map((m) => m.split("|")[0]).join(", ")}` : undefined,

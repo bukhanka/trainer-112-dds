@@ -2,6 +2,7 @@
 import type { ServiceStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { allowedNext, CLOSING, rulesFor } from "@/lib/dds/status";
+import { referenceLeaves } from "@/lib/op112/evaluate";
 import { selectServices } from "./engine";
 import { loadJsonReference, readDataJson } from "./reference-json";
 
@@ -120,7 +121,8 @@ describe("scenarios from the tickets", () => {
       for (const d of s.ddsReference!.services) {
         expect(onCard.has(d.serviceId), `${s.ticketRef} ${d.serviceId}`).toBe(true);
         if (d.decision === "REJECTED") expect(d.decisionComment ?? "").toMatch(/передано/i);
-        expect(d.chain[0]).toBe(d.decision);
+        if (d.decision === "OPEN") expect(d.chain).toEqual([]);
+        else expect(d.chain[0]).toBe(d.decision);
       }
     }
   });
@@ -152,8 +154,9 @@ describe("scenarios from the tickets", () => {
       for (const d of entries) {
         const at = `${s.ticketRef} ${d.service}`;
         expect(serviceName(d.serviceId), at).toBe(d.service);
-        expect(["ACCEPTED", "REJECTED"], at).toContain(d.decision);
-        expect(d.commentMustHave.length, at).toBeGreaterThan(0);
+        expect(["ACCEPTED", "REJECTED", "OPEN"], at).toContain(d.decision);
+        // An open decision has no must-haves: what to write depends on the answer the trainee picks.
+        if (d.decision !== "OPEN") expect(d.commentMustHave.length, at).toBeGreaterThan(0);
         expect(Array.isArray(d.traps), at).toBe(true);
         expect(d.brigadeReport.trim().length, at).toBeGreaterThan(0);
         // A crew that goes out reports what it did: the report becomes the final comment.
@@ -181,7 +184,16 @@ describe("scenarios from the tickets", () => {
           current = next;
         }
         if (d.decision === "REJECTED") expect(d.chain, at).toEqual(["REJECTED"]);
-        else expect(CLOSING, at).toContain(current);
+        else if (d.decision === "ACCEPTED") expect(CLOSING, at).toContain(current);
+      }
+    }
+  });
+
+  it("approved: «Принята» in a reference always means work — no «Принята, к сведению» (memo pp. 25, 28–29)", () => {
+    for (const s of approved) {
+      for (const d of s.ddsReference!.services) {
+        if (d.decision !== "ACCEPTED") continue;
+        expect(d.chain.some((x) => x === "STARTED" || x === "ARRIVED" || x === "WORKING"), `${s.ticketRef} ${d.service}`).toBe(true);
       }
     }
   });
@@ -198,5 +210,32 @@ describe("scenarios from the tickets", () => {
     for (const [category, min] of Object.entries(MIN_APPROVED)) {
       expect(count.get(category) ?? 0, category).toBeGreaterThanOrEqual(min);
     }
+  });
+
+  it("an accepted alternative leaf is judged by its own services: a death reported at night needs no Деп. ЖКХ", () => {
+    const s = approved.find((x) => x.ticketRef === "Б26-3")!;
+    const night = s.truth.acceptableTypeCodes.find((c) => !s.truth.typeCodes.includes(c))!;
+    const leaves = referenceLeaves(s.truth, [night]);
+    expect(leaves).toEqual({ codes: [night], alternative: true });
+    const plates = selectServices(
+      { typeCodes: leaves.codes, flags: s.truth.flags, district: s.truth.address.district, okrug: s.truth.address.okrug, region: null },
+      ref,
+    ).map((x) => serviceName(x.serviceId));
+    expect(plates).toEqual(["Служба 102", "Служба 103"]);
+    expect(s.truth.services.map((x) => serviceName(x.serviceId))).toContain("Деп. ЖКХ");
+    // The main leaf keeps the scenario's own list.
+    expect(referenceLeaves(s.truth, [s.truth.typeCodes[0], night]).alternative).toBe(false);
+  });
+
+  it("reviewed tickets: the railway prefecture refuses like the district, no loose alternatives, the police on site accept", () => {
+    const byRef = (r: string) => approved.find((x) => x.ticketRef === r)!;
+    for (const r of ["Б27-2", "Б28-3"]) expect(byRef(r).truth.acceptableTypeCodes, r).toEqual(byRef(r).truth.typeCodes);
+    for (const r of ["Б1-1", "Б28-3"]) {
+      const territorial = byRef(r).ddsReference!.services.filter((d) => d.service.startsWith("Поселение"));
+      expect(territorial.map((d) => d.decision), r).toEqual(["REJECTED", "REJECTED"]);
+    }
+    const police = byRef("Б10-3").ddsReference!.services.find((d) => d.service === "Служба 102");
+    expect(police?.decision).toBe("ACCEPTED");
+    expect(police?.chain).toEqual(["ACCEPTED", "ARRIVED", "FINISHED"]);
   });
 });

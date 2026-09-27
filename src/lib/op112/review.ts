@@ -6,7 +6,7 @@ import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from 
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
-import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, type EvalInput } from "./evaluate";
+import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, referenceLeaves, type EvalInput } from "./evaluate";
 import { regionOf, treesFor, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
 import { serviceCatalog } from "./services";
@@ -53,20 +53,23 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
   const flags = (incident.flags ?? {}) as IncidentFlags;
   const catalog = await serviceCatalog();
   const truth = normalizeTruth(incident.scenario?.truth, catalog);
-  // Reference plates: the scenario's own list, or what the engine picks for the reference card.
-  const expectedServices = truth?.services.length
-    ? truth.services
-    : truth?.typeCodes.length
-      ? (
-          await selectServicesFromDb({
-            typeCodes: truth.typeCodes,
-            flags: truth.flags,
-            district: truth.address.district ?? null,
-            okrug: truth.address.okrug ?? null,
-            region: regionOf(truth.address),
-          })
-        ).map((p) => p.serviceId)
-      : [];
+  // Reference plates: the scenario's own list, or what the engine picks for the leaves they follow — the main
+  // leaf, or the accepted alternative the trainee chose (same flags and true address of the scenario).
+  const leaves = truth ? referenceLeaves(truth, incident.typeCodes) : null;
+  const expectedServices =
+    truth && leaves && !leaves.alternative && truth.services.length
+      ? truth.services
+      : truth && leaves?.codes.length
+        ? (
+            await selectServicesFromDb({
+              typeCodes: leaves.codes,
+              flags: truth.flags,
+              district: truth.address.district ?? null,
+              okrug: truth.address.okrug ?? null,
+              region: regionOf(truth.address),
+            })
+          ).map((p) => p.serviceId)
+        : [];
   const input: EvalInput = {
     card: {
       caller: (incident.caller ?? {}) as IncidentCaller,
@@ -84,6 +87,7 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
     persona: (incident.scenario?.caller ?? null) as Persona | null,
     truth,
     expectedServices,
+    expectedServicesBy: leaves?.alternative ? (await typeNames(leaves.codes))[leaves.codes[0]] : undefined,
     messages: (Array.isArray(call?.messages) ? call.messages : []) as CallLine[],
     typingSec: lessonSettings(seat).typingSec,
     catalog,

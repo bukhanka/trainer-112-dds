@@ -246,7 +246,7 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
 
   // What the reference wants to read in the comment that ends the service's work on the card.
   const endComment = closing ?? (decision === "reject" ? decisionEvent : null);
-  if (endComment && ref?.finalMust.length && !noCrewClose) {
+  if (endComment && ref?.finalMust.length && ref.decision !== "open" && !noCrewClose) {
     const text = endComment.comment ?? "";
     const hit = ref.finalMust.filter((p) => phraseCovered(text, p));
     const miss = ref.finalMust.filter((p) => !phraseCovered(text, p));
@@ -280,7 +280,8 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   // ── statusOrder ──
   const { chain } = crewPlanFor(ref);
   const expectedProgress = chain.filter((s) => PROGRESS.includes(s));
-  if (decision === "accept" && !noCrewClose && expectedProgress.length && (closing || f.dispatch)) {
+  // An «open» reference expects no crew: progress statuses are asked for only if the dispatcher sent one.
+  if (decision === "accept" && !noCrewClose && expectedProgress.length && (ref?.decision !== "open" || f.dispatch) && (closing || f.dispatch)) {
     const schedule = crewSchedule(chain, f.workSec);
     const reached = f.dispatch ? stageAt(schedule, secBetween(f.dispatch.at, closing?.at ?? f.now)) : null;
     const due = f.dispatch ? expectedProgress.filter((s) => reached && RANK[reached] >= RANK[s]) : expectedProgress;
@@ -358,7 +359,17 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   }
 
   // ── services: the decision itself ──
-  if (ref && decision) {
+  if (ref?.decision === "open" && decision) {
+    out.push({
+      code: "dds.decision",
+      group: "services",
+      title: "Решение службы совпадает с эталоном",
+      ok: null,
+      evidence: `Решение: «${decision === "accept" ? "Принята" : STATUS_LABEL[decisionEvent?.status ?? "REJECTED"]}»; эталон решения для этой службы не задаёт`,
+      expected: ref.why ?? "«Принята» — если служба будет что-то делать, иначе «Не принята» с причиной (памятка ДДС)",
+      source: "rule",
+    });
+  } else if (ref && decision) {
     const ok = decision === ref.decision;
     out.push({
       code: "dds.decision",

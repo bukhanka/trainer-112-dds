@@ -11,7 +11,7 @@ import { db } from "@/lib/db";
 import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
-import { ddsCardOf, platesForPlace, reachesPlace } from "@/lib/dds/scenario";
+import { ddsCardOf, hasOwnReference, platesForPlace, reachesPlace } from "@/lib/dds/scenario";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
@@ -131,12 +131,15 @@ export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings,
 }
 
 /**
- * Situations whose card carries the place's own service or a territorial plate of its level; all of them
- * when there are none (the teacher chose, say, only «медицина» for a district ДДС).
+ * First the situations whose reference has an entry for the place (its service or its territorial level): only
+ * there the place's decision and crew are judged. Then those whose card carries the place's own service or a
+ * territorial plate of its level; all of them when there are none (the teacher chose, say, only «медицина»).
  */
 async function preferReaching(tx: Tx, seat: Seat, pool: PickedScenario[]): Promise<PickedScenario[]> {
   const own = seat.serviceId ? await tx.service.findUnique({ where: { id: seat.serviceId }, select: { shortName: true } }) : null;
   if (!own) return pool;
+  const withEntry = pool.filter((s) => hasOwnReference(s.ddsReference, { id: seat.serviceId!, shortName: own.shortName }));
+  if (withEntry.length) return withEntry;
   const specs = pool.map((scenario) => ({ scenario, spec: ddsCardOf(scenario) }));
   const ids = [...new Set(specs.flatMap((x) => x.spec.services))];
   const names = new Map((ids.length ? await tx.service.findMany({ where: { id: { in: ids } }, select: { id: true, shortName: true } }) : []).map((r) => [r.id, r.shortName]));

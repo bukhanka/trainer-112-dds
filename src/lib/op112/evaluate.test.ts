@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeScore, type Weights } from "@/lib/scoring/score";
 import type { Persona } from "./caller";
 import { resolveCard } from "./card";
-import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, op112AiMessages, streetVerdict, type EvalInput } from "./evaluate";
+import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, type EvalInput } from "./evaluate";
 import { factCards } from "./facts";
 import type { ServiceLite } from "./routing";
 import type { CallLine, CardAnswers } from "./types";
@@ -226,6 +226,24 @@ describe("reference answer", () => {
     expect(truth.services).toEqual([1, 7, 33, 60, 156]);
     expect(truth.requiredQuestions[0].topic).toBe("addressExact");
     expect(truth.descriptionKeywords.join(" ")).toContain("мусор");
+  });
+
+  it("takes the plates of the accepted leaf the trainee chose, the scenario's list otherwise", () => {
+    const t = { typeCodes: [10], acceptableTypeCodes: [10, 11, 12] };
+    expect(referenceLeaves(t, [10])).toEqual({ codes: [10], alternative: false });
+    expect(referenceLeaves(t, [11, 99])).toEqual({ codes: [11], alternative: true });
+    expect(referenceLeaves(t, [99])).toEqual({ codes: [10], alternative: false });
+    expect(referenceLeaves(t, [])).toEqual({ codes: [10], alternative: false });
+  });
+
+  it("calls the tunnel flag by its name on the card", () => {
+    const res = evaluateOp112Rules({ ...input(), truth: { ...truth, flags: { tunnel: true } } });
+    expect(byCode(res, "op112.flag.tunnel")?.title).toBe("Флаг «Тоннель»");
+  });
+
+  it("names the accepted leaf the reference plates follow", () => {
+    const res = evaluateOp112Rules({ ...input(), expectedServicesBy: "задымление: мусор" });
+    expect(byCode(res, "op112.services.missing")?.expected).toContain("по выбранному допустимому листу «задымление: мусор»");
   });
 
   it("returns null without a reference and survives broken parts", () => {

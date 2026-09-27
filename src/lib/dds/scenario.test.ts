@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { botPlan, dueSteps } from "./bots";
-import { crewChain, crewExpected, ddsCardOf, platesForPlace, reachesPlace, referenceFor, territorialLevel } from "./scenario";
+import { crewChain, crewExpected, ddsCardOf, hasOwnReference, platesForPlace, reachesPlace, referenceFor, territorialLevel } from "./scenario";
 
 const service = { id: 191, shortName: "Поселение Вороновское" };
 
@@ -28,9 +28,31 @@ describe("referenceFor", () => {
     expect(referenceFor({ decision: true }, service)?.decision).toBe("accept");
   });
 
-  it("returns null when there is nothing usable", () => {
-    expect(referenceFor(null, service)).toBeNull();
-    expect(referenceFor({ note: "x" }, service)).toBeNull();
+  it("returns null when there is nothing usable for a service", () => {
+    const police = { id: 113, shortName: "Служба 102" };
+    expect(referenceFor(null, police)).toBeNull();
+    expect(referenceFor({ note: "x" }, police)).toBeNull();
+  });
+
+  it("does not judge a territorial place the reference says nothing about: no decision, no crew", () => {
+    const medical = { services: [{ serviceId: 4, service: "Служба 103", decision: "ACCEPTED", chain: ["ACCEPTED", "FINISHED"] }] };
+    for (const raw of [null, medical]) {
+      const ref = referenceFor(raw, service);
+      expect(ref?.decision).toBe("open");
+      expect(crewExpected(ref)).toBe(false);
+      expect(crewChain(ref)).toEqual([]);
+    }
+    expect(hasOwnReference(medical, service)).toBe(false);
+    // An entry of the same level is the place's own.
+    const district = { services: [{ serviceId: 60, service: "Поселение Щукино", decision: "REJECTED", chain: ["REJECTED"] }] };
+    expect(referenceFor(district, service)?.decision).toBe("reject");
+    expect(hasOwnReference(district, service)).toBe(true);
+  });
+
+  it("reads an «open» decision from the data", () => {
+    const ref = referenceFor({ services: [{ serviceId: 191, service: "Поселение Вороновское", decision: "OPEN", chain: [] }] }, service);
+    expect(ref?.decision).toBe("open");
+    expect(crewExpected(ref)).toBe(false);
   });
 
   it("gives a default crew chain and none for a rejection", () => {
