@@ -10,6 +10,7 @@
  */
 import { chat, type ChatMessage } from "@/lib/ai/provider";
 import { hash } from "@/lib/dds/bots";
+import { sayable } from "@/lib/speech/sayable";
 import { low } from "./facts";
 import { parseStreet } from "./gazetteer";
 import type { CallLine } from "./types";
@@ -44,7 +45,7 @@ export function dutyOf(serviceId: number, cardNumber: number): { duty: string; v
 }
 
 export function dutyGreeting(ctx: DutyContext): string {
-  return `${ctx.serviceFull || ctx.service}, ${dutyTitle(ctx.duty)}, слушаю.`;
+  return sayable(`${ctx.serviceFull || ctx.service}, ${dutyTitle(ctx.duty)}, слушаю.`);
 }
 
 /** Digits said with spaces or dashes («36 815 072») count as one number. */
@@ -171,5 +172,5 @@ export async function dutyReply(ctx: DutyContext, history: CallLine[], operatorT
     { role: "user", content: operatorText },
   ];
   const text = await modelText(messages, () => rules.text);
-  return { text: text ?? rules.text, accepted: rules.accepted };
+  return { text: sayable(text ?? rules.text), accepted: rules.accepted };
 }

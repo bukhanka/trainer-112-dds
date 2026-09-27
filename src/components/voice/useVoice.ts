@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { sayable } from "@/lib/speech/sayable";
 
 /**
  * Phone voice for the workstations.
@@ -145,7 +146,9 @@ export function useVoice() {
   }, []);
 
   const say = useCallback(
-    async (text: string, gender: VoiceGender = "female", manner = "calm") => {
+    async (line: string, gender: VoiceGender = "female", manner = "calm") => {
+      // As it is said aloud: the browser's own voice would read «ул.» and «д.» letter by letter too.
+      const text = sayable(line);
       if (!text) return;
       setState("speaking");
       try {

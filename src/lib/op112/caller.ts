@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { CallerPersona } from "@/lib/incident/types";
 import { chat, chatJson, type ChatMessage } from "@/lib/ai/provider";
 import { countUsage } from "@/lib/admin/usage";
+import { sayable } from "@/lib/speech/sayable";
 import { askedTopics, bestFactByWords, evidenced, expandRevealed, factCards, low, speech } from "./facts";
 import type { CallLine, FactCard, FactTopic } from "./types";
 
@@ -60,7 +61,7 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
       seen.add(id);
       return true;
     })
-    .map((c) => `- [${c.group ?? c.key}] ${c.text}`)
+    .map((c) => `- [${c.group ?? c.key}] ${sayable(c.text)}`)
     .join("\n");
   return [
     "Это учебный тренажёр службы 112. Ты играешь заявителя — человека, который сам позвонил на 112. На линии обучающийся оператор, он заполняет карточку происшествия по твоим словам.",
@@ -70,9 +71,9 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
     addressLine(p, gender),
     "",
     `[situation] Что случилось, твоими словами: ${speech(p.situation)}`,
-    `[address] Место ты называешь так: «${p.visibleAddress}».`,
+    `[address] Место ты называешь так: «${sayable(p.visibleAddress)}».`,
     p.hiddenAddress
-      ? `[addressExact] Точное место ты знаешь: «${p.hiddenAddress}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
+      ? `[addressExact] Точное место ты знаешь: «${sayable(p.hiddenAddress)}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
       : "",
     `[name] Твоё имя — называй, если спросят, как тебя зовут.`,
     `[status] Кем ты приходишься происшествию: ${p.role}.`,
@@ -81,11 +82,14 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
     facts ? `Что ещё ты знаешь. Говори это только в ответ на вопрос о том же, по одному факту за раз:\n${facts}` : "",
     "",
     "Как отвечать:",
-    "1. Одна-две короткие фразы, как в живом звонке. Без ремарок в скобках, звёздочек и описания действий.",
-    "2. Отвечай только на то, что спросили. Сам всё сразу не выкладывай.",
-    "3. Чего в твоих сведениях нет — не выдумывай: «не знаю», «отсюда не видно».",
-    "4. Не выходи из роли, не называй себя программой, не подсказывай оператору, что ему делать.",
-    "5. Если оператор говорит не по делу, верни разговор к своей беде. Если сказал, что помощь едет, — коротко поблагодари.",
+    "1. Ты уже снял трубку и сказал только «Алло…». На приветствие или первый вопрос оператора сначала скажи, что у тебя случилось, — одной-двумя фразами, своими словами.",
+    "2. Дальше отвечай только на то, что спросили. Сам всё сразу не выкладывай.",
+    "3. Не повторяй слово в слово то, что уже говорил. Переспросили — ответь коротко («Я же говорю — горит!») или добавь новую подробность. Адрес, имя и телефон по просьбе повтори.",
+    "4. Говори как живой человек по телефону: короткие фразы, обрывки, эмоции, можно сбиться. Без книжных оборотов и канцелярита: не «произошло возгорание», а «горит»; не «в настоящее время», а «сейчас». Без ремарок в скобках, звёздочек и описания действий.",
+    "5. Адрес говори полными словами, как вслух: «улица», «дом», «квартира», без сокращений. Номера домов, квартир, телефонов и другие числа пиши цифрами, как в твоих сведениях.",
+    "6. Чего в твоих сведениях нет — не выдумывай: «не знаю», «отсюда не видно».",
+    "7. Не выходи из роли, не называй себя программой, не подсказывай оператору, что ему делать.",
+    "8. Если оператор говорит не по делу, верни разговор к своей беде. Если сказал, что помощь едет, — коротко поблагодари.",
     "",
     'Верни JSON: {"reply": "твоя реплика", "revealed": ["ключи сведений из квадратных скобок, которые ты назвал в этой реплике"]}.',
   ]
@@ -141,7 +145,7 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
     if (err instanceof Error && /invalid JSON/i.test(err.message)) {
       try {
         const text = await withTimeout(chat(messages, { temperature: 0.6, maxTokens: 200 }), REPLY_TIMEOUT_MS);
-        if (text.trim()) return { text: text.trim(), revealed: guessRevealed(text, cards) };
+        if (text.trim()) return { text: sayable(text), revealed: guessRevealed(text, cards) };
       } catch {
         /* fall through to the rules */
       }
@@ -185,26 +189,20 @@ export function noiseLines(turn: Exclude<LineTurn, { kind: "talk" }>, at: string
     return turn.hangup ? [silence, { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" }] : [silence];
   }
   return [
-    ...(turn.words ? [{ role: "counterpart" as const, text: turn.words, at, revealed: [] }] : []),
+    ...(turn.words ? [{ role: "counterpart" as const, text: sayable(turn.words), at, revealed: [] }] : []),
     { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" },
   ];
 }
 
-/** First words when the operator picks up; `gender` — of the operator, for «сынок» / «дочка». */
-export async function callerOpening(p: Persona, gender: Gender = null): Promise<CallerReply & { noise?: "silence" }> {
+/**
+ * First words when the operator picks up: a short «Алло…» by temper (`greetingLine`), with or without a model —
+ * the story comes after the operator's greeting, so it is never told twice.
+ */
+export async function callerOpening(p: Persona): Promise<CallerReply & { noise?: "silence" }> {
   if (p.line === "silent") return { text: NOISE_TEXT.silence, revealed: [], noise: "silence" };
-  const cards = factCards(p);
   // A written opening (a call that breaks mid-sentence) is said as is, with or without a model.
-  if (p.opening?.trim()) return { text: p.opening.trim(), revealed: guessRevealed(p.opening, cards) };
-  const line = await modelLine(
-    [
-      { role: "system", content: systemPrompt(p, cards, gender) },
-      { role: "user", content: "(Оператор снял трубку: «Служба 112, здравствуйте».) Скажи первую фразу: кратко, что случилось." },
-    ],
-    cards,
-    () => asJson(mockOpening(p, gender)),
-  );
-  return line ?? mockOpening(p, gender);
+  if (p.opening?.trim()) return { text: sayable(p.opening), revealed: guessRevealed(p.opening, factCards(p)) };
+  return mockOpening(p);
 }
 
 export async function callerReply(p: Persona, history: CallLine[], operatorText: string, gender: Gender = null): Promise<CallerReply> {
@@ -220,7 +218,8 @@ export async function callerReply(p: Persona, history: CallLine[], operatorText:
 
 function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {
   const keys = new Set(cards.map((c) => c.key));
-  const text = out.reply.replace(/^\s*["«]|["»]\s*$/g, "").trim();
+  // Said aloud, so no written shorthand: a model still writes «ул.» and «д.» now and then.
+  const text = sayable(out.reply.replace(/^\s*["«]|["»]\s*$/g, ""));
   // A model that ignored the «revealed» field gets its disclosures guessed from the words it used.
   if (!out.revealed) return { text, revealed: guessRevealed(text, cards) };
   const groups = new Set(cards.map((c) => c.group).filter(Boolean));
@@ -245,41 +244,101 @@ function guessRevealed(text: string, cards: FactCard[]): string[] {
 // ─── Rule-based caller (no model) ────────────────────────────────────────────
 
 const firstSentence = (s: string) => (s.match(/^[^.!?]+[.!?]?/)?.[0] ?? s).trim();
+/** «Горит балкон!» → «горит балкон»: a sentence folded into «Я же говорю — …». */
+function folded(s: string): string {
+  const t = s.trim().replace(/[.!?…]+$/, "");
+  return /^\p{Lu}\p{Ll}/u.test(t) ? t[0].toLowerCase() + t.slice(1) : t;
+}
 
 /**
- * The caller's manner by rules. `turn` — which reply this is (0 — the opening): the manner shows now and then, not
- * in every line («Ой…» once, «Быстрее!» every other reply). «Сынок» / «Дочка», «Дядя» / «Тётя» only when the
- * operator's gender is known.
+ * The first words when the operator picks up: a short «Алло…» by temper and nothing about what happened — a
+ * person first wants to hear that they got through. The story comes in the next line, after the operator's
+ * greeting or first question. Said by rules in both modes: instant, repeatable, no model call.
  */
-function styled(p: Persona, text: string, turn: number, gender: Gender): string {
-  const opening = turn === 0;
+export function greetingLine(p: Persona): string {
   switch (p.temper) {
     case "panic":
-      return opening
-        ? `Алло! 112?! ${text} Быстрее, пожалуйста!`
-        : turn % 2 === 1
-          ? `${text.replace(/\.$/, "")}${/[!?…]$/.test(text) ? "" : "!"} Быстрее!`
-          : text;
-    case "elderly": {
-      if (!opening) return turn === 1 ? `Ой… ${text}` : text;
-      const who = gender === "male" ? "Сынок" : gender === "female" ? "Дочка" : "";
-      return `Алло… Это сто двенадцать? ${who ? `${who}, тут` : "Тут"} такое… ${text}`;
-    }
-    case "child": {
-      if (!opening) return text;
-      const who = gender === "male" ? "Дядя, помогите" : gender === "female" ? "Тётя, помогите" : "Помогите";
-      return `Алло… ${who}… ${text}`;
-    }
+      return "Алло! Алло, это 112?!";
+    case "elderly":
+      return "Алло… Алло, это сто двенадцать?";
+    case "child":
+      return "Алло… Алло? Это сто двенадцать?";
     case "angry":
-      return opening ? `Да, алло! ${text}` : turn >= 3 && turn % 2 === 1 ? `${text} Сколько можно спрашивать?` : text;
+      return "Да, алло! Это 112?";
+    case "drunk":
+      return "Алло… Это… сто двенадцать, да?";
     default:
-      return opening ? `Здравствуйте. ${text}` : text;
+      return "Алло, здравствуйте…";
   }
 }
 
-export function mockOpening(p: Persona, gender: Gender = null): CallerReply {
-  const text = firstSentence(speech(p.situation));
-  return { text: styled(p, text, 0, gender), revealed: ["situation", ...factsIn(text, factCards(p))] };
+/**
+ * The story, the first time it is told: here the manner shows most. «Сынок» / «Дочка», «Дядя» / «Тётя» only when
+ * the operator's gender is known.
+ */
+function storyStyled(p: Persona, text: string, gender: Gender): string {
+  switch (p.temper) {
+    case "panic":
+      return `Помогите! ${text} Быстрее, пожалуйста!`;
+    case "elderly": {
+      const who = gender === "male" ? "Сынок" : gender === "female" ? "Дочка" : "";
+      return `${who ? `${who}, тут` : "Тут"} такое… ${text}`;
+    }
+    case "child": {
+      const who = gender === "male" ? "Дядя, помогите" : gender === "female" ? "Тётя, помогите" : "Помогите";
+      return `${who}… ${text}`;
+    }
+    case "angry":
+      return `${text} Давайте быстрее уже!`;
+    case "drunk":
+      return `Тут это… ${text}`;
+    default:
+      return text;
+  }
+}
+
+/**
+ * The manner in later replies. `turn` — which reply this is (1 — the story): the manner shows now and then, not in
+ * every line («Ой…» once, «Быстрее!» every other reply).
+ */
+function styled(p: Persona, text: string, turn: number): string {
+  switch (p.temper) {
+    case "panic":
+      return turn >= 3 && turn % 2 === 1 ? `${text.replace(/\.$/, "")}${/[!?…]$/.test(text) ? "" : "!"} Быстрее!` : text;
+    case "elderly":
+      return turn === 2 ? `Ой… ${text}` : text;
+    case "angry":
+      return turn >= 3 && turn % 2 === 1 ? `${text} Сколько можно спрашивать?` : text;
+    default:
+      return text;
+  }
+}
+
+/**
+ * A question about what the caller has already said: a short «Я же говорю — …», not the same words again.
+ * `sentence` — a sentence of the story or a fact, folded after the dash; an address or a name stays as it is.
+ */
+function again(p: Persona, text: string, sentence: boolean): string {
+  const x = sentence ? folded(text) : text.trim().replace(/[.!?…]+$/, "");
+  switch (p.temper) {
+    case "panic":
+      return `Я же говорю — ${x}!`;
+    case "angry":
+      return `Я же уже говорил${p.voice === "male" ? "" : "а"}: ${x}!`;
+    case "elderly":
+      return `Я ж говорю… ${x}.`;
+    case "child":
+      return `Я же говорю… ${x}…`;
+    case "drunk":
+      return `Ну я ж говорю… ${x}.`;
+    default:
+      return sentence ? `Я же говорю — ${x}.` : `Повторяю: ${x}.`;
+  }
+}
+
+/** First words when the operator picks up, by rules: the greeting only. */
+export function mockOpening(p: Persona): CallerReply {
+  return { text: greetingLine(p), revealed: [] };
 }
 
 /** Ticket facts the caller's own words already contain (the situation often names a few). */
@@ -323,11 +382,16 @@ const TOPIC_ORDER: FactTopic[] = [
   "object",
 ];
 
+/** Topics whose words are names and numbers: repeated as they are («Повторяю: …»), not folded into a sentence. */
+const AS_IS: FactTopic[] = ["address", "addressExact", "name", "phone"];
+
 export function mockReply(p: Persona, history: CallLine[], operatorText: string, gender: Gender = null): CallerReply {
   const cards = factCards(p);
-  // Which reply this is: the opening was the caller's first line.
+  // Which reply this is: the greeting was the caller's first line, the story comes in the first reply.
   const turn = Math.max(1, history.filter((m) => m.role === "counterpart" && !m.noise).length);
   const said = new Set(history.flatMap((m) => m.revealed ?? []));
+  const saidWords = low(history.filter((m) => m.role === "counterpart").map((m) => m.text).join("\n"));
+  const told = said.has("situation");
   let topics = askedTopics(operatorText);
   const t = low(operatorText);
 
@@ -338,22 +402,34 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string,
   if (topics.includes("addressExact") && !p.hiddenAddress && !topics.includes("address")) topics.push("address");
   if (topics.includes("addressExact") && p.hiddenAddress) topics = topics.filter((x) => x !== "address");
 
+  const story = firstSentence(speech(p.situation));
   const parts: string[] = [];
+  const repeats: { text: string; sentence: boolean }[] = [];
   const unknown: string[] = [];
   const revealed: string[] = [];
+  // What happened comes first, whatever the operator asked: a caller who got through tells the trouble.
+  if (!told) revealed.push("situation", ...factsIn(story, cards));
   const say = (card: FactCard | undefined, text?: string) => {
     if (!card) return;
-    const line = text ?? card.text;
-    if (!parts.includes(line)) parts.push(line);
+    const line = sayable(text ?? card.text);
     revealed.push(card.key);
+    // Said before: not the same words again, but «Я же говорю — …».
+    if (said.has(card.key)) {
+      if (!repeats.some((r) => r.text === line)) repeats.push({ text: line, sentence: !AS_IS.includes(card.topic) });
+    } else if (!parts.includes(line)) parts.push(line);
   };
   const byKey = (k: string) => cards.find((c) => c.key === k);
 
   for (const topic of TOPIC_ORDER.filter((x) => topics.includes(x))) {
     if (topic === "what") {
-      const text = said.has("situation") ? speech(p.situation) : firstSentence(speech(p.situation));
-      say(byKey("situation"), text);
-      revealed.push(...factsIn(text, cards));
+      if (!told) continue;
+      // Asked again: the rest of the story if it has not been said yet, else a short reminder.
+      const full = speech(p.situation);
+      const rest = full.slice(firstSentence(full).length).trim();
+      if (rest && !saidWords.includes(low(firstSentence(rest)).replace(/[.!?…]+$/, ""))) {
+        parts.push(rest[0].toUpperCase() + rest.slice(1));
+        revealed.push("situation", ...factsIn(rest, cards));
+      } else repeats.push({ text: story, sentence: true });
     }
     else if (topic === "address") say(byKey("address"), p.visibleAddress);
     else if (topic === "addressExact") say(byKey("addressExact") ?? byKey("address"), p.hiddenAddress ? `Сейчас… точнее так: ${p.hiddenAddress}` : p.visibleAddress);
@@ -367,28 +443,38 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string,
     }
   }
   // A question no topic covers («Какой номер маршрута?»): the ticket line with the same words.
-  if (!parts.length && !unknown.length) {
+  if (!parts.length && !repeats.length && !unknown.length) {
     const hit = bestFactByWords(operatorText, cards);
     if (hit) say(hit);
   }
-  // «Не знаю» only when nothing else was said: a caller does not mix it into a real answer.
-  if (!parts.length && unknown.length) return { text: styled(p, sentences(unknown), turn, gender), revealed: [] };
+  const keys = () => expandRevealed([...new Set(revealed)], cards);
 
-  if (!parts.length) {
-    if (/выезжа|выехал|направ|высыла|передал|будут|едут|ожидайте|помощь (уже )?едет/.test(t)) {
-      return { text: p.temper === "panic" ? "Спасибо! Только быстрее!" : "Спасибо, ждём.", revealed: [] };
-    }
-    if (/112|слушаю|здравствуйте|алло/.test(t)) return { text: styled(p, firstSentence(speech(p.situation)), turn, gender), revealed: ["situation"] };
-    const filler: Record<string, string> = {
-      panic: "Я не понимаю, что вы спрашиваете! Приезжайте!",
-      elderly: "Что? Не расслышала, повторите, пожалуйста.",
-      child: "Я не знаю…",
-      angry: "Вы о чём вообще? Приезжайте уже!",
-      drunk: "А? Ну… приезжайте, короче.",
-    };
-    return { text: filler[p.temper ?? ""] ?? "Не поняла вопрос. Что мне сказать?", revealed: [] };
+  if (!told) {
+    // The story, and the answer to the question if there was one; «не знаю» fits after it too.
+    const answer = parts.length || repeats.length ? [...parts, ...repeats.map((r) => r.text)] : unknown;
+    return { text: storyStyled(p, sentences([story, ...answer]), gender), revealed: keys() };
   }
-  return { text: styled(p, sentences(parts), turn, gender), revealed: expandRevealed([...new Set(revealed)], cards) };
+  if (parts.length) return { text: styled(p, sentences([...parts, ...repeats.map((r) => r.text)]), turn), revealed: keys() };
+  if (repeats.length) {
+    const [first, ...others] = repeats;
+    return { text: sentences([again(p, first.text, first.sentence), ...others.map((r) => r.text)]), revealed: keys() };
+  }
+  // «Не знаю» only when nothing else was said: a caller does not mix it into a real answer.
+  if (unknown.length) return { text: styled(p, sentences(unknown), turn), revealed: [] };
+  if (/выезжа|выехал|направ|высыла|передал|будут|едут|ожидайте|помощь (уже )?едет/.test(t)) {
+    return { text: p.temper === "panic" ? "Спасибо! Только быстрее!" : "Спасибо, ждём.", revealed: [] };
+  }
+  if (/алло|слышите|слышно/.test(t)) return { text: "Да-да, слышу!", revealed: [] };
+  // The operator greets again or says «слушаю»: the trouble once more, in short.
+  if (/112|слушаю|здравствуйте|говорите/.test(t)) return { text: again(p, story, true), revealed: [] };
+  const filler: Record<string, string> = {
+    panic: "Я не понимаю, что вы спрашиваете! Приезжайте!",
+    elderly: "Что? Не расслышала, повторите, пожалуйста.",
+    child: "Я не знаю…",
+    angry: "Вы о чём вообще? Приезжайте уже!",
+    drunk: "А? Ну… приезжайте, короче.",
+  };
+  return { text: filler[p.temper ?? ""] ?? "Не поняла вопрос. Что мне сказать?", revealed: [] };
 }
 
 /** Separate facts into sentences: «пострадавших не видит» + «Дом 14 этажей» → «…не видит. Дом 14 этажей». */

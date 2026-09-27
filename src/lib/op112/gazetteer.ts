@@ -7,6 +7,7 @@
  * wrong one is a critical mistake in the review.
  */
 import type { IncidentAddress } from "@/lib/incident/types";
+import { sayable } from "@/lib/speech/sayable";
 import addressesJson from "../../../data/addresses.json";
 import confusableJson from "../../../data/confusable-streets.json";
 
@@ -183,9 +184,17 @@ const clean = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Street split into a canonical type word and the name words. */
+/**
+ * Street split into a canonical type word and the name words. The street is read as it is said, so the shorthand
+ * of a ticket («пос. ЛМС, мкр Солнечный», «МКАД, 73 км») and the words a caller used («посёлок ЛМС, микрорайон
+ * Солнечный», «МКАД, 73-й километр») give the same name.
+ */
 export function parseStreet(street: string): { type?: string; name: string } {
-  const words = clean(street).split(" ").filter(Boolean);
+  const words = clean(sayable(street))
+    .replace(/(\d+)-(?:й|го|м|му|ом)(?![\p{L}])/gu, "$1")
+    .replace(/(?<![\p{L}])километр\p{L}*/gu, "км")
+    .split(" ")
+    .filter(Boolean);
   let type: string | undefined;
   const name: string[] = [];
   for (const w of words) {
@@ -225,8 +234,11 @@ export function compareStreets(filled: string | undefined, truth: string | undef
   return "other";
 }
 
+/** A house, corpus, flat… value without its label: «дом 11», «д. 11» and «11» are the same, as are «корпус 1» and «1». */
 export function normHouse(h: string | undefined): string {
-  return clean(h ?? "").replace(/^(д|дом|вл|владение)\s*/, "").replace(/\s+/g, "");
+  return clean(h ?? "")
+    .replace(/^(?:дом|д|владение|вл|корпус|корп|к|строение|стр|с|квартира|кв|подъезд|под|этаж|эт)(?=\d|\s|$)\s*/, "")
+    .replace(/\s+/g, "");
 }
 
 export type AddressSuggestion = { label: string; source: string; address: IncidentAddress };

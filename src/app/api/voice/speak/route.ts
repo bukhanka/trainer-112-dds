@@ -2,6 +2,7 @@ import { z } from "zod";
 import { speak, takeCall, ttsConfigured } from "@/lib/ai/provider";
 import { LIVE_SAMPLE_RATE, liveVoiceConfigured, liveVoiceStream } from "@/lib/ai/live-voice";
 import { apiUser } from "@/lib/auth/session";
+import { sayable } from "@/lib/speech/sayable";
 
 const body = z.object({
   text: z.string().trim().min(1).max(1000),
@@ -19,7 +20,9 @@ export async function POST(request: Request) {
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "bad request" }, { status: 400 });
   if (!ttsConfigured()) return new Response(null, { status: 204 });
-  const { text, voice, manner } = parsed.data;
+  // Written shorthand («ул.», «д.», «03», «а/м») is spelt out: the synthesiser would read it letter by letter.
+  const { voice, manner } = parsed.data;
+  const text = sayable(parsed.data.text);
 
   if (liveVoiceConfigured() && takeCall("voice")) {
     try {
