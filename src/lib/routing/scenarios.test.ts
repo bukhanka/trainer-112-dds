@@ -2,6 +2,7 @@
 import type { ServiceStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { allowedNext, CLOSING, rulesFor } from "@/lib/dds/status";
+import { referenceLeaves } from "@/lib/op112/evaluate";
 import { selectServices } from "./engine";
 import { loadJsonReference, readDataJson } from "./reference-json";
 
@@ -198,5 +199,20 @@ describe("scenarios from the tickets", () => {
     for (const [category, min] of Object.entries(MIN_APPROVED)) {
       expect(count.get(category) ?? 0, category).toBeGreaterThanOrEqual(min);
     }
+  });
+
+  it("an accepted alternative leaf is judged by its own services: a death reported at night needs no Деп. ЖКХ", () => {
+    const s = approved.find((x) => x.ticketRef === "Б26-3")!;
+    const night = s.truth.acceptableTypeCodes.find((c) => !s.truth.typeCodes.includes(c))!;
+    const leaves = referenceLeaves(s.truth, [night]);
+    expect(leaves).toEqual({ codes: [night], alternative: true });
+    const plates = selectServices(
+      { typeCodes: leaves.codes, flags: s.truth.flags, district: s.truth.address.district, okrug: s.truth.address.okrug, region: null },
+      ref,
+    ).map((x) => serviceName(x.serviceId));
+    expect(plates).toEqual(["Служба 102", "Служба 103"]);
+    expect(s.truth.services.map((x) => serviceName(x.serviceId))).toContain("Деп. ЖКХ");
+    // The main leaf keeps the scenario's own list.
+    expect(referenceLeaves(s.truth, [s.truth.typeCodes[0], night]).alternative).toBe(false);
   });
 });

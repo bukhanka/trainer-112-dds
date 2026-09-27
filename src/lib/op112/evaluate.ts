@@ -39,6 +39,8 @@ export type EvalInput = {
   truth: ScenarioTruth | null;
   /** reference plates: the scenario's list, or what the engine picks for the reference card */
   expectedServices: number[];
+  /** set when the plates follow an acceptable alternative leaf the trainee chose instead of the main one */
+  expectedServicesBy?: string;
   messages: CallLine[];
   typingSec: number;
   catalog: ServiceLite[];
@@ -170,6 +172,18 @@ export function firstHundredMisses(
   const complaintNamesVictim = truth.kind === "103" && truth.descriptionKeywords.length > 0;
   const need = [...truth.descriptionKeywords, ...(victims && !complaintNamesVictim ? [VICTIM_WORDS] : [])];
   return { first, missing: descriptionMisses(first, need) };
+}
+
+/**
+ * Which leaves the reference plates follow. The system picks the plates from the leaf, so a leaf the reference
+ * accepts brings its own plates: judging them by the main leaf would count one choice as two mistakes (and a
+ * death reported at night, «Констатация смерти - ночь», would lose to the daytime reference).
+ * The main leaf on the card, or no accepted leaf at all, keeps the scenario's own list.
+ */
+export function referenceLeaves(truth: Pick<ScenarioTruth, "typeCodes" | "acceptableTypeCodes">, cardTypeCodes: number[]): { codes: number[]; alternative: boolean } {
+  if (!truth.typeCodes.length || cardTypeCodes.some((c) => truth.typeCodes.includes(c))) return { codes: truth.typeCodes, alternative: false };
+  const chosen = cardTypeCodes.filter((c) => truth.acceptableTypeCodes.includes(c));
+  return chosen.length ? { codes: chosen, alternative: true } : { codes: truth.typeCodes, alternative: false };
 }
 
 /** Scenario.truth from any editor → the shape the checks use; unknown or broken parts become empty. */
@@ -424,7 +438,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     const extra = input.serviceIds.filter((id) => !expected.includes(id));
     add("op112.services.missing", "services", "Оповещены все нужные службы", shown.length ? missing.length === 0 : null, {
       evidence: missing.length ? `Не хватает: ${missing.map(name).join(", ")}` : "Все нужные службы в карточке",
-      expected: shown.map(name).join(", "),
+      expected: `${shown.map(name).join(", ")}${input.expectedServicesBy ? ` (по выбранному допустимому листу «${input.expectedServicesBy}»)` : ""}`,
     });
     add("op112.services.extra", "services", "Нет лишних служб", extra.length === 0, {
       evidence: extra.length ? `Лишние: ${extra.map(name).join(", ")}` : "Лишних нет",
