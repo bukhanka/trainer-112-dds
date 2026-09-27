@@ -13,6 +13,7 @@ import { shortName } from "./format";
 import { evaluatePlate } from "./review";
 import type { DdsSeat } from "./seat";
 import { checkTransition, isFirstAnswer, isLate, rulesFor } from "./status";
+import { DDS_TX, isBusyError, SERVER_BUSY } from "./tx";
 
 /** Card of the place by its number, or null when the card is not in this place's feed. */
 export async function findSeatIncident(seat: DdsSeat, number: number) {
@@ -65,28 +66,35 @@ export async function setOwnStatus(
   const settings = settingsOf(seat.lesson.settings);
   const late = isFirstAnswer(plate.status, input.status) && isLate(plate.addedAt, now, settings.ackSec);
 
-  const saved = await db.$transaction(async (tx) => {
-    // Optimistic step: a double click or a second tab must not write the same status twice.
-    const moved = await tx.incidentService.updateMany({
-      where: { id: plate.id, status: plate.status },
-      data: { status: input.status, crewNumber: check.crewNumber },
-    });
-    if (!moved.count) return false;
-    await tx.statusEvent.create({
-      data: {
-        incidentServiceId: plate.id,
-        status: input.status,
-        comment: check.comment,
-        crewNumber: check.crewNumber,
-        actorLabel: shortName(user.fullName),
-        actorUserId: user.id,
-        seatId: seat.id,
-        late,
-        at: now,
-      },
-    });
-    return true;
-  });
+  let saved: boolean;
+  try {
+    saved = await db.$transaction(async (tx) => {
+      // Optimistic step: a double click or a second tab must not write the same status twice.
+      const moved = await tx.incidentService.updateMany({
+        where: { id: plate.id, status: plate.status },
+        data: { status: input.status, crewNumber: check.crewNumber },
+      });
+      if (!moved.count) return false;
+      await tx.statusEvent.create({
+        data: {
+          incidentServiceId: plate.id,
+          status: input.status,
+          comment: check.comment,
+          crewNumber: check.crewNumber,
+          actorLabel: shortName(user.fullName),
+          actorUserId: user.id,
+          seatId: seat.id,
+          late,
+          at: now,
+        },
+      });
+      return true;
+    }, DDS_TX);
+  } catch (err) {
+    if (!isBusyError(err)) throw err;
+    console.error("dds status did not get its turn", err);
+    return { ok: false, error: SERVER_BUSY, code: 503 };
+  }
   if (!saved) return { ok: false, error: "Статус уже изменился — карточка обновлена, проверьте и повторите", code: 409 };
 
   await audit({

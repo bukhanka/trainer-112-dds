@@ -12,6 +12,7 @@ import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
 import { referenceFor } from "./scenario";
 import { seatFeedWhere, settingsOf } from "./scope";
 import { rulesFor } from "./status";
+import { DDS_TX } from "./tx";
 
 export const DEFAULT_WEIGHTS: Weights = { timeliness: 3, statusOrder: 2, comments: 2, address: 3, services: 3, completeness: 1, literacy: 1 };
 
@@ -117,14 +118,14 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
       });
     }
     return score;
-  });
+  }, DDS_TX);
 }
 
 /** Calls of the ДДС places cannot outlive the lesson: a ringing call is lost, a talk is over. */
 export async function closeLessonCalls(lessonId: string, now = new Date()): Promise<void> {
   const dds = { lessonId, seat: { role: "DDS" as const } };
   await db.call.updateMany({ where: { ...dds, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
-  await db.call.updateMany({ where: { ...dds, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+  await db.call.updateMany({ where: { ...dds, status: { in: ["ACTIVE", "HELD"] } }, data: { status: "ENDED", endedAt: now } });
 }
 
 /**

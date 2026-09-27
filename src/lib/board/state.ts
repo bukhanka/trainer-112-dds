@@ -83,7 +83,7 @@ export type BoardInput = {
   calls: {
     seatId: string | null;
     kind: string;
-    status: "RINGING" | "ACTIVE" | "ENDED" | "MISSED";
+    status: "RINGING" | "ACTIVE" | "HELD" | "ENDED" | "MISSED";
     startedAt: Date;
     answeredAt: Date | null;
   }[];

@@ -90,6 +90,7 @@ export const Warning = svg(
     <path d="M12 9v5M12 17h.01" stroke="#ec653b" />
   </>,
 );
+export const Pause = svg(<path d="M8 5v14M16 5v14" strokeWidth={3} />);
 export const Close = svg(<path d="M6 6l12 12M18 6 6 18" />);
 export const Check = svg(<path d="m5 12 5 5 9-10" />);
 export const Exclaim = svg(

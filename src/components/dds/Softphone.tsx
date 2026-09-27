@@ -4,11 +4,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PushToTalk } from "@/components/voice/PushToTalk";
 import { useVoice } from "@/components/voice/useVoice";
-import type { BookEntry, CallBrief } from "@/lib/dds/calls";
+import type { BookEntry, CallBrief, CallMessage } from "@/lib/dds/calls";
 import { fmtDuration, fmtHM } from "@/lib/dds/format";
+import { heldSeconds, openHold, type HoldPeriod } from "@/lib/dds/hold";
 import { beep, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
-import { Book, Close, HandsetDown, Keypad, List, Phone } from "./icons";
+import { Book, Close, HandsetDown, Keypad, List, Pause, Phone } from "./icons";
 import { SoftphoneContext, type SoftphoneApi } from "./softphone-context";
 
 type Tab = "dial" | "log" | "book";
@@ -25,6 +26,7 @@ const KIND_LABEL: Record<CallBrief["kind"], string> = {
 /**
  * Softphone of the ДДС place (text mode): an incoming call rings with a signal, the dispatcher answers,
  * talks by typing, hangs up; outgoing calls go from the keypad, the phone book or the phone icons of the card.
+ * «Удержание» parks the conversation: the counterpart waits, the line is free for another call.
  */
 export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   const { state, seatParam, offset, refresh } = useDds();
@@ -43,13 +45,15 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   const voice = useVoice();
   const { say, cancel } = voice;
   const [voiceOn, setVoiceOn] = useState(true);
-  const spoken = useRef<{ callId: string; count: number }>({ callId: "", count: 0 });
+  // Lines already spoken, per call: a call back from hold must not repeat the whole conversation.
+  const spoken = useRef(new Map<string, number>());
 
   const ringing = phone?.ringing ?? [];
   const current = phone?.current ?? null;
+  const held = phone?.held ?? [];
   const live = state.seat.lessonStatus === "RUNNING" && !state.seat.readOnly;
   // The panel pops up by itself only on a live place; a watcher or a finished lesson opens it by hand.
-  const visible = open || (live && (ringing.length > 0 || !!current));
+  const visible = open || (live && (ringing.length > 0 || !!current || held.length > 0));
 
   // The card open on the screen gives the context of calls from the keypad.
   const cardNumber = /\/dds\/incident\/(\d+)/.exec(pathname)?.[1];
@@ -75,13 +79,10 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
 
   // Speak every new line of the counterpart once, in the voice of the persona.
   useEffect(() => {
-    if (!current) {
-      spoken.current = { callId: "", count: 0 };
-      return;
-    }
-    if (spoken.current.callId !== current.id) spoken.current = { callId: current.id, count: 0 };
-    const fresh = current.messages.slice(spoken.current.count).filter((m) => m.role === "counterpart");
-    spoken.current.count = current.messages.length;
+    if (!current) return;
+    const from = spoken.current.get(current.id) ?? firstUnspoken(current);
+    const fresh = current.messages.slice(from).filter((m) => m.role === "counterpart");
+    spoken.current.set(current.id, current.messages.length);
     if (!voiceOn || !live || !fresh.length) return;
     void (async () => {
       for (const m of fresh) await say(m.text, current.voice, current.manner);
@@ -130,6 +131,18 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     void run(`/api/dds/calls/${id}/hangup`);
   }
 
+  function holdCall(id: string) {
+    cancel();
+    void run(`/api/dds/calls/${id}/hold`);
+  }
+
+  /** «Удержать и ответить»: the conversation waits while the dispatcher takes the ringing call. */
+  async function holdAndAnswer(ringingId: string) {
+    cancel();
+    if (current && !(await run(`/api/dds/calls/${current.id}/hold`))) return;
+    await run(`/api/dds/calls/${ringingId}/answer`);
+  }
+
   const missed = (phone?.log ?? []).filter((c) => c.status === "MISSED" && c.incoming).length;
 
   return (
@@ -153,7 +166,9 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 ? `Разговор ${fmtDuration(now ? (now - Date.parse(current.answeredAt ?? current.startedAt)) / 1000 : 0)}`
                 : ringing.length
                   ? "Входящий вызов"
-                  : "Телефон · линия свободна"}
+                  : held.length
+                    ? `На удержании ${fmtDuration(holdSec(held[0], now))}`
+                    : "Телефон · линия свободна"}
             </span>
             <button
               onClick={() => {
@@ -166,7 +181,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
             >
               {voiceOn ? "голос вкл." : "голос выкл."}
             </button>
-            {!live || (!current && !ringing.length) ? (
+            {!live || (!current && !ringing.length && !held.length) ? (
               <button onClick={() => setOpen(false)} aria-label="Свернуть телефон" className="text-white/80 hover:text-white">
                 <Close className="h-4 w-4" />
               </button>
@@ -189,10 +204,54 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
               </div>
               {live ? (
                 <>
-                  <button disabled={busy || !!current} onClick={() => run(`/api/dds/calls/${call.id}/answer`)} className="bg-green-600 px-2 py-1 text-white disabled:opacity-50">
-                    Ответить
-                  </button>
+                  {current ? (
+                    <button
+                      disabled={busy}
+                      onClick={() => void holdAndAnswer(call.id)}
+                      title="Текущий разговор встанет на удержание"
+                      className="bg-green-600 px-2 py-1 text-[12px] leading-tight text-white disabled:opacity-50"
+                    >
+                      Удержать и ответить
+                    </button>
+                  ) : (
+                    <button disabled={busy} onClick={() => run(`/api/dds/calls/${call.id}/answer`)} className="bg-green-600 px-2 py-1 text-white disabled:opacity-50">
+                      Ответить
+                    </button>
+                  )}
                   <button disabled={busy} onClick={() => run(`/api/dds/calls/${call.id}/hangup`)} className="bg-arm-late px-2 py-1 text-white disabled:opacity-50" aria-label="Сбросить">
+                    <HandsetDown className="h-4 w-4" />
+                  </button>
+                </>
+              ) : null}
+            </div>
+          ))}
+
+          {held.map((call) => (
+            <div key={call.id} className="flex items-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-amber-500 text-white" aria-hidden>
+                <Pause className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold">{call.name}</div>
+                <div className="truncate text-[11px] text-arm-desc">
+                  на удержании <b className="tabular-nums text-amber-800">{fmtDuration(holdSec(call, now))}</b> · {KIND_LABEL[call.kind]}
+                  {call.incidentNumber ? ` · карточка ${call.incidentNumber}` : ""}
+                </div>
+              </div>
+              {live ? (
+                <>
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      cancel();
+                      void run(`/api/dds/calls/${call.id}/resume`);
+                    }}
+                    title={current ? "Текущий разговор встанет на удержание" : "Вернуться к разговору"}
+                    className="bg-arm-blue px-2 py-1 text-[12px] leading-tight text-white disabled:opacity-50"
+                  >
+                    Снять с удержания
+                  </button>
+                  <button disabled={busy} onClick={() => hangUp(call.id)} className="bg-arm-late px-2 py-1 text-white disabled:opacity-50" aria-label={`Положить трубку: ${call.name}`}>
                     <HandsetDown className="h-4 w-4" />
                   </button>
                 </>
@@ -210,14 +269,20 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               <div ref={messagesRef} className="min-h-[64px] flex-1 space-y-2 overflow-y-auto bg-arm-panel px-3 py-2 [@media(min-height:640px)]:min-h-[180px]">
-                {current.messages.map((m, i) => (
-                  <div key={i} className={`flex ${m.role === "trainee" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[85%] px-2 py-1 ${m.role === "trainee" ? "bg-arm-blue text-white" : "bg-white"}`}>
-                      <div className="text-[10px] opacity-70">{m.role === "trainee" ? "Вы" : current.name.split(" ")[0]} · {fmtHM(m.at)}</div>
-                      {m.text}
+                {transcript(current).map((item, i) =>
+                  item.hold ? (
+                    <HoldMark key={i} sec={heldSeconds([item.hold], now)} />
+                  ) : (
+                    <div key={i} className={`flex ${item.line.role === "trainee" ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] px-2 py-1 ${item.line.role === "trainee" ? "bg-arm-blue text-white" : "bg-white"}`}>
+                        <div className="text-[10px] opacity-70">
+                          {item.line.role === "trainee" ? "Вы" : current.name.split(" ")[0]} · {fmtHM(item.line.at)}
+                        </div>
+                        {item.line.text}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ),
+                )}
                 {busy ? <div className="text-[11px] text-arm-desc">…</div> : null}
               </div>
               {live && voice.canListen ? (
@@ -242,17 +307,30 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                       Сказать
                     </button>
                   </form>
-                  <button
-                    onClick={() => hangUp(current.id)}
-                    className="flex shrink-0 items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110"
-                  >
-                    <HandsetDown className="h-4 w-4" /> Положить трубку
-                  </button>
+                  <div className="flex shrink-0">
+                    <button
+                      disabled={busy}
+                      onClick={() => holdCall(current.id)}
+                      title="Собеседник подождёт на линии, а вы сможете принять или сделать другой звонок"
+                      className="flex flex-1 items-center justify-center gap-2 bg-amber-500 py-2 text-white hover:brightness-110 disabled:opacity-50"
+                    >
+                      <Pause className="h-4 w-4" /> Удержание
+                    </button>
+                    <button
+                      onClick={() => hangUp(current.id)}
+                      className="flex flex-[1.4] items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110"
+                    >
+                      <HandsetDown className="h-4 w-4" /> Положить трубку
+                    </button>
+                  </div>
                 </>
               ) : null}
             </div>
           ) : !ringing.length ? (
             <div className="flex min-h-0 flex-1 flex-col">
+              {held.length ? (
+                <p className="border-b bg-arm-panel px-3 py-1.5 text-[11px] text-arm-desc">Линия свободна: пока собеседник ждёт, можно позвонить наряду или в другую службу.</p>
+              ) : null}
               <nav className="flex border-b text-[12px]">
                 {(
                   [
@@ -272,7 +350,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 ) : tab === "book" ? (
                   <PhoneBook entries={phone?.book ?? []} disabled={!api.canDial || busy} onDial={(e) => api.dial(e.phone, { incidentId: e.incidentId })} />
                 ) : (
-                  <CallLog calls={phone?.log ?? []} expanded={expanded} setExpanded={setExpanded} />
+                  <CallLog calls={phone?.log ?? []} expanded={expanded} setExpanded={setExpanded} now={now} />
                 )}
               </div>
             </div>
@@ -347,13 +425,16 @@ function PhoneBook({ entries, disabled, onDial }: { entries: BookEntry[]; disabl
   );
 }
 
-function CallLog({ calls, expanded, setExpanded }: { calls: CallBrief[]; expanded: string | null; setExpanded: (id: string | null) => void }) {
+function CallLog({ calls, expanded, setExpanded, now }: { calls: CallBrief[]; expanded: string | null; setExpanded: (id: string | null) => void; now: number }) {
   if (!calls.length) return <p className="p-3 text-arm-desc">Звонков ещё не было.</p>;
   return (
     <div>
       {calls.map((c) => {
         const duration = c.answeredAt && c.endedAt ? (Date.parse(c.endedAt) - Date.parse(c.answeredAt)) / 1000 : null;
-        const status = c.status === "MISSED" ? "пропущен" : c.status === "RINGING" ? "звонит" : c.status === "ACTIVE" ? "идёт" : "завершён";
+        const status =
+          c.status === "MISSED" ? "пропущен" : c.status === "RINGING" ? "звонит" : c.status === "ACTIVE" ? "идёт" : c.status === "HELD" ? "на удержании" : "завершён";
+        const until = c.endedAt ? Date.parse(c.endedAt) : now;
+        const waited = c.holds.length && until ? heldSeconds(c.holds, until) : 0;
         return (
           <div key={c.id} className="border-b border-arm-dark/10">
             <button onClick={() => setExpanded(expanded === c.id ? null : c.id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-arm-panel">
@@ -369,24 +450,66 @@ function CallLog({ calls, expanded, setExpanded }: { calls: CallBrief[]; expande
               </span>
               <span className="text-right text-[11px]">
                 <span className="block">{fmtHM(c.startedAt)}</span>
-                <span className={`block ${c.status === "MISSED" ? "font-semibold text-arm-late" : "text-arm-desc"}`}>
+                <span className={`block ${c.status === "MISSED" ? "font-semibold text-arm-late" : c.status === "HELD" ? "font-semibold text-amber-700" : "text-arm-desc"}`}>
                   {status}
                   {duration != null ? ` ${fmtDuration(duration)}` : ""}
                 </span>
+                {waited ? <span className="block text-amber-700">удержание {fmtDuration(waited)}</span> : null}
               </span>
             </button>
             {expanded === c.id && c.messages.length ? (
               <div className="space-y-1 bg-arm-panel px-3 py-2 text-[12px]">
-                {c.messages.map((m, i) => (
-                  <div key={i}>
-                    <b>{m.role === "trainee" ? "Вы" : c.name.split(" ")[0]}:</b> {m.text}
-                  </div>
-                ))}
+                {transcript(c).map((item, i) =>
+                  item.hold ? (
+                    <HoldMark key={i} sec={heldSeconds([item.hold], until)} />
+                  ) : (
+                    <div key={i}>
+                      <b>{item.line.role === "trainee" ? "Вы" : c.name.split(" ")[0]}:</b> {item.line.text}
+                    </div>
+                  ),
+                )}
               </div>
             ) : null}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── «Удержание» ────────────────────────────────────────────────────────────
+
+/** Seconds the counterpart of a held call has been waiting in the current hold. */
+function holdSec(call: CallBrief, now: number): number {
+  const open = openHold(call.holds);
+  return open && now ? Math.max(0, (now - Date.parse(open.from)) / 1000) : 0;
+}
+
+/** A call seen for the first time after a reload: only the lines after the last return from hold are new. */
+function firstUnspoken(call: CallBrief): number {
+  const back = call.holds.at(-1)?.to;
+  if (!back) return 0;
+  const i = call.messages.findIndex((m) => Date.parse(m.at) >= Date.parse(back));
+  return i < 0 ? call.messages.length : i;
+}
+
+type TranscriptItem = { line: CallMessage; hold?: undefined } | { hold: HoldPeriod; line?: undefined };
+
+/** The lines of a call with its hold periods in between, in time order. */
+function transcript(call: CallBrief): TranscriptItem[] {
+  const items: (TranscriptItem & { at: number })[] = [
+    ...call.messages.map((line) => ({ line, at: Date.parse(line.at) })),
+    ...call.holds.map((hold) => ({ hold, at: Date.parse(hold.from) })),
+  ];
+  return items.sort((a, b) => a.at - b.at);
+}
+
+function HoldMark({ sec }: { sec: number }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-amber-800">
+      <span className="h-px flex-1 bg-amber-300" />
+      <Pause className="h-3 w-3" /> удержание {fmtDuration(sec)}
+      <span className="h-px flex-1 bg-amber-300" />
     </div>
   );
 }
