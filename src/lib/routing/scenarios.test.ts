@@ -121,7 +121,8 @@ describe("scenarios from the tickets", () => {
       for (const d of s.ddsReference!.services) {
         expect(onCard.has(d.serviceId), `${s.ticketRef} ${d.serviceId}`).toBe(true);
         if (d.decision === "REJECTED") expect(d.decisionComment ?? "").toMatch(/передано/i);
-        expect(d.chain[0]).toBe(d.decision);
+        if (d.decision === "OPEN") expect(d.chain).toEqual([]);
+        else expect(d.chain[0]).toBe(d.decision);
       }
     }
   });
@@ -153,8 +154,9 @@ describe("scenarios from the tickets", () => {
       for (const d of entries) {
         const at = `${s.ticketRef} ${d.service}`;
         expect(serviceName(d.serviceId), at).toBe(d.service);
-        expect(["ACCEPTED", "REJECTED"], at).toContain(d.decision);
-        expect(d.commentMustHave.length, at).toBeGreaterThan(0);
+        expect(["ACCEPTED", "REJECTED", "OPEN"], at).toContain(d.decision);
+        // An open decision has no must-haves: what to write depends on the answer the trainee picks.
+        if (d.decision !== "OPEN") expect(d.commentMustHave.length, at).toBeGreaterThan(0);
         expect(Array.isArray(d.traps), at).toBe(true);
         expect(d.brigadeReport.trim().length, at).toBeGreaterThan(0);
         // A crew that goes out reports what it did: the report becomes the final comment.
@@ -182,7 +184,16 @@ describe("scenarios from the tickets", () => {
           current = next;
         }
         if (d.decision === "REJECTED") expect(d.chain, at).toEqual(["REJECTED"]);
-        else expect(CLOSING, at).toContain(current);
+        else if (d.decision === "ACCEPTED") expect(CLOSING, at).toContain(current);
+      }
+    }
+  });
+
+  it("approved: «Принята» in a reference always means work — no «Принята, к сведению» (memo pp. 25, 28–29)", () => {
+    for (const s of approved) {
+      for (const d of s.ddsReference!.services) {
+        if (d.decision !== "ACCEPTED") continue;
+        expect(d.chain.some((x) => x === "STARTED" || x === "ARRIVED" || x === "WORKING"), `${s.ticketRef} ${d.service}`).toBe(true);
       }
     }
   });

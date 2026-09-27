@@ -11,7 +11,8 @@ export type DdsStatus = "ACCEPTED" | "REJECTED" | "STARTED" | "ARRIVED" | "WORKI
 
 export type DdsServiceReference = {
   service: string; // plate short name, resolved to serviceId by the builder
-  decision: "ACCEPTED" | "REJECTED";
+  /** OPEN — the first answer is not judged: see OPEN_NOTE */
+  decision: "ACCEPTED" | "REJECTED" | "OPEN";
   /** mandatory for «Не принята»: reason and to whom it was passed */
   decisionComment?: string;
   chain: DdsStatus[];
@@ -34,10 +35,20 @@ export type DeepScenario = {
 
 const FULL: DdsStatus[] = ["ACCEPTED", "STARTED", "ARRIVED", "WORKING", "FINISHED"];
 const SHORT: DdsStatus[] = ["ACCEPTED", "STARTED", "ARRIVED", "FINISHED"];
-const INFO: DdsStatus[] = ["ACCEPTED", "FINISHED"];
 
 const OTHER_SERVICE_TRAP = "Не отказываться только потому, что уже реагирует другая служба";
 const NO_REJECT_103 = "Служба 103 не ставит «Не принята» и «Отказ»: при отказе от госпитализации — «Работы завершены» с причиной";
+/**
+ * «К сведению» is not an answer of the memo: «Принята» means the service will act (pp. 21–22, 25), a service that
+ * does not serve the object says «Не принята» with the reason (p. 28), and «Не принята» is not to be feared (p. 29).
+ * Where the materials do not say whether the service acts — an okrug prefecture, Мос.Без., Мосжилинспекция, a district
+ * without a described role — the reference leaves the decision open: the 30 seconds and the comment are judged.
+ */
+const OPEN_NOTE =
+  "Решение не оценивается: «Принята» — только если служба будет что-то делать, иначе «Не принята» с причиной (памятка ДДС); что делает эта служба в таком случае, в материалах нет. Оцениваются ответ за 30 с и комментарий";
+const open = (service: string): DdsServiceReference => ({
+  service, decision: "OPEN", chain: [], brigadeReport: "—", commentMustHave: [], traps: [OPEN_NOTE],
+});
 const CALL_112_FOR_103 = "Если на месте нужна медицинская помощь — позвонить в 112 и сообщить об изменении обстановки: 103 в карточке нет";
 
 export const DEEP: Record<string, DeepScenario> = {
@@ -69,10 +80,12 @@ export const DEEP: Record<string, DeepScenario> = {
         traps: ["«Не принята» без указания, кому передано, — нарушение", "Если выяснится, что контейнер на территории района, — сменить на «Принята»"],
       },
       {
-        service: "Поселение ЗАО", decision: "ACCEPTED", chain: INFO,
+        service: "Поселение ЗАО", decision: "REJECTED",
+        decisionComment: "Территория МЖД (полоса отвода), не обслуживаем. Передано дежурному по станции Москва-Киевская",
+        chain: ["REJECTED"],
         brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "чем закончилось (ликвидировано Службой 101)"],
-        traps: [],
+        commentMustHave: ["причина: территория железной дороги", "кому передано"],
+        traps: ["Как и у районной ДДС: территория железной дороги — «Не принята» с причиной и кому передано, а не «Принята, к сведению»"],
       },
     ],
   },
@@ -100,12 +113,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["кто направлен (обслуживающая организация)", "что сделано", "время завершения"],
         traps: [OTHER_SERVICE_TRAP, "Не завершать без доклада обслуживающей организации"],
       },
-      {
-        service: "Мосжилинспекция", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мосжилинспекция"),
     ],
   },
   "Б4-1": {
@@ -228,12 +236,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["маршрут и бортовой номер", "что с пассажирами", "эвакуация автобуса"],
         traps: [OTHER_SERVICE_TRAP],
       },
-      {
-        service: "Поселение Лианозово", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог по происшествию"],
-        traps: [],
-      },
+      open("Поселение Лианозово"),
     ],
   },
   "Б13-1": {
@@ -284,12 +287,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["кто проверил систему", "что сделано", "система в норме"],
         traps: [OTHER_SERVICE_TRAP],
       },
-      {
-        service: "Мосжилинспекция", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мосжилинспекция"),
     ],
   },
   "Б20-1": {
@@ -309,12 +307,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["результат выезда наряда", "пострадавших нет"],
         traps: ["Если на месте выяснятся пострадавшие — позвонить в 112: нужна 103"],
       },
-      {
-        service: "Мос.Без.", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мос.Без."),
     ],
   },
   "Б22-1": {
@@ -360,12 +353,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["кому сообщено", "что сделано с повреждённым объектом"],
         traps: [OTHER_SERVICE_TRAP],
       },
-      {
-        service: "Поселение САО", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Поселение САО"),
     ],
   },
   "Б29-1": {
@@ -423,12 +411,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["итог работ"],
         traps: ["Служба 104 может не писать комментарии (особенность интеграции)"],
       },
-      {
-        service: "Поселение ТиНАО", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог"],
-        traps: [],
-      },
+      open("Поселение ТиНАО"),
     ],
   },
   "Б31-3": {
@@ -455,12 +438,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["итог: помощь не потребовалась, работала 104"],
         traps: [OTHER_SERVICE_TRAP],
       },
-      {
-        service: "Поселение Академический", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог по квартире"],
-        traps: [],
-      },
+      open("Поселение Академический"),
     ],
   },
   "Б32-2": {
@@ -648,12 +626,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["состояние / диагноз", "госпитализирован"],
         traps: [NO_REJECT_103],
       },
-      {
-        service: "Поселение СЗАО", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог"],
-        traps: [],
-      },
+      open("Поселение СЗАО"),
     ],
   },
   "Б10-3": {
@@ -728,12 +701,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["повреждения тоннеля — есть ли", "движение открыто"],
         traps: [OTHER_SERVICE_TRAP],
       },
-      {
-        service: "Поселение ЦАО", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог"],
-        traps: [],
-      },
+      open("Поселение ЦАО"),
     ],
   },
   "Б30-2": {
@@ -759,12 +727,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["возраст, личность устанавливается", "травма / диагноз", "госпитализирован"],
         traps: [NO_REJECT_103],
       },
-      {
-        service: "Мос.Без.", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мос.Без."),
     ],
   },
   "Б31-2": {
@@ -791,12 +754,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["возраст, состояние", "травма / диагноз", "госпитализирован"],
         traps: [NO_REJECT_103],
       },
-      {
-        service: "Мос.Без.", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мос.Без."),
     ],
   },
 
@@ -827,12 +785,7 @@ export const DEEP: Record<string, DeepScenario> = {
         commentMustHave: ["ФИО (Иванова)", "рана бедра, кровотечение остановлено", "госпитализирована"],
         traps: [NO_REJECT_103, "Пока нападавший с ножом в квартире, бригада заходит после наряда: «Проведение работ» — по докладу"],
       },
-      {
-        service: "Мос.Без.", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мос.Без."),
     ],
   },
   "Б25-1": {
@@ -878,12 +831,7 @@ export const DEEP: Record<string, DeepScenario> = {
           "Статусы — по докладам следственно-оперативной группы; «Работы завершены» с итогом",
         ],
       },
-      {
-        service: "Мос.Без.", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению"],
-        traps: [],
-      },
+      open("Мос.Без."),
     ],
   },
 
@@ -978,10 +926,12 @@ export const DEEP: Record<string, DeepScenario> = {
         traps: ["«Не принята» без причины и без того, кому передано, — нарушение"],
       },
       {
-        service: "Поселение ЦАО", decision: "ACCEPTED", chain: INFO,
+        service: "Поселение ЦАО", decision: "REJECTED",
+        decisionComment: "Территория Ярославского вокзала (МЖД), не обслуживаем. Передано дежурному по Ярославскому вокзалу",
+        chain: ["REJECTED"],
         brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог"],
-        traps: [],
+        commentMustHave: ["причина: территория железной дороги", "кому передано"],
+        traps: ["Как и у районной ДДС: территория железной дороги — «Не принята» с причиной и кому передано, а не «Принята, к сведению»"],
       },
     ],
   },
@@ -994,4 +944,5 @@ export const DDS_RULES = [
   "«Не принята» можно сменить только на «Принята»; назад по статусам не ходят",
   "«Работы завершены» закрывает карточку: итог пишется в комментарий до сохранения",
   "Служба 103 вместо «Не принята» и «Отказа» ставит «Работы завершены: завершение работ без бригады»",
+  "«Принята» — только если служба будет работать; «к сведению» — не ответ: где из материалов не видно, работает ли служба, решение не оценивается",
 ];
