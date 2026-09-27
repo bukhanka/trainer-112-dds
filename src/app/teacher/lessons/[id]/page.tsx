@@ -5,9 +5,13 @@ import type { Rating } from "@/lib/adaptive/rating";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
+import { coverageWarnings, lessonCoverage } from "@/lib/lessons/coverage";
 import { parseTeacherSettings } from "@/lib/lessons/form";
+import { dealableScenarios } from "@/lib/lessons/options";
+import { placeLabel } from "@/lib/scenarios/location";
 import { describePassRules, passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
+import { CoverageNotice } from "../ScenarioCoverage";
 import { LessonBoard } from "./LessonBoard";
 import { LessonControls } from "./LessonControls";
 
@@ -37,6 +41,9 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
   const scenarioTitle = new Map(scenarios.map((s) => [s.id, s.title]));
   const settings = parseTeacherSettings(lesson.settings);
   const st = LESSON_STATUS[lesson.status];
+  // Before the start: will the places without tasks have anything to draw? (lessons/coverage.ts)
+  const coverage = lesson.status === "DRAFT" ? lessonCoverage(await dealableScenarios(), settings, seats) : null;
+  const from = `из категорий${settings.location ? `, округ или район: ${placeLabel(settings.location)}` : ""}`;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4">
@@ -50,13 +57,16 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
         subtitle={
           <>
             {group?.name ?? "без группы"} · {seats.length} мест · карточки: {SOURCE_LABEL[settings.cardSource]} · зачёт: {describePassRules(passRulesOf(settings))}
+            {settings.location && <> · локация: {placeLabel(settings.location)}</>}
             {settings.commentTemplate.trim() && <> · шаблон итогового комментария ДДС задан</>}
             {lesson.startedAt && <> · начато {formatDateTime(lesson.startedAt)}</>}
             {lesson.finishedAt && <> · завершено {formatDateTime(lesson.finishedAt)}</>}
           </>
         }
-        actions={<LessonControls id={id} status={lesson.status} />}
+        actions={<LessonControls id={id} status={lesson.status} startBlocked={coverage?.blocked ?? null} />}
       />
+
+      {coverage && <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} location={settings.location} />}
 
       {lesson.status !== "DRAFT" && (
         <div className="flex flex-wrap gap-2 text-sm">
@@ -103,7 +113,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
                     {s.scenarioIds.length ? (
                       s.scenarioIds.map((x) => scenarioTitle.get(x) ?? "удалён").join("; ")
                     ) : (
-                      <span className="text-arm-desc">{settings.adaptive ? "из категорий, по уровню ученика" : "из категорий"}</span>
+                      <span className="text-arm-desc">{settings.adaptive ? `${from}, по уровню ученика` : from}</span>
                     )}
                   </td>
                 </tr>

@@ -6,6 +6,8 @@ import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
 import { isPractice } from "@/lib/lessons/form";
 import { adaptiveChoice, lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
+import { inPlayAtDds, preferNotInPlay } from "@/lib/lessons/in-play";
+import { inLessonLocation } from "@/lib/scenarios/place";
 
 export type Op112Seat = Prisma.SeatGetPayload<{ include: { lesson: true } }>;
 
@@ -134,7 +136,7 @@ const USABLE: Prisma.ScenarioWhereInput = {
 
 /**
  * Next scenario for a seat: the teacher's list for this place if any, otherwise approved scenarios
- * of the lesson's categories. Scenarios the seat has not had yet come first: near the student's level
+ * of the lesson's categories and location. Scenarios the seat has not had yet come first: near the student's level
  * when the lesson is adaptive (src/lib/adaptive), easier first when it is not.
  */
 export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
@@ -144,8 +146,10 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     : settings.categories.length
       ? { AND: [USABLE, { category: { in: settings.categories } }] }
       : USABLE;
-  const pool = await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] });
-  if (!pool.length) return null;
+  const found = inLessonLocation(await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] }), seat, settings);
+  if (!found.length) return null;
+  // A place drawing by itself does not ring with a situation open in a ДДС feed of the lesson (lessons/in-play.ts).
+  const pool = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAtDds(db, seat.lessonId));
   const used = await db.incident.groupBy({
     by: ["scenarioId"],
     where: { createdBySeatId: seat.id, scenarioId: { not: null } },

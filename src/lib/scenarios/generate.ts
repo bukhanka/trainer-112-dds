@@ -12,8 +12,11 @@ import type { IncidentType, Prisma } from "@prisma/client";
 import { chatJson } from "../ai/provider";
 import { db } from "../db";
 import type { CallerPersona, IncidentAddress, IncidentFlags } from "../incident/types";
+import { statusOfRole } from "../op112/facts";
 import { lookupAddress } from "../routing/address";
 import { selectServicesFromDb, type SelectedService } from "../routing/engine";
+import { categoryOfType } from "./categories";
+import { placeOfStreet } from "./place";
 
 export type Extracted = {
   title: string;
@@ -257,14 +260,32 @@ function ddsReferenceFor(services: (SelectedService & { shortName: string })[], 
 
 export type GenerateResult = { id: string; usedModel: boolean; finalType: string | null; services: number };
 
+/**
+ * What the category generator (by-category.ts) already decided by rules: the text is not read again,
+ * the classifier leaf and the address are taken as given, the note says where the draft came from.
+ */
+export type DraftHints = {
+  extracted?: Extracted;
+  usedModel?: boolean;
+  typeCode?: number;
+  address?: IncidentAddress;
+  category?: string;
+  traps?: string[];
+  note?: string;
+};
+
 export async function generateScenarioDraft(
   input: { text: string; difficulty?: number },
   actor: { id: string },
+  hints: DraftHints = {},
 ): Promise<GenerateResult> {
   const text = input.text.trim().slice(0, 2000);
   let extracted: Extracted;
   let usedModel = false;
-  if (process.env.LLM_BASE_URL) {
+  if (hints.extracted) {
+    extracted = hints.extracted;
+    usedModel = Boolean(hints.usedModel);
+  } else if (process.env.LLM_BASE_URL) {
     try {
       const parsed = await chatJson(
         [
@@ -287,20 +308,24 @@ export async function generateScenarioDraft(
   const types = await db.incidentType.findMany({
     select: { code: true, groupId: true, finalType: true, sign1: true, sign2: true, sign3: true, questions: true, hiddenFromOperator: true },
   });
-  const type = matchType(types, extracted.typeHint, text);
+  const type = (hints.typeCode ? types.find((t) => t.code === hints.typeCode) : undefined) ?? matchType(types, extracted.typeHint, text);
   const group = type ? await db.incidentGroup.findUnique({ where: { id: type.groupId } }) : null;
 
   const known = extracted.address.street ? lookupAddress(extracted.address.street, extracted.address.house) : null;
-  const address: IncidentAddress = {
-    country: "Россия",
-    subject: "Москва",
-    city: extracted.address.city ?? "Москва",
-    street: known?.street ?? extracted.address.street,
-    house: known?.house ?? extracted.address.house,
-    district: known?.district,
-    okrug: known?.okrug,
-    descriptive: extracted.address.descriptive,
-  };
+  // A street the tickets do not have may still be in the gazetteer: its district brings the territorial services.
+  const byStreet = known || hints.address ? null : placeOfStreet(extracted.address.street);
+  const address: IncidentAddress = hints.address
+    ? { country: "Россия", subject: "Москва", city: "Москва", ...hints.address }
+    : {
+        country: "Россия",
+        subject: "Москва",
+        city: extracted.address.city ?? "Москва",
+        street: known?.street ?? extracted.address.street,
+        house: known?.house ?? extracted.address.house,
+        district: known?.district ?? byStreet?.district ?? undefined,
+        okrug: known?.okrug ?? byStreet?.okrug ?? undefined,
+        descriptive: extracted.address.descriptive,
+      };
   const services = type
     ? await selectServicesFromDb({ typeCodes: [type.code], flags: extracted.flags, district: address.district ?? null, okrug: address.okrug ?? null })
     : [];
@@ -308,7 +333,9 @@ export async function generateScenarioDraft(
     (await db.service.findMany({ where: { id: { in: services.map((s) => s.serviceId) } }, select: { id: true, shortName: true } })).map((s) => [s.id, s.shortName]),
   );
   const named = services.map((s) => ({ ...s, shortName: serviceNames.get(s.serviceId) ?? String(s.serviceId) }));
-  const addressLine = ["Москва", address.street, address.house && `д. ${address.house}`].filter(Boolean).join(", ");
+  const addressLine = ["Москва", address.street, address.house && `д. ${address.house}`, address.building && `корп. ${address.building}`, address.structure && `стр. ${address.structure}`]
+    .filter(Boolean)
+    .join(", ");
   const finalType = type?.finalType ?? null;
 
   const truth: Prisma.InputJsonValue = {
@@ -327,7 +354,7 @@ export async function generateScenarioDraft(
       "Точный адрес: улица, дом, ориентир",
       "ФИО и статус заявителя, контактный телефон",
     ],
-    traps: address.district ? [] : ["Адрес не найден в справочнике — уточнить у заявителя до дома и района"],
+    traps: [...(hints.traps ?? []), ...(address.district ? [] : ["Адрес не найден в справочнике — уточнить у заявителя до дома и района"])],
   };
   const ddsCard: Prisma.InputJsonValue = {
     classLabel: finalType,
@@ -336,14 +363,14 @@ export async function generateScenarioDraft(
     address: addressLine,
     descriptive: address.descriptive ?? null,
     description: extracted.description,
-    caller: { fullName: extracted.caller.fullName, status: "очевидец", aon: extracted.caller.phone, provided: extracted.caller.phone },
+    caller: { fullName: extracted.caller.fullName, status: statusOfRole(extracted.caller.role) ?? "очевидец", aon: extracted.caller.phone, provided: extracted.caller.phone },
     services: named.map((s) => s.shortName),
   };
 
   const scenario = await db.scenario.create({
     data: {
       title: extracted.title,
-      category: group?.name ?? "прочее",
+      category: hints.category ?? categoryOfType(type) ?? group?.name ?? "прочее",
       difficulty: extracted.difficulty,
       status: "DRAFT",
       source: "generated",
@@ -352,7 +379,9 @@ export async function generateScenarioDraft(
       ddsCard,
       ddsReference: ddsReferenceFor(named, finalType ?? "происшествие") as unknown as Prisma.InputJsonValue,
       approvedSections: [],
-      teacherNote: `Создан по тексту${usedModel ? " (модель + правила)" : " (правила, без модели)"}: «${text.slice(0, 300)}». Проверьте тип, службы и адрес перед утверждением.`,
+      teacherNote:
+        hints.note ??
+        `Создан по тексту${usedModel ? " (модель + правила)" : " (правила, без модели)"}: «${text.slice(0, 300)}». Проверьте тип, службы и адрес перед утверждением.`,
       createdById: actor.id,
     },
   });

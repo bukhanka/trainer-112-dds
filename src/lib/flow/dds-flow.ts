@@ -15,6 +15,8 @@ import { ddsCardOf, platesForPlace } from "@/lib/dds/scenario";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
+import { inPlayAt112, preferNotInPlay } from "@/lib/lessons/in-play";
+import { inLessonLocation } from "@/lib/scenarios/place";
 
 type Tx = Prisma.TransactionClient;
 
@@ -98,7 +100,7 @@ type PickedScenario = Prisma.ScenarioGetPayload<{ select: typeof scenarioSelect 
 
 /**
  * Tasks assigned to the place come first, in order; otherwise an approved scenario of the lesson's
- * categories — near the student's level when the lesson is adaptive (src/lib/adaptive), at random
+ * categories and location — near the student's level when the lesson is adaptive (src/lib/adaptive), at random
  * when it is not. Scenarios already shown at this place are used again only when the pool is exhausted.
  */
 export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings, adaptive: boolean): Promise<PickedScenario | null> {
@@ -106,8 +108,10 @@ export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings,
   if (seat.scenarioIds.length) where.id = { in: seat.scenarioIds };
   else if (settings.categories.length) where.category = { in: settings.categories };
 
-  const pool = await tx.scenario.findMany({ where, select: scenarioSelect });
-  if (!pool.length) return null;
+  const found = inLessonLocation(await tx.scenario.findMany({ where, select: scenarioSelect }), seat, settings);
+  if (!found.length) return null;
+  // A place drawing by itself skips what the 112 places of the lesson are working on right now (lessons/in-play.ts).
+  const pool = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAt112(tx, seat.lessonId));
   const feed = await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true, createdAt: true } });
   if (!seat.scenarioIds.length && adaptive) {
     const lastUsed = new Map<string, number>();

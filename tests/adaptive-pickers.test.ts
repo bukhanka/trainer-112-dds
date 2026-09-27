@@ -39,6 +39,7 @@ describe("ДДС place: which card comes next", () => {
     ({
       scenario: { findMany: async () => pool },
       incident: { findMany: async () => feed },
+      call: { findMany: async () => [] },
       attempt: { findMany: async () => attempts },
     }) as never;
 
