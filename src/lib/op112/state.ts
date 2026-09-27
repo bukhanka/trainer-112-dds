@@ -164,7 +164,8 @@ export async function buildState(user: SessionUser): Promise<Op112State> {
       where: { createdBySeatId: seat.id, lessonId: seat.lessonId, status: { in: ["registered", "worked", "empty"] } },
       orderBy: { createdAt: "desc" },
       take: 30,
-      include: { attempts: { select: { score: true }, take: 1, orderBy: { createdAt: "desc" } } },
+      // Only this place's own review of the card: a ДДС place working on the same card has its own attempt.
+      include: { attempts: { where: { seatId: seat.id, kind: "OP112" }, select: { score: true }, take: 1, orderBy: { createdAt: "desc" } } },
     }),
   ]);
   // The call of the open card, or a new call still ringing; the calls from its work-off rows.
@@ -189,7 +190,8 @@ export async function buildState(user: SessionUser): Promise<Op112State> {
     onDdsSeat: false,
     call: openCall ? callDto(openCall) : null,
     incident: incident ? incidentDto(incident, null, serviceCalls, classes) : null,
-    journal: journal.map((i) => journalRow(i, i.attempts[0]?.score ?? null)),
+    // In a lesson the score is the teacher's to give: the workstation shows none (practice shows its self-check).
+    journal: journal.map((i) => journalRow(i, isSelfTraining(seat.lesson.settings) ? (i.attempts[0]?.score ?? null) : null)),
   };
 }
 

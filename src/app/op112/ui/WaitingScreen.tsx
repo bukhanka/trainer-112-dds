@@ -170,7 +170,7 @@ export function WaitingScreen(p: {
                     <th className="px-2 py-2 font-semibold">Что случилось</th>
                     <th className="px-2 py-2 font-semibold">Адрес</th>
                     <th className="px-2 py-2 font-semibold">Набор</th>
-                    <th className="px-2 py-2 font-semibold">Оценка</th>
+                    <th className="px-2 py-2 font-semibold">{lesson?.selfTraining ? "Самопроверка" : "Оценка"}</th>
                     <th className="px-4 py-2" />
                   </tr>
                 </thead>
@@ -189,7 +189,7 @@ export function WaitingScreen(p: {
                         {r.typingSec !== null ? mmss(r.typingSec) : "—"}
                       </td>
                       <td className="px-2 py-2">
-                        {r.score !== null ? <MiniScore score={r.score} /> : "—"}
+                        {r.score !== null ? <MiniScore score={r.score} /> : lesson?.selfTraining ? "—" : <span className="text-arm-desc">после проверки</span>}
                       </td>
                       <td className="px-4 py-2 text-right">
                         <button type="button" className="arm-mini-btn" onClick={() => p.onReview(r.id, r.number)}>
