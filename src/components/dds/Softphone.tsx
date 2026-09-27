@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PushToTalk } from "@/components/voice/PushToTalk";
+import { TalkModeSwitch, useTalkMode, type TalkMode } from "@/components/voice/TalkMode";
 import { useVoice } from "@/components/voice/useVoice";
 import type { BookEntry, CallBrief, CallMessage } from "@/lib/dds/calls";
 import { fmtDuration, fmtHM } from "@/lib/dds/format";
@@ -24,9 +25,9 @@ const KIND_LABEL: Record<CallBrief["kind"], string> = {
 };
 
 /**
- * Softphone of the ДДС place (text mode): an incoming call rings with a signal, the dispatcher answers,
- * talks by typing, hangs up; outgoing calls go from the keypad, the phone book or the phone icons of the card.
- * «Удержание» parks the conversation: the counterpart waits, the line is free for another call.
+ * Softphone of the ДДС place: an incoming call rings with a signal, the dispatcher answers, talks by voice or by
+ * typing («Голос / Текст», see TalkMode), hangs up; outgoing calls go from the keypad, the phone book or the phone
+ * icons of the card. «Удержание» parks the conversation: the counterpart waits, the line is free for another call.
  */
 export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   const { state, seatParam, offset, refresh } = useDds();
@@ -41,10 +42,14 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const now = useNow(offset);
-  // Voice: the counterpart's lines are spoken, the trainee may answer by push-to-talk; text stays as a fallback.
+  // «Голос»: the counterpart's lines are spoken and the trainee answers by push-to-talk; «Текст»: typed, not spoken.
   const voice = useVoice();
   const { say, cancel } = voice;
-  const [voiceOn, setVoiceOn] = useState(true);
+  const [mode, setMode, settled] = useTalkMode(voice.caps ? voice.canListen : undefined);
+  const switchTo = (next: TalkMode) => {
+    if (next === "text") cancel();
+    setMode(next);
+  };
   // Lines already spoken, per call: a call back from hold must not repeat the whole conversation.
   const spoken = useRef(new Map<string, number>());
 
@@ -79,15 +84,15 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
 
   // Speak every new line of the counterpart once, in the voice of the persona.
   useEffect(() => {
-    if (!current) return;
+    if (!current || !settled) return;
     const from = spoken.current.get(current.id) ?? firstUnspoken(current);
     const fresh = current.messages.slice(from).filter((m) => m.role === "counterpart");
     spoken.current.set(current.id, current.messages.length);
-    if (!voiceOn || !live || !fresh.length) return;
+    if (mode !== "voice" || !live || !fresh.length) return;
     void (async () => {
       for (const m of fresh) await say(m.text, current.voice, current.manner);
     })();
-  }, [current, voiceOn, live, say]);
+  }, [current, mode, settled, live, say]);
 
   async function run(url: string, body?: unknown) {
     setBusy(true);
@@ -123,6 +128,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   }
 
   async function talk() {
+    setMode("voice");
     const text = await voice.listen();
     if (text) await sayLine(text);
   }
@@ -166,24 +172,14 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
             <Phone className="h-4 w-4" />
             <span className="flex-1 truncate">
               {current
-                ? `Разговор ${fmtDuration(now ? (now - Date.parse(current.answeredAt ?? current.startedAt)) / 1000 : 0)}`
+                ? `${mode === "voice" ? "Расшифровка разговора ·" : "Разговор"} ${fmtDuration(now ? (now - Date.parse(current.answeredAt ?? current.startedAt)) / 1000 : 0)}`
                 : ringing.length
                   ? "Входящий вызов"
                   : held.length
                     ? `На удержании ${fmtDuration(holdSec(held[0], now))}`
                     : "Телефон · линия свободна"}
             </span>
-            <button
-              onClick={() => {
-                if (voiceOn) cancel();
-                setVoiceOn(!voiceOn);
-              }}
-              title={voiceOn ? "Собеседник говорит голосом — выключить" : "Включить голос собеседника"}
-              aria-pressed={voiceOn}
-              className={`rounded px-1.5 text-[11px] ${voiceOn ? "bg-white/20 text-white" : "text-white/60"}`}
-            >
-              {voiceOn ? "голос вкл." : "голос выкл."}
-            </button>
+            <TalkModeSwitch mode={mode} onChange={switchTo} />
             {!live || (!current && !ringing.length && !held.length) ? (
               <button onClick={() => setOpen(false)} aria-label="Свернуть телефон" className="text-white/80 hover:text-white">
                 <Close className="h-4 w-4" />
@@ -300,7 +296,11 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                     <input
                       autoFocus
                       value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
+                      onChange={(e) => {
+                        setDraft(e.target.value);
+                        // Typing is talking by text: the mode becomes «Текст» and the voice stops.
+                        if (mode !== "text") switchTo("text");
+                      }}
                       placeholder="Что вы говорите в трубку…"
                       aria-label="Реплика в разговоре"
                       maxLength={600}

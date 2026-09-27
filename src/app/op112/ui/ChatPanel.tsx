@@ -1,11 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { PushToTalk } from "@/components/voice/PushToTalk";
+import { TalkModeSwitch, useTalkMode, type TalkMode } from "@/components/voice/TalkMode";
 import { useVoice } from "@/components/voice/useVoice";
 import { askedAbout } from "@/lib/op112/facts";
 import type { CallLine, FactTopic } from "@/lib/op112/types";
 import type { CallDto } from "@/lib/op112/state";
-import { IconCheck, IconHangup, IconSend, IconSpeaker, IconSpeakerOff } from "./icons";
+import { IconCheck, IconHangup, IconSend } from "./icons";
 import { hhmm, mmss } from "./format";
 
 const QUICK = [
@@ -57,22 +58,6 @@ const BY_CARD: Record<string, Check[]> = {
   ],
 };
 
-const MUTE_KEY = "op112.voiceMuted"; // gitleaks:allow — a localStorage key name, not a secret
-function readMuted(): boolean {
-  try {
-    return localStorage.getItem(MUTE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-function writeMuted(v: boolean) {
-  try {
-    localStorage.setItem(MUTE_KEY, v ? "1" : "0");
-  } catch {
-    /* the choice is simply not remembered */
-  }
-}
-
 export function ChatPanel(p: {
   call: CallDto | null;
   lines: CallLine[];
@@ -90,30 +75,37 @@ export function ChatPanel(p: {
   onHangup: () => void;
 }) {
   const [text, setText] = useState("");
-  const [muted, setMuted] = useState(readMuted);
   const listRef = useRef<HTMLDivElement>(null);
   const spoken = useRef<string | null>(null);
   const active = p.call?.status === "ACTIVE";
   const voice = useVoice();
   const { say, cancel, listen, stop } = voice;
+  const [mode, setMode, settled] = useTalkMode(voice.caps ? voice.canListen : undefined);
   const gender = p.call?.voice ?? "female";
   const manner = p.call?.manner ?? "calm";
+  const switchTo = (next: TalkMode) => {
+    if (next === "text") cancel();
+    setMode(next);
+  };
 
-  // The caller's new line is also spoken aloud (server synthesis or the browser's voices).
+  // In «Голос» the caller's new line is spoken aloud (server synthesis or the browser's voices); in «Текст» it is
+  // only shown — and it is not spoken later either, when the trainee switches to «Голос».
   const last = p.lines[p.lines.length - 1];
   const lastKey = last ? `${last.at}|${last.text}` : null;
   useEffect(() => {
     // Silence and beeps are what the operator hears, not words: they are shown, never read out.
-    if (!last || last.role !== "counterpart" || last.noise || !active || muted || spoken.current === lastKey) return;
+    if (!last || last.role !== "counterpart" || last.noise || !active || !settled || spoken.current === lastKey) return;
     spoken.current = lastKey;
-    void say(last.text, gender, manner);
-  }, [last, lastKey, active, muted, gender, manner, say]);
+    if (mode === "voice") void say(last.text, gender, manner);
+  }, [last, lastKey, active, mode, settled, gender, manner, say]);
   useEffect(() => {
     if (!active) cancel();
   }, [active, cancel]);
 
+  // «Говорить» (the button or Space) is talking by voice: the mode becomes «Голос».
   const talk = async () => {
     if (!active || p.pending) return;
+    setMode("voice");
     const heard = await listen();
     if (heard.trim()) p.onSend(heard.trim());
   };
@@ -167,31 +159,21 @@ export function ChatPanel(p: {
     (c, i, arr) => arr.findIndex((x) => x.topic === c.topic) === i,
   );
 
+  // In «Голос» the panel is the transcript of a spoken conversation.
+  const title = mode === "voice" ? "Расшифровка разговора" : (p.title ?? "Разговор с заявителем");
+  const status = p.call ? (active ? `на линии · ${mmss(talkSec)}` : `звонок завершён · ${mmss(talkSec)}`) : "нет вызова";
+
   return (
-    <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#b9c0c5] bg-white xl:w-[340px] 2xl:w-[390px]" aria-label={p.title ?? "Разговор с заявителем"}>
-      <div className="flex items-center justify-between bg-arm-dark px-3 py-2 text-white">
+    <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#b9c0c5] bg-white xl:w-[340px] 2xl:w-[390px]" aria-label={title}>
+      <div className="flex items-center justify-between gap-2 bg-arm-dark px-3 py-2 text-white">
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-[14px] font-semibold">{p.title ?? "Разговор с заявителем"}</div>
-          <div className="truncate text-[12px] text-white/75">
-            {p.call ? (active ? `на линии · ${mmss(talkSec)}` : `звонок завершён · ${mmss(talkSec)}`) : "нет вызова"}
-          </div>
+          <div className="truncate text-[14px] font-semibold">{title}</div>
+          <div className="truncate text-[12px] text-white/75">{mode === "voice" && p.title ? `${p.title} · ${status}` : status}</div>
           {p.call?.phone && <div className="truncate text-[12px] text-white/75">{p.call.phone}</div>}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            const next = !muted;
-            setMuted(next);
-            writeMuted(next);
-            if (next) cancel();
-          }}
-          aria-pressed={!muted}
-          aria-label={muted ? "Включить голос заявителя" : "Выключить голос заявителя"}
-          title={muted ? "Голос заявителя выключен — включить" : "Голос заявителя включён — выключить"}
-          className="ml-auto mr-2 flex h-9 w-9 shrink-0 items-center justify-center border border-white/30 text-white/85 hover:bg-white/10"
-        >
-          {muted ? <IconSpeakerOff className="h-5 w-5" /> : <IconSpeaker className="h-5 w-5" />}
-        </button>
+        <div className="ml-auto">
+          <TalkModeSwitch mode={mode} onChange={switchTo} />
+        </div>
         <button
           type="button"
           onClick={p.onHangup}
@@ -205,7 +187,11 @@ export function ChatPanel(p: {
 
       {p.tabs}
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-[#f4f5f6] px-3 py-3" aria-live="polite">
-        {!p.lines.length && <div className="m-auto text-center text-[13px] text-arm-desc">Здесь будет разговор с заявителем.</div>}
+        {!p.lines.length && (
+          <div className="m-auto text-center text-[13px] text-arm-desc">
+            {mode === "voice" ? "Здесь появится расшифровка разговора." : "Здесь будет разговор с заявителем."}
+          </div>
+        )}
         {p.lines.map((l, i) =>
           l.noise ? (
             <div key={i} className="self-center px-2 text-center text-[13px] italic text-arm-desc" data-noise={l.noise}>
@@ -276,7 +262,11 @@ export function ChatPanel(p: {
             value={text}
             disabled={!active}
             placeholder={active ? (p.who ? "Что сказать службе… (Enter — сказать)" : "Ваш вопрос заявителю… (Enter — сказать)") : "Разговор не идёт"}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              // Typing is talking by text: the mode becomes «Текст» and the voice stops.
+              if (mode !== "text") switchTo("text");
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
                 e.preventDefault();
