@@ -14,20 +14,23 @@ export function GenerateForm({
   categories,
   locations,
   initialCategory,
+  initialLocation = "",
   aiMock,
 }: {
   categories: GenerateCategory[];
   locations: LocationGroup[];
   initialCategory: string;
+  initialLocation?: string;
   aiMock: boolean;
 }) {
   const [category, setCategory] = useState(initialCategory);
   const [count, setCount] = useState(3);
   const [difficulty, setDifficulty] = useState("");
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(initialLocation);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<CategoryDraft[] | null>(null);
+  const [requested, setRequested] = useState(0);
   const chosen = categories.find((c) => c.name === category);
 
   async function submit(e: React.FormEvent) {
@@ -41,9 +44,12 @@ export function GenerateForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ category, count, difficulty: difficulty ? Number(difficulty) : null, location: decodeLocation(location) }),
       });
-      const data = (await res.json().catch(() => ({}))) as { drafts?: CategoryDraft[]; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { drafts?: CategoryDraft[]; requested?: number; error?: string };
       if (!res.ok || !data.drafts) setError(data.error ?? "Не удалось собрать черновики. Повторите попытку.");
-      else setDrafts(data.drafts);
+      else {
+        setDrafts(data.drafts);
+        setRequested(data.requested ?? data.drafts.length);
+      }
     } catch {
       setError("Нет связи с сервером. Проверьте сеть и повторите.");
     } finally {
@@ -144,6 +150,11 @@ export function GenerateForm({
           <h2 className="text-base font-semibold text-arm-dark">
             Готово: {drafts.length} {drafts.length === 1 ? "черновик" : drafts.length < 5 ? "черновика" : "черновиков"} в разделе «Черновики»
           </h2>
+          {drafts.length < requested && (
+            <p className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
+              Собрано {drafts.length} из {requested}: для этой локации больше не нашлось подходящих улиц и типов. Выберите округ целиком или «любая».
+            </p>
+          )}
           <ul className="divide-y divide-arm-gray/50 rounded border border-arm-gray/70">
             {drafts.map((d) => (
               <li key={d.id}>
@@ -155,13 +166,13 @@ export function GenerateForm({
                     </span>
                   </span>
                   <span className="text-xs tabular-nums text-arm-desc">сложность {d.difficulty}</span>
-                  <Badge tone={d.usedModel ? "blue" : "neutral"}>{d.usedModel ? "рассказ: модель" : "рассказ: шаблон"}</Badge>
+                  <Badge tone={d.usedModel ? "blue" : "neutral"}>{d.usedModel ? "рассказ написал ИИ" : "рассказ по шаблону"}</Badge>
                   <Badge tone="amber">Черновик</Badge>
                 </Link>
               </li>
             ))}
           </ul>
-          <p className="text-xs text-arm-desc">Откройте каждый черновик, проверьте рассказ, тип, службы и адрес и утвердите — только тогда сценарий попадёт в занятия.</p>
+          <p className="text-sm">Откройте каждый черновик, проверьте рассказ, тип, службы и адрес и утвердите — только тогда сценарий попадёт в занятия.</p>
           <div className="flex flex-wrap gap-2">
             <Link href={`/teacher/scenarios?status=DRAFT&category=${encodeURIComponent(category)}`} className={buttonClass("secondary")}>
               Все черновики категории

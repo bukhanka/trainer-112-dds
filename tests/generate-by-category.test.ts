@@ -13,6 +13,7 @@ const store = vi.hoisted(() => ({
   model: null as null | ((messages: { role: string; content: string }[]) => unknown),
   session: { id: "t1", login: "teacher", fullName: "Смирнова", role: "TEACHER" as "TEACHER" | "ADMIN" | "STUDENT" },
   audit: [] as Record<string, unknown>[],
+  failOn: 0,
 }));
 
 vi.mock("@/lib/db", async () => {
@@ -29,6 +30,7 @@ vi.mock("@/lib/db", async () => {
       scenario: {
         findMany: async () => store.library,
         create: async ({ data }: { data: Record<string, unknown> }) => {
+          if (store.failOn && store.created.length + 1 === store.failOn) throw new Error("database is gone");
           const row = { id: `s${store.created.length + 1}`, ...data };
           store.created.push(row);
           return row;
@@ -82,6 +84,7 @@ beforeEach(() => {
   store.library = [];
   store.model = null;
   store.audit = [];
+  store.failOn = 0;
   store.session = { id: "t1", login: "teacher", fullName: "Смирнова", role: "TEACHER" };
 });
 
@@ -194,5 +197,15 @@ describe("POST /api/teacher/scenarios/generate", () => {
     expect(data.drafts.every((d) => d.place.startsWith("ВАО"))).toBe(true);
     expect(store.audit.map((a) => a.action)).toEqual(["scenario.generate", "scenario.generate"]);
     expect(store.audit[0]).toMatchObject({ actor: "teacher", entity: "Scenario", after: { via: "category", category: "газ" } });
+  });
+
+  it("keeps and records the drafts made before a failure, and says how many were asked", async () => {
+    store.failOn = 2;
+    const res = await POST(post({ category: "пожар", count: 3, location: { okrug: "СЗАО", district: "Щукино" } }));
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { drafts: { id: string }[]; requested: number };
+    expect(data).toMatchObject({ requested: 3 });
+    expect(data.drafts.map((d) => d.id)).toEqual(["s1"]);
+    expect(store.audit.map((a) => a.entityId)).toEqual(["s1"]);
   });
 });

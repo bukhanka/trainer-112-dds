@@ -403,7 +403,12 @@ const storySchema = z.object({
     voice: z.enum(["male", "female"]).catch("female"),
     situation: text(5, 600),
     visibleAddress: text(3, 200),
-    hiddenAddress: z.string().trim().max(300).nullable().optional(),
+    hiddenAddress: z
+      .string()
+      .trim()
+      .transform((s) => s.slice(0, 300))
+      .nullable()
+      .optional(),
     facts: z.array(text(2, 300)).min(1).transform((f) => f.slice(0, 8)),
   }),
   flags: z
@@ -488,12 +493,14 @@ export async function storyByModel(
         },
       ],
       storySchema,
-      { temperature: 0.8, maxTokens: 1100 },
+      { temperature: 0.8, maxTokens: 1600 },
     );
     const exact = spokenExact(place);
     let hidden = out.caller.hiddenAddress?.trim() || undefined;
     // The house must reach the operator one way or the other: without it the card cannot be right.
-    const says = (s: string | undefined) => Boolean(s && new RegExp(`(^|\\D)${place.house.replace(/[^0-9а-яё]/gi, "")}(\\D|$)`, "i").test(s));
+    const house = new RegExp(`(^|\\D)${place.house.replace(/[^0-9а-яё]/gi, "")}(\\D|$)`, "i");
+    const streetStems = parseStreet(place.street).name.split(" ").filter((w) => w.length >= 4).map((w) => w.slice(0, 5));
+    const says = (s: string | undefined) => Boolean(s && house.test(s) && (!streetStems.length || streetStems.some((w) => low(s).includes(w))));
     if (!says(out.caller.visibleAddress) && !says(hidden)) hidden = exact;
     // «Нет» is kept only where the tickets keep it (gas in a house); other «нет» from the model would add checks nobody asked for.
     const said = Object.entries(out.flags).filter(([k, v]) => v === true || (k === "gas" && (t.groupId === 1 || t.groupId === 13)));
@@ -585,9 +592,19 @@ export type CategoryDraft = {
   services: number;
 };
 
-export type ByCategoryResult = { ok: true; drafts: CategoryDraft[] } | { ok: false; error: string };
+/** requested — how many were asked; fewer drafts come back when the location or a failure allowed only those. */
+export type ByCategoryResult = { ok: true; drafts: CategoryDraft[]; requested: number } | { ok: false; error: string };
 
-export async function generateByCategory(input: ByCategoryInput, actor: { id: string }, random: Random = Math.random): Promise<ByCategoryResult> {
+/**
+ * onDraft is called right after each draft is saved, so the journal holds every draft even if a later
+ * one fails.
+ */
+export async function generateByCategory(
+  input: ByCategoryInput,
+  actor: { id: string },
+  random: Random = Math.random,
+  onDraft?: (draft: CategoryDraft) => Promise<void>,
+): Promise<ByCategoryResult> {
   const def = categoryDef(input.category);
   if (!def) return { ok: false, error: `Для категории «${input.category}» нет групп классификатора — выберите категорию из списка.` };
   const count = Math.max(1, Math.min(MAX_DRAFTS, Math.round(input.count)));
@@ -627,16 +644,17 @@ export async function generateByCategory(input: ByCategoryInput, actor: { id: st
   const plans: { type: TypeRow; place: GenPlace; presentation: Presentation }[] = [];
   const taken = new Set<number>();
   const streets = new Set<string>();
-  for (let i = 0; i < count; i++) {
+  for (let tries = 0; plans.length < count && tries < count * 6; tries++) {
     const presentation = presentationFor(input.difficulty, random);
     const place = pickPlace(input.location, random, streets);
     if (!place) break;
     const choice =
       pickType(candidates, { reference, place, presentation, difficulty: input.difficulty, ticketCodes, usedCodes, taken, random }) ??
       pickType(candidates, { reference, place, presentation, difficulty: input.difficulty, ticketCodes, usedCodes, taken: new Set(), random });
-    if (!choice) break;
-    taken.add(choice.type.code);
+    // No leaf of the category brings a service at this street: another street is tried.
     streets.add(streetKey(place.street));
+    if (!choice) continue;
+    taken.add(choice.type.code);
     plans.push({ type: choice.type, place, presentation });
   }
   if (!plans.length) return { ok: false, error: "Не удалось подобрать тип происшествия с службами для этой локации — выберите другую локацию или категорию." };
@@ -680,25 +698,25 @@ export async function generateByCategory(input: ByCategoryInput, actor: { id: st
       "Проверьте рассказ, тип, службы и адрес перед утверждением.",
     ].join("\n");
 
-    const result = await generateScenarioDraft({ text: story.caller.situation, difficulty }, actor, {
-      extracted: { ...story, difficulty },
-      usedModel,
-      typeCode: p.type.code,
-      address,
-      category: def.name,
-      traps: story.traps,
-      note,
-    });
-    drafts.push({
-      id: result.id,
-      title: story.title,
-      finalType: result.finalType,
-      address: addressLine,
-      place: where,
-      difficulty,
-      usedModel,
-      services: result.services,
-    });
+    let result;
+    try {
+      result = await generateScenarioDraft({ text: story.caller.situation, difficulty }, actor, {
+        extracted: { ...story, difficulty },
+        usedModel,
+        typeCode: p.type.code,
+        address,
+        category: def.name,
+        traps: story.traps,
+        note,
+      });
+    } catch (err) {
+      console.error("scenario by category: a draft was not saved", err instanceof Error ? err.message.slice(0, 200) : err);
+      break;
+    }
+    const draft: CategoryDraft = { id: result.id, title: story.title, finalType: result.finalType, address: addressLine, place: where, difficulty, usedModel, services: result.services };
+    drafts.push(draft);
+    await onDraft?.(draft);
   }
-  return { ok: true, drafts };
+  if (!drafts.length) return { ok: false, error: "Не удалось сохранить черновики. Повторите попытку." };
+  return { ok: true, drafts, requested: count };
 }

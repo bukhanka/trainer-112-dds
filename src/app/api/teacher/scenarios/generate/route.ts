@@ -23,10 +23,9 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Неверный запрос");
   const input = parsed.data;
 
-  const result = await generateByCategory(input, user);
-  if (!result.ok) return jsonError(result.error, 422);
-  for (const d of result.drafts) {
-    await auditBy(user, request, {
+  // Each draft goes to the journal as soon as it is saved, so a failure later in the run leaves no draft unrecorded.
+  const result = await generateByCategory(input, user, Math.random, (d) =>
+    auditBy(user, request, {
       action: "scenario.generate",
       entity: "Scenario",
       entityId: d.id,
@@ -39,7 +38,8 @@ export async function POST(request: Request) {
         services: d.services,
         usedModel: d.usedModel,
       },
-    });
-  }
-  return Response.json({ drafts: result.drafts });
+    }),
+  );
+  if (!result.ok) return jsonError(result.error, 422);
+  return Response.json({ drafts: result.drafts, requested: result.requested });
 }
