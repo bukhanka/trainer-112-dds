@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import type { IncidentFlags } from "@/lib/incident/types";
 import {
@@ -13,6 +13,7 @@ import {
   pruneAnswers,
   searchKinds,
   visibleRows,
+  type LeafHit,
   type TagRow,
   type TagTree,
 } from "@/lib/op112/catalog";
@@ -93,7 +94,22 @@ export function TypeBlock(p: {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const results = open ? searchKinds(q).filter((k) => !p.cards.includes(k.name)) : [];
+  // Names and synonyms answer at once; the whole classifier answers from the server a moment later
+  // («судороги» → 103 through its leaf «Судороги»), and those kinds join the list with the matched leaf as a hint.
+  const [leafHits, setLeafHits] = useState<{ q: string; kinds: LeafHit[] }>({ q: "", kinds: [] });
+  useEffect(() => {
+    const query = q.trim();
+    if (!open || query.length < 3) return;
+    const t = setTimeout(() => {
+      getJson<{ kinds: LeafHit[] }>(`/api/op112/kinds?q=${encodeURIComponent(query)}`)
+        .then((r) => setLeafHits({ q: query, kinds: r.kinds }))
+        .catch(() => undefined);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, open]);
+  const local: { name: string; hint?: string }[] = open ? searchKinds(q).map((k) => ({ name: k.name })) : [];
+  const extra = open && leafHits.q === q.trim() ? leafHits.kinds.filter((h) => !local.some((l) => l.name === h.name)).map((h) => ({ name: h.name, hint: h.match })) : [];
+  const results = [...local, ...extra].filter((k) => !p.cards.includes(k.name));
 
   const add = (name: string) => {
     if (p.readOnly || p.cards.includes(name)) return;
@@ -160,6 +176,7 @@ export function TypeBlock(p: {
                     className={`w-full px-4 py-2.5 text-left text-[14.5px] ${i === active ? "bg-[#e8f2f9]" : "hover:bg-[#f3f5f6]"}`}
                   >
                     {k.name}
+                    {k.hint && <span className="ml-2 text-[12.5px] text-arm-desc">— {k.hint}</span>}
                   </button>
                 </li>
               ))}
