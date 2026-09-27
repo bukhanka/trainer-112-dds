@@ -10,6 +10,7 @@
 import { PrismaClient } from "@prisma/client";
 import { DEFAULT_SETTINGS, DEFAULT_WEIGHTS, DEMO_ACCOUNTS, seedBase } from "./seed";
 import { disconnectDemo, seedDemo } from "./seed-demo";
+import { isEntry } from "./entry";
 
 const DEMO_GROUP = "Учебная группа № 1";
 
@@ -19,7 +20,7 @@ export async function resetDemo(db: PrismaClient) {
   // Lessons cascade to places, cards, calls and attempts; cards outside a lesson go separately.
   const lessons = await db.lesson.deleteMany({});
   await db.incident.deleteMany({ where: { lessonId: null } });
-  const scenarios = await db.scenario.deleteMany({ where: { NOT: { source: "ticket" } } });
+  const scenarios = await db.scenario.deleteMany({ where: { NOT: { source: { in: ["ticket", "instruction"] } } } });
   const groups = await db.group.deleteMany({ where: { NOT: { name: DEMO_GROUP } } });
   const users = await db.user.deleteMany({ where: { login: { notIn: demoLogins } } });
   await db.user.updateMany({
@@ -49,7 +50,7 @@ export async function resetDemo(db: PrismaClient) {
   console.log(`demo-reset: removed ${lessons.count} lessons, ${scenarios.count} scenarios, ${groups.count} groups, ${users.count} users; demo rebuilt`);
 }
 
-if (require.main === module) {
+if (isEntry("demo-reset")) {
   const db = new PrismaClient();
   resetDemo(db)
     .catch((err) => {

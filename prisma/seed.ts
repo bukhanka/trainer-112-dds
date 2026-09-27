@@ -6,6 +6,7 @@
 import { PrismaClient, type Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { seedReference } from "./seed-reference";
+import { isEntry } from "./entry";
 
 export const DEMO_ACCOUNTS: { login: string; password: string; fullName: string; role: Role }[] = [
   { login: "admin", password: "Admin2026", fullName: "Администратор системы", role: "ADMIN" },
@@ -75,7 +76,7 @@ export async function seedBase(db: PrismaClient) {
   console.log(`seed: ${DEMO_ACCOUNTS.length} accounts, group «${group.name}» with ${students.length} students`);
 }
 
-if (require.main === module) {
+if (isEntry("seed")) {
   const client = new PrismaClient();
   seedBase(client)
     .catch((err) => {

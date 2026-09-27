@@ -22,6 +22,7 @@ import { loadRatingAttempts } from "../src/lib/adaptive/levels";
 import { pickAdaptive } from "../src/lib/adaptive/pick";
 import { computeRating, type RatingAttempt } from "../src/lib/adaptive/rating";
 import { saveLessonForecasts } from "../src/lib/adaptive/snapshot";
+import { isEntry } from "./entry";
 
 const db = new PrismaClient();
 
@@ -1011,7 +1012,7 @@ export function disconnectDemo() {
   return db.$disconnect();
 }
 
-if (require.main === module) {
+if (isEntry("seed-demo")) {
   seedDemo({ live: process.argv.includes("--live") })
     .catch((err) => {
       console.error(err instanceof Error ? err.message : err);
