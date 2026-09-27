@@ -93,7 +93,8 @@ export function suggestDifficulty(p: { style: AddressStyle; flags: IncidentFlags
 export function presentationFor(difficulty: number | null, random: Random): Presentation {
   if (difficulty == null) {
     const r = random();
-    const style: AddressStyle = r < 0.35 ? 0 : r < 0.8 ? 1 : 2;
+    // Mostly like the tickets (difficulty 2–7): the exact place or a street with a landmark, rarely only the district.
+    const style: AddressStyle = r < 0.45 ? 0 : r < 0.9 ? 1 : 2;
     return { style, temper: style === 2 ? pick(HARD_TEMPERS, random) : pick<Temper>(["calm", "calm", "elderly", "panic"], random) };
   }
   if (difficulty <= 3) return { style: 0, temper: "calm" };
@@ -301,7 +302,7 @@ export function essence(t: TypeRow, flags: IncidentFlags): string {
     case 19:
       return `Сообщаю: ${lcFirst(name)}`;
     default:
-      return t.groupId === 15 ? `Нужна полиция: ${lcFirst(name)}` : `Сообщаю о происшествии: ${lcFirst(name)}`;
+      return `Сообщаю о происшествии: ${lcFirst(name)}`;
   }
 }
 
@@ -391,22 +392,25 @@ function randomPhone(random: Random): string {
 
 // ─── the story by the model ──────────────────────────────────────────────────
 
+/** A long answer is cut, not refused: only a missing part sends the draft to the template. */
+const text = (min: number, max: number) => z.string().trim().min(min).transform((s) => s.slice(0, max));
+
 const storySchema = z.object({
-  title: z.string().min(3).max(120),
+  title: text(3, 120),
   caller: z.object({
-    fullName: z.string().min(3).max(80),
-    role: z.string().min(2).max(60),
+    fullName: text(3, 80),
+    role: text(2, 60),
     voice: z.enum(["male", "female"]).catch("female"),
-    situation: z.string().min(5).max(600),
-    visibleAddress: z.string().min(3).max(200),
-    hiddenAddress: z.string().max(200).nullable().optional(),
-    facts: z.array(z.string().min(2).max(300)).min(1).max(8),
+    situation: text(5, 600),
+    visibleAddress: text(3, 200),
+    hiddenAddress: z.string().trim().max(300).nullable().optional(),
+    facts: z.array(text(2, 300)).min(1).transform((f) => f.slice(0, 8)),
   }),
   flags: z
     .object({ victims: z.boolean(), threat: z.boolean(), noAccess: z.boolean(), gas: z.boolean(), traffic: z.boolean() })
     .partial()
     .catch({}),
-  description: z.string().min(5).max(1000),
+  description: text(5, 1000),
 });
 
 const STORY_PROMPT = `Ты методист учебного центра Системы 112 Москвы и готовишь учебные вызовы для операторов.
