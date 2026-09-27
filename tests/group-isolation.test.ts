@@ -29,8 +29,11 @@ function makeData() {
     { groupId: "g-demo", userId: "ivanov" },
   ];
   const lessons: Row[] = [
-    { id: "l-draft", groupId: "g-smirnova", status: "DRAFT" },
-    { id: "l-running", groupId: "g-smirnova", status: "RUNNING" },
+    { id: "l-draft", groupId: "g-smirnova", status: "DRAFT", teacherId: "smirnova" },
+    { id: "l-running", groupId: "g-smirnova", status: "RUNNING", teacherId: "smirnova" },
+    // Смирнова's drafts for a group handed to Орлов and for her archived group.
+    { id: "l-handed", groupId: "g-orlov", status: "DRAFT", teacherId: "smirnova", title: "Передано", settings: {} },
+    { id: "l-archived", groupId: "g-old", status: "FINISHED", teacherId: "smirnova", title: "Весна", settings: {} },
   ];
   const seats: Row[] = [
     { id: "s-draft", lessonId: "l-draft", studentId: "petrova" },
@@ -116,6 +119,7 @@ const db: Record<string, unknown> = {
     },
   },
   seat: model(() => data.seats),
+  lesson: model(() => data.lessons),
 };
 db.$transaction = async (fn: (tx: unknown) => unknown) => fn(db);
 
@@ -137,6 +141,8 @@ const patchGroup = (await import("@/app/api/teacher/groups/[id]/route")).PATCH;
 const addMember = (await import("@/app/api/teacher/groups/[id]/members/route")).POST;
 const removeMember = (await import("@/app/api/teacher/groups/[id]/members/[userId]/route")).DELETE;
 const students = (await import("@/app/api/teacher/students/route")).GET;
+const startLesson = (await import("@/app/api/teacher/lessons/[id]/start/route")).POST;
+const copyLesson = (await import("@/app/api/teacher/lessons/[id]/copy/route")).POST;
 
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const memberCtx = (id: string, userId: string) => ({ params: Promise.resolve({ id, userId }) });
@@ -243,5 +249,15 @@ describe("groups: a teacher works only with own groups", () => {
     expect((await createGroup(json("POST", { name: "Своя" }))).status).toBe(401);
     expect((await removeMember(json("DELETE"), memberCtx("g-smirnova", "ivanov"))).status).toBe(401);
     expect((await search("")).status).toBe(401);
+  });
+
+  it("does not start or repeat a lesson whose group went to another teacher or to the archive", async () => {
+    const handed = await startLesson(json("POST"), ctx("l-handed"));
+    expect(handed.status).toBe(409);
+    expect((await handed.json()).error).toMatch(/другому преподавателю/);
+    const archived = await copyLesson(json("POST"), ctx("l-archived"));
+    expect(archived.status).toBe(409);
+    expect((await archived.json()).error).toMatch(/в архиве/);
+    expect(audits).toHaveLength(0);
   });
 });

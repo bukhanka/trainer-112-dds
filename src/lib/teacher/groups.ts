@@ -17,6 +17,16 @@ import { groupScope } from "./access";
 
 export const GROUP_NAME_MAX = 80;
 const DEMO_LOCK = "Демо-группу на стенде менять нельзя: создайте свою группу и работайте с ней.";
+export const GROUP_ARCHIVED = "Группа в архиве: верните её в разделе «Группы» или выберите другую";
+export const GROUP_HANDED_OVER = "Группы занятия больше нет среди ваших — её передали другому преподавателю. Выберите свою группу в «Изменить».";
+
+/** A lesson's group must still be the teacher's and active to start the lesson or run it again. */
+export async function lessonGroupProblem(user: SessionUser, groupId: string | null): Promise<string | null> {
+  if (!groupId) return null;
+  const group = await findGroup(user, groupId);
+  if (!group) return GROUP_HANDED_OVER;
+  return group.archivedAt ? GROUP_ARCHIVED : null;
+}
 const ARCHIVED = "Группа в архиве: верните её из архива, чтобы менять состав.";
 
 export type GroupResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
