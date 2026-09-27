@@ -8,6 +8,9 @@ import type { CriterionResult } from "./score";
 
 const BY_CODE: Record<string, string> = {
   // ДДС place
+  "dds.open_in_time": "Карточка открыта позже норматива",
+  "dds.first_record_in_time": "Первая запись (статус и текст) позже норматива",
+  // Checks of reviews made before the customer's answer of 27.09 on the norms
   "dds.ack_in_time": "Нет ответа «Принята / Не принята» в норматив",
   "dds.crew_in_time": "Наряд не направлен в пределах отработки",
   "dds.crew_calls_answered": "Пропущены звонки наряда",

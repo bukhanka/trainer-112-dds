@@ -15,7 +15,7 @@ export type ReportAttempt = {
   score: number | null;
   criteria: CriterionResult[];
   override: Overrides | null;
-  /** 112: card typing time; ДДС: «Добавлена» → «Принята / Не принята». */
+  /** 112: card typing time; ДДС: «Добавлена» → the card opened. */
   timeSec: number | null;
   actions: number;
   incidentNumber: number | null;

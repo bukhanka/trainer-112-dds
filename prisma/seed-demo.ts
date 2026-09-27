@@ -190,9 +190,9 @@ type Review = "CONFIRMED" | "OVERRIDDEN" | "PENDING";
 // ─── ДДС: one own plate handled at a place ───────────────────────────────────
 function simulateDds(fx: Fx, serviceId: number | null, serviceName: string, p: Profile, ctx: Ctx, cut: number | null) {
   const ref = fx.ref(serviceId);
-  const events: Event[] = [{ status: "RECEIVED", sec: between(3, 8) }];
   const crits: CriterionResult[] = [];
   const ack = between(p.ack[0], p.ack[1]);
+  const events: Event[] = [{ status: "RECEIVED", sec: Math.max(3, Math.round(ack * 0.6)) }];
   const wrongDecision = chance(p.wrongDecision);
   const decision = wrongDecision ? (ref.decision === "accept" ? "reject" : "accept") : ref.decision;
   const crew = String(between(11, 48));
@@ -204,7 +204,8 @@ function simulateDds(fx: Fx, serviceId: number | null, serviceName: string, p: P
   if (decision === "reject") {
     events.push({ status: "REJECTED", sec: ack, comment: goodHandover ? handover : wrongDecision ? "Не наш профиль" : HANDOVER_BAD });
   } else {
-    events.push({ status: "ACCEPTED", sec: ack, crew, comment: sloppy ? "отпр бр" : `Направлена бригада, наряд ${crew}` });
+    // A sloppy dispatcher puts a bare «Принята»: it is not a record, the first record comes with the crew's departure.
+    events.push({ status: "ACCEPTED", sec: ack, crew, comment: sloppy ? undefined : `Направлена бригада, наряд ${crew}` });
     let t = between(p.dispatch[0], p.dispatch[1]);
     for (const status of ref.chain) {
       if (skip && (status === "ARRIVED" || status === "WORKING")) continue;
@@ -227,24 +228,26 @@ function simulateDds(fx: Fx, serviceId: number | null, serviceName: string, p: P
   // A lesson may end before the crew finishes: those plates stay «Не завершено».
   const kept = cut == null ? events : events.filter((e) => e.sec <= cut);
 
-  const answer = kept.find((e) => e.status === "ACCEPTED" || e.status === "REJECTED");
+  // The two norms of the customer's answer of 27.09: open the card within 30 s, the first record —
+  // a status with a text — within 3 min, both from «Добавлена».
+  const opened = kept.find((e) => e.status === "RECEIVED");
   crits.push({
-    code: "dds.ack_in_time",
+    code: "dds.open_in_time",
     group: "timeliness",
-    title: "Ответ «Принята» / «Не принята» за 30 с",
-    ok: answer ? answer.sec <= ctx.ackSec : false,
-    evidence: answer ? `«${answer.status === "ACCEPTED" ? "Принята" : "Не принята"}» через ${mmss(answer.sec)} после «Добавлена»` : "Ответа нет",
-    expected: `не позже ${mmss(ctx.ackSec)}`,
+    title: `Карточка открыта за ${ctx.ackSec} с`,
+    ok: opened ? opened.sec <= ctx.ackSec : false,
+    evidence: opened ? `Открыта через ${mmss(opened.sec)} после «Добавлена»` : "Карточку не открыли",
+    expected: `не позже ${mmss(ctx.ackSec)} после «Добавлена»`,
     source: "rule",
   });
-  const started = kept.find((e) => e.status === "STARTED");
+  const record = kept.find((e) => e.status !== "RECEIVED" && !!e.comment?.trim());
   crits.push({
-    code: "dds.crew_in_time",
+    code: "dds.first_record_in_time",
     group: "timeliness",
-    title: "Наряд отправлен за 3 мин",
-    ok: decision === "reject" ? null : started ? started.sec <= ctx.workSec : false,
-    evidence: started ? `«Начало реагирования» через ${mmss(started.sec)}` : decision === "reject" ? undefined : "Статуса «Начало реагирования» нет",
-    expected: `не позже ${mmss(ctx.workSec)}`,
+    title: `Первая запись — статус и текст — за ${mmss(ctx.workSec)}`,
+    ok: record ? record.sec <= ctx.workSec : false,
+    evidence: record ? `«${record.comment}» через ${mmss(record.sec)} после «Добавлена»` : "Записи со статусом и текстом нет",
+    expected: `не позже ${mmss(ctx.workSec)} после «Добавлена»`,
     source: "rule",
   });
   if (decision === "accept") {

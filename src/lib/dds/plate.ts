@@ -7,12 +7,10 @@ import type { SessionUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { seatFeedWhere, settingsOf, SYSTEM_ACTOR } from "@/lib/flow/dds-flow";
-import { phoneDispatchesByIncident } from "./calls";
-import { crewTimer, type CrewTimer } from "./crew";
 import { shortName } from "./format";
 import { evaluatePlate } from "./review";
 import type { DdsSeat } from "./seat";
-import { checkTransition, isFirstAnswer, isLate, rulesFor } from "./status";
+import { checkTransition, isLate, rulesFor } from "./status";
 import { DDS_TX, isBusyError, SERVER_BUSY } from "./tx";
 
 /** Card of the place by its number, or null when the card is not in this place's feed. */
@@ -26,13 +24,15 @@ export async function markReceived(seat: DdsSeat, incidentId: string, now = new 
   if (!seat.serviceId) return;
   const plate = await db.incidentService.findUnique({
     where: { incidentId_serviceId: { incidentId, serviceId: seat.serviceId } },
-    select: { id: true, status: true },
+    select: { id: true, status: true, addedAt: true },
   });
   if (!plate || plate.status !== "ADDED") return;
   const moved = await db.incidentService.updateMany({ where: { id: plate.id, status: "ADDED" }, data: { status: "RECEIVED" } });
   if (moved.count) {
+    // Opened later than 30 s after «Добавлена»: the history shows the time in red.
+    const late = isLate(plate.addedAt, now, settingsOf(seat.lesson.settings).ackSec);
     await db.statusEvent.create({
-      data: { incidentServiceId: plate.id, status: "RECEIVED", actorLabel: SYSTEM_ACTOR, seatId: seat.id, at: now },
+      data: { incidentServiceId: plate.id, status: "RECEIVED", actorLabel: SYSTEM_ACTOR, seatId: seat.id, late, at: now },
     });
   }
 }
@@ -64,7 +64,10 @@ export async function setOwnStatus(
   if (!check.ok) return { ok: false, error: check.error, code: 422 };
 
   const settings = settingsOf(seat.lesson.settings);
-  const late = isFirstAnswer(plate.status, input.status) && isLate(plate.addedAt, now, settings.ackSec);
+  // The first record — a status with a text — is due within workSec (3 min) after «Добавлена».
+  const firstRecord =
+    !!check.comment && !(await db.statusEvent.count({ where: { incidentServiceId: plate.id, status: { notIn: ["ADDED", "RECEIVED"] }, comment: { not: null } } }));
+  const late = firstRecord && isLate(plate.addedAt, now, settings.workSec);
 
   let saved: boolean;
   try {
@@ -116,25 +119,4 @@ export async function setOwnStatus(
     }
   }
   return { ok: true, plateId: plate.id, status: input.status, late };
-}
-
-type TimedPlate = { serviceId: number; status: ServiceStatus; addedAt: Date; events: { status: ServiceStatus; crewNumber: string | null; at: Date }[] };
-
-/** The 3-minute timers of the place's own plates on these cards (crewTimer), keyed by card id. */
-export async function crewTimersFor(seat: DdsSeat, incidents: { id: string; services: TimedPlate[] }[]): Promise<Map<string, CrewTimer | null>> {
-  const out = new Map<string, CrewTimer | null>();
-  if (!seat.serviceId) return out;
-  const own = incidents.flatMap((i) => {
-    const plate = i.services.find((p) => p.serviceId === seat.serviceId);
-    return plate ? [{ id: i.id, plate }] : [];
-  });
-  if (!own.length) return out;
-  const calls = await db.call.findMany({
-    where: { seatId: seat.id, incidentId: { in: own.map((o) => o.id) }, kind: { in: ["BRIGADE_IN", "BRIGADE_OUT"] } },
-    select: { counterpart: true },
-  });
-  const phone = phoneDispatchesByIncident(calls);
-  const workSec = settingsOf(seat.lesson.settings).workSec;
-  for (const o of own) out.set(o.id, crewTimer(o.plate, phone.get(o.id) ?? [], workSec));
-  return out;
 }

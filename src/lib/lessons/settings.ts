@@ -11,8 +11,8 @@ export const lessonSettingsSchema = z.object({
   cardSource: z.enum(["generated", "students", "mixed"]).default("generated"),
   tempoSec: z.number().int().min(10).max(1800).default(90), // a new card for each ДДС place every N seconds
   maxQueue: z.number().int().min(1).max(10).default(3), // cards waiting at one place at most
-  ackSec: z.number().int().min(5).max(600).default(30), // «Принята / Не принята» after «Добавлена»
-  workSec: z.number().int().min(30).max(3600).default(180), // processing a card
+  ackSec: z.number().int().min(5).max(600).default(30), // ДДС: open the card, from «Добавлена» (customer's answer of 27.09)
+  workSec: z.number().int().min(30).max(3600).default(180), // ДДС: the first record — status and text — from «Добавлена»
   typingSec: z.number().int().min(20).max(600).default(65), // 112 card typing timer turns red
   // Pass criteria (ТЗ п.99, src/lib/scoring/pass.ts): «зачтено» — score at least passScore and no more failed critical checks than maxCritical.
   passScore: z.number().int().min(0).max(100).default(70),

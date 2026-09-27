@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  allowedNext,
-  checkTransition,
-  isFirstAnswer,
-  isLate,
-  NO_CREW_COMMENT,
-  rulesFor,
-  STATUS_LABEL,
-  type ServiceRules,
-} from "./status";
+import { allowedNext, checkTransition, isFirstAnswer, isLate, NO_CREW_COMMENT, rulesFor, STATUS_LABEL, type ServiceRules, isRecord, normMoments } from "./status";
 
 const plain: ServiceRules = { noReject: false };
 const s103: ServiceRules = { noReject: true };
@@ -111,5 +102,21 @@ describe("timing", () => {
     expect(isFirstAnswer("ADDED", "REJECTED")).toBe(true);
     expect(isFirstAnswer("REJECTED", "ACCEPTED")).toBe(false);
     expect(isFirstAnswer("ACCEPTED", "STARTED")).toBe(false);
+  });
+});
+
+describe("the two norms of the customer's answer of 27.09", () => {
+  const t = (sec: number) => new Date(Date.UTC(2026, 8, 27, 8, 0, sec));
+  it("counts the card opened at its first event after «Добавлена» and the first record at a status with a text", () => {
+    const events = [
+      { status: "ADDED" as const, comment: null, at: t(0) },
+      { status: "RECEIVED" as const, comment: null, at: t(12) },
+      { status: "ACCEPTED" as const, comment: "  ", at: t(20) },
+      { status: "STARTED" as const, comment: "Наряд 23 выехал", at: t(95) },
+    ];
+    expect(normMoments(events)).toEqual({ openedAt: t(12), recordAt: t(95) });
+    expect(isRecord({ status: "ACCEPTED", comment: null })).toBe(false);
+    expect(isRecord({ status: "RECEIVED", comment: "текст" })).toBe(false);
+    expect(isRecord({ status: "REJECTED", comment: "Не наш район, передано в ДДС Строгино" })).toBe(true);
   });
 });

@@ -48,7 +48,7 @@ export type ForecastAttempt = {
   reviewStatus: "PENDING" | "CONFIRMED" | "OVERRIDDEN";
   createdAt: Date;
   reviewedAt: Date | null;
-  /** 112: card typing time; ДДС: «Добавлена» → «Принята / Не принята» — as in the lesson report. */
+  /** 112: card typing time; ДДС: «Добавлена» → the card opened — as in the lesson report. */
   timeSec: number | null;
   /** The norm of the lesson for this time. */
   normSec: number | null;

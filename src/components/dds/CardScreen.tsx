@@ -4,13 +4,12 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import type { ServiceStatus } from "@prisma/client";
-import { crewSecondsLeft, type CrewTimer } from "@/lib/dds/crew";
 import { fmtDate, fmtDateTime, fmtDuration, fmtHM, dateParts, plateCaption, plateCaptionClass } from "@/lib/dds/format";
 import type { CardView, PlateView } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
 import { useSoftphone } from "./softphone-context";
-import { Bolt, Chat, Check, ChevronDown, ChevronUp, Close, CollapseV, Exclaim, ExpandV, HandsetDown, Hourglass, MapPinOff, Pencil, Phone, Stopwatch, Warning } from "./icons";
+import { Bolt, Chat, Check, ChevronDown, ChevronUp, Close, CollapseV, Exclaim, ExpandV, HandsetDown, Hourglass, MapPinOff, Pencil, Phone, Warning } from "./icons";
 
 type OwnPlate = {
   plateId: string;
@@ -20,8 +19,8 @@ type OwnPlate = {
   editable: boolean;
   options: { value: ServiceStatus; label: string }[];
   addedAt: string;
-  answeredAt: string | null;
-  crew: CrewTimer | null;
+  openedAt: string | null;
+  recordAt: string | null;
 };
 type CardBody = { card: CardView; own: OwnPlate | null };
 
@@ -190,49 +189,28 @@ function TopStrip({ card, seatLabel, own }: { card: CardView; seatLabel: string;
 }
 
 /**
- * The norms of the own plate in the style of the feed's timer: first the 30 seconds for «Принята / Не принята»
- * (counting up), then after «Принята» the time left to work the card — send a crew or close it (counting down); red when late.
+ * The 3-minute norm of the own plate in the style of the feed's timer (customer's answer of 27.09): from
+ * «Добавлена» to the first record — a status with a text; counts down, red when late. The card is open here,
+ * so the 30 seconds to open it are already behind.
  */
 function OwnTimer({ own }: { own: OwnPlate }) {
   const { state, offset } = useDds();
   const now = useNow(offset);
-  const { ackSec, workSec, lessonStatus } = state.seat;
-  if (lessonStatus !== "RUNNING") return null;
-  let view: { icon: typeof Hourglass; value: string; label: string; late: boolean; title: string } | null = null;
-  if (!own.answeredAt && (own.status === "ADDED" || own.status === "RECEIVED")) {
-    const sec = now ? (now - Date.parse(own.addedAt)) / 1000 : 0;
-    const late = sec > ackSec;
-    view = {
-      icon: Stopwatch,
-      value: fmtDuration(sec),
-      label: late ? "ответ опаздывает" : `на ответ ${ackSec} с`,
-      late,
-      title: `С момента «Добавлена». Норматив ${ackSec} с на «Принята / Не принята»`,
-    };
-  } else if (own.crew && !own.crew.sentAt) {
-    const left = now ? crewSecondsLeft(own.crew, now) : workSec;
-    const late = left < 0;
-    view = {
-      icon: Hourglass,
-      value: late ? `+${fmtDuration(-left)}` : fmtDuration(left),
-      label: late ? "отработка просрочена" : "на отработку",
-      late,
-      title: `Норматив отработки ${fmtDuration(workSec)} от «Добавлена»: отправьте наряд (номер наряда в статусе или звонок наряду) или закройте карточку`,
-    };
-  }
-  if (!view) return null;
-  const Icon = view.icon;
+  const { workSec, lessonStatus } = state.seat;
+  if (lessonStatus !== "RUNNING" || own.recordAt || !own.editable) return null;
+  const left = now ? workSec - (now - Date.parse(own.addedAt)) / 1000 : workSec;
+  const late = left < 0;
   return (
     <div
       role="timer"
-      title={view.title}
-      className={`flex h-[64px] w-[124px] shrink-0 flex-col items-center justify-center text-white ${view.late ? "bg-arm-late" : "bg-arm-dark"}`}
+      title={`Первая запись — статус и текст — в течение ${fmtDuration(workSec)} от «Добавлена». Статус без текста запись не закрывает`}
+      className={`flex h-[64px] w-[124px] shrink-0 flex-col items-center justify-center text-white ${late ? "bg-arm-late" : "bg-arm-dark"}`}
     >
       <span className="flex items-center gap-1 text-[24px] font-bold leading-none tabular-nums">
-        <Icon className="h-5 w-5" />
-        {view.value}
+        <Hourglass className="h-5 w-5" />
+        {late ? `+${fmtDuration(-left)}` : fmtDuration(left)}
       </span>
-      <span className="mt-1 text-[10px] font-semibold">{view.label}</span>
+      <span className="mt-1 text-[10px] font-semibold">{late ? "запись опаздывает" : "на первую запись"}</span>
     </div>
   );
 }
@@ -390,7 +368,7 @@ function HistoryPopup({ plate, onClose }: { plate: PlateView; onClose: () => voi
 }
 
 const HINTS: Partial<Record<ServiceStatus, string>> = {
-  ACCEPTED: "Принята — реагирование будет. В «Номер наряда» — кого отправили (номер из телефонной книжки).",
+  ACCEPTED: "Принята — реагирование будет. В «Номер наряда» — кого отправили; в комментарий — что делаете: статус без текста первой записью не считается.",
   REJECTED: "Не принята — обязательно: причина и кому передали (организация, «передано», «дубль», «КП №»).",
   STARTED: "Ставится по докладу старшего наряда о выезде. Комментарий — что делают.",
   ARRIVED: "Ставится по докладу о прибытии на место.",

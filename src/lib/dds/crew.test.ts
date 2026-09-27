@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crewPlanFor, crewSchedule, crewSecondsLeft, crewTimer, dispatchOf, stageAt } from "./crew";
+import { crewPlanFor, crewSchedule, dispatchOf, stageAt } from "./crew";
 import { callerMockReply, crewMockReply, crewRoster, mentionsCardNumber, reportLine, type CrewContext } from "./personas";
 
 const at = (sec: number) => new Date(Date.UTC(2026, 8, 17, 8, 0, sec));
@@ -97,34 +97,5 @@ describe("personas", () => {
     expect(callerMockReply(c, "Карточка 36815003, что у вас?", 2)).toContain("номер");
     expect(callerMockReply(c, "А шум в трубе давно?", 4)).toBe("Шум в трубе слышен уже час.");
     expect(callerMockReply(c, "Добрый день", 1)).toContain("Да, звонила.");
-  });
-});
-
-describe("3-minute timer of the place", () => {
-  const added = at(0);
-  const plate = (status: "RECEIVED" | "ACCEPTED" | "STARTED" | "REJECTED" | "FINISHED", events: { status: "ACCEPTED" | "STARTED" | "FINISHED"; crewNumber: string | null; at: Date }[] = []) => ({
-    status,
-    addedAt: added,
-    events: [{ status: "ADDED" as const, crewNumber: null, at: added }, ...events],
-  });
-
-  it("counts from «Добавлена», as the review does, once the service said «Принята»", () => {
-    expect(crewTimer(plate("RECEIVED"), [], 180)).toBeNull();
-    const timer = crewTimer(plate("ACCEPTED", [{ status: "ACCEPTED", crewNumber: null, at: at(20) }]), [], 180);
-    expect(timer).toEqual({ dueAt: at(180).toISOString(), sentAt: null });
-    expect(crewSecondsLeft(timer!, at(20).getTime())).toBe(160);
-    expect(crewSecondsLeft(timer!, at(200).getTime())).toBe(-20);
-  });
-
-  it("stops when a crew is named in a status or sent by phone", () => {
-    const byStatus = crewTimer(plate("STARTED", [{ status: "ACCEPTED", crewNumber: null, at: at(20) }, { status: "STARTED", crewNumber: "23", at: at(95) }]), [], 180);
-    expect(byStatus?.sentAt).toBe(at(95).toISOString());
-    const byPhone = crewTimer(plate("ACCEPTED", [{ status: "ACCEPTED", crewNumber: null, at: at(20) }]), [{ crew: "17", at: at(60) }], 180);
-    expect(byPhone?.sentAt).toBe(at(60).toISOString());
-  });
-
-  it("does not count for «Не принята» and a closed card", () => {
-    expect(crewTimer(plate("REJECTED"), [], 180)).toBeNull();
-    expect(crewTimer(plate("FINISHED", [{ status: "FINISHED", crewNumber: null, at: at(30) }]), [], 180)).toBeNull();
   });
 });

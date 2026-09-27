@@ -4,10 +4,13 @@
  * rules are tested without a database.
  *
  * Card statuses follow the control department of the 112 system:
- *   «Не оповещено» — a service did not answer «Принята» / «Не принята» within the norm;
+ *   «Не оповещено» — a service did not open the card within the norm (30 s after «Добавлена»);
  *   «Отказ»        — «Не принята» or «Отказ от выполнения работ»;
  *   «Не завершено» — the lesson is over (or 48 h passed) and a service has not closed the card.
  * These three are shown in red, as on the controller's screen.
+ *
+ * Time norms of a ДДС place, by the customer's answer of 27.09: 30 s from «Добавлена» to opening the card and
+ * 3 min to the first record — a status with a text. Statuses have no other norms: the works may take hours.
  */
 import { errorTitle } from "@/lib/scoring/errors";
 import { applyOverrides, type CriterionResult, type Overrides } from "@/lib/scoring/score";
@@ -78,7 +81,7 @@ export type BoardInput = {
       addedAt: Date;
       /** Explicit target place, when the card flow records it. */
       seatId?: string | null;
-      events: { status: PlateStatus; at: Date; seatId: string | null }[];
+      events: { status: PlateStatus; at: Date; seatId: string | null; comment?: string | null }[];
     }[];
   }[];
   calls: {
@@ -103,7 +106,7 @@ export type RedFlags = { notNotified: number; refused: number; notFinished: numb
 export type SeatLevel = { rating: number; difficulty: number; attempts: number };
 
 export type SeatTimer = {
-  phase: "ack" | "dispatch" | "brigade" | "typing" | "ringing" | "call";
+  phase: "open" | "record" | "brigade" | "typing" | "ringing" | "call";
   label: string;
   since: string; // ISO
   normSec: number | null;
@@ -158,17 +161,23 @@ type Incident = BoardInput["incidents"][number];
 
 const secBetween = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 1000;
 
-function answerAt(plate: Plate): Date | null {
-  return plate.events.find((e) => ANSWER.includes(e.status))?.at ?? null;
+/** The card opened by the service: the first event after «Добавлена» (normally «Получена службой»). */
+function openedAt(plate: Plate): Date | null {
+  return plate.events.find((e) => e.status !== "ADDED")?.at ?? null;
+}
+
+/** The first record of the service: a status with a text. */
+function recordAt(plate: Plate): Date | null {
+  return plate.events.find((e) => e.status !== "ADDED" && e.status !== "RECEIVED" && !!e.comment?.trim())?.at ?? null;
 }
 
 /** Red control flags of one plate. Phone-only and hidden services do not answer on a workstation. */
 export function plateFlags(plate: Plate, input: BoardInput["lesson"], now: Date): RedFlags {
   const flags: RedFlags = { notNotified: 0, refused: 0, notFinished: 0 };
   if (plate.delivery === "PHONE" || !plate.visible) return flags;
-  const answered = answerAt(plate);
+  const opened = openedAt(plate);
   const end = input.finishedAt && input.finishedAt < now ? input.finishedAt : now;
-  if (answered ? secBetween(plate.addedAt, answered) > input.ackSec : secBetween(plate.addedAt, end) > input.ackSec) flags.notNotified = 1;
+  if (opened ? secBetween(plate.addedAt, opened) > input.ackSec : secBetween(plate.addedAt, end) > input.ackSec) flags.notNotified = 1;
   if (plate.status === "REJECTED" || plate.status === "REFUSED" || plate.events.some((e) => e.status === "REFUSED")) flags.refused = 1;
   const over = input.status === "FINISHED" || secBetween(plate.addedAt, now) > FINISH_HOURS * 3600;
   if (over && !CLOSED.includes(plate.status)) flags.notFinished = 1;
@@ -280,13 +289,11 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
       const cur = running ? open[0] : undefined;
       let timer: SeatTimer | null = null;
       if (cur) {
-        const answered = answerAt(cur.p);
-        const started = cur.p.events.some((e) => ["STARTED", "ARRIVED", "WORKING"].includes(e.status));
         const since = cur.p.addedAt;
         const elapsed = secBetween(since, now);
-        if (!answered) timer = { phase: "ack", label: "до ответа", since: since.toISOString(), normSec: L.ackSec, late: elapsed > L.ackSec };
-        else if (!started) timer = { phase: "dispatch", label: "обработка", since: since.toISOString(), normSec: L.workSec, late: elapsed > L.workSec };
-        else timer = { phase: "brigade", label: "бригада на выезде", since: since.toISOString(), normSec: null, late: false };
+        if (!openedAt(cur.p)) timer = { phase: "open", label: "открыть карточку", since: since.toISOString(), normSec: L.ackSec, late: elapsed > L.ackSec };
+        else if (!recordAt(cur.p)) timer = { phase: "record", label: "первая запись", since: since.toISOString(), normSec: L.workSec, late: elapsed > L.workSec };
+        else timer = { phase: "brigade", label: "работа по карточке", since: since.toISOString(), normSec: null, late: false };
       }
       const red = sumFlags(mine.map(({ p }) => plateFlags(p, L, now)));
       return {
@@ -298,7 +305,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
         queue: running ? Math.max(0, open.length - (cur ? 1 : 0)) : 0,
         counts: {
           opened: mine.filter(({ p }) => p.events.some((e) => e.status !== "ADDED")).length,
-          answered: mine.filter(({ p }) => answerAt(p)).length,
+          answered: mine.filter(({ p }) => recordAt(p)).length,
           submitted: mine.filter(({ p }) => CLOSED.includes(p.status)).length,
         },
         red,

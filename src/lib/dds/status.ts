@@ -2,7 +2,7 @@
  * Response statuses of one service plate on a card, as the dispatcher memo describes them.
  *
  *   Добавлена / Получена службой  — technical, set by the system (card saved / card opened);
- *   Принята | Не принята          — the first answer, due within ackSec (30 s) after «Добавлена»;
+ *   Принята | Не принята          — the first answer of the service;
  *   Не принята → only Принята      — the dispatcher changed their mind;
  *   Принята → progress statuses    — Начало реагирования, Прибытие, Проведение работ (steps may be skipped),
  *                                    then Работы завершены or Отказ от выполнения работ, which close the card
@@ -10,6 +10,10 @@
  *
  * Служба 103 never sets «Не принята» or «Отказ»: it closes with «Работы завершены» and the comment
  * «Завершение работ без бригады» instead.
+ *
+ * Time norms, by the customer's answer of 27.09: 30 s (ackSec) from «Добавлена» to opening the card, and
+ * 3 min (workSec) from «Добавлена» to the first record — a status with a text. Statuses have no other norms:
+ * the works may take hours.
  */
 import type { ServiceStatus } from "@prisma/client";
 
@@ -85,7 +89,7 @@ export function isNoCrewClosing(current: ServiceStatus, next: ServiceStatus, rul
   return rules.noReject && next === "FINISHED" && awaitsAnswer(current);
 }
 
-/** The event that counts as the service's first answer (the 30-second norm). */
+/** The event that is the service's first answer: Принята / Не принята, or 103 closing without a crew. */
 export function isFirstAnswer(current: ServiceStatus, next: ServiceStatus): boolean {
   return awaitsAnswer(current) && !awaitsAnswer(next);
 }
@@ -144,7 +148,20 @@ export function checkTransition(input: TransitionInput): TransitionResult {
   return { ok: true, comment: comment || null, crewNumber: crew || null };
 }
 
-/** Answer given later than the norm after «Добавлена». */
-export function isLate(addedAt: Date, at: Date, ackSec: number): boolean {
-  return at.getTime() - addedAt.getTime() > ackSec * 1000;
+/** Later than `normSec` after «Добавлена». */
+export function isLate(addedAt: Date, at: Date, normSec: number): boolean {
+  return at.getTime() - addedAt.getTime() > normSec * 1000;
+}
+
+/** A record of the service (the 3-minute norm): a status the dispatcher set with a text. A bare status is not one. */
+export function isRecord(e: { status: ServiceStatus; comment: string | null }): boolean {
+  return !TECHNICAL.includes(e.status) && !!e.comment?.trim();
+}
+
+/** When the card was opened (the 30-second norm) and when its first record was made (the 3-minute norm). */
+export function normMoments(events: { status: ServiceStatus; comment: string | null; at: Date }[]): { openedAt: Date | null; recordAt: Date | null } {
+  return {
+    openedAt: events.find((e) => e.status !== "ADDED")?.at ?? null,
+    recordAt: events.find(isRecord)?.at ?? null,
+  };
 }
