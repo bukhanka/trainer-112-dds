@@ -44,11 +44,13 @@ const DEEP = [
   "Б1-1", "Б2-1", "Б4-1", "Б5-1", "Б7-1", "Б11-1", "Б13-1", "Б17-1", "Б20-1", "Б22-1", "Б26-1", "Б29-1", "Б30-3", "Б31-3", "Б32-2",
   // медицина
   "Б5-2", "Б11-2", "Б14-2", "Б17-2", "Б24-2",
+  // человек в опасности
+  "Б7-3", "Б8-3", "Б10-3", "Б18-3",
 ];
 /** Tickets whose exact address is printed in italics: the caller gives it only when asked (research/materials/bilety_all.txt). */
 const ITALIC_ADDRESS = new Set(["Б1-1", "Б3-1", "Б4-1", "Б6-1", "Б7-1", "Б8-1", "Б9-1", "Б11-1", "Б12-1", "Б13-1", "Б14-1", "Б21-1", "Б25-1", "Б26-1"]);
 /** Every lesson category a teacher picks must have approved scenarios. */
-const MIN_APPROVED: Record<string, number> = { медицина: 4 };
+const MIN_APPROVED: Record<string, number> = { медицина: 4, "человек в опасности": 4 };
 
 const approved = scenarios.filter((s) => s.status === "APPROVED");
 const serviceName = (id: number) => ref.services.find((r) => r.id === id)?.shortName ?? String(id);
