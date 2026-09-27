@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressFeed, addressTitle, classLine, fmtDateTime, fmtDuration, fmtLongDate, shortName, tagsLine } from "./format";
+import { addressFeed, addressTitle, classLine, fmtDateTime, fmtDuration, fmtLongDate, plateCaption, shortName, tagsLine } from "./format";
 
 describe("format", () => {
   it("prints dates in Moscow time like the customer's system", () => {
@@ -33,5 +33,14 @@ describe("format", () => {
 
   it("shortens a full name for status authors", () => {
     expect(shortName("Иванов Алексей Сергеевич")).toBe("Иванов А С");
+  });
+});
+
+describe("plate caption", () => {
+  it("keeps the part that tells the district ДДС apart", () => {
+    expect(plateCaption("Поселение Северное Бутово")).toBe("Северное Бутово");
+    expect(plateCaption("Поселение ЮЗАО")).toBe("ЮЗАО");
+    expect(plateCaption("101")).toBe("101");
+    expect(plateCaption("ГБУ «Жилищник района»")).toBe("ГБУ «Жилищник района»");
   });
 });

@@ -5,6 +5,7 @@
 import type { Prisma, ServiceDelivery, ServiceStatus } from "@prisma/client";
 import type { DescriptionEntry, IncidentAddress, IncidentCaller, IncidentFlags, TagChoice } from "@/lib/incident/types";
 import { db } from "@/lib/db";
+import type { CrewTimer } from "./crew";
 import { addressFeed, addressTitle, classLine, fmtHM, tagsLine } from "./format";
 import { servicePhone } from "./personas";
 import { ddsCardOf } from "./scenario";
@@ -146,13 +147,15 @@ export type FeedRow = {
   ownAddedAt: string;
   answeredAt: string | null;
   answerLate: boolean;
+  /** 3 minutes to send the crew after «Принята» (null — not counting now). */
+  crew: CrewTimer | null;
   closed: boolean;
   important: boolean;
   description: DescriptionEntry | null;
   preview: { services: string; caller: string; info: string };
 };
 
-export function feedRow(incident: IncidentFull, ownServiceId: number, info: TypeInfo): FeedRow | null {
+export function feedRow(incident: IncidentFull, ownServiceId: number, info: TypeInfo, crew: CrewTimer | null = null): FeedRow | null {
   const own = incident.services.find((p) => p.serviceId === ownServiceId);
   if (!own) return null;
   const answer = firstAnswer(own);
@@ -180,6 +183,7 @@ export function feedRow(incident: IncidentFull, ownServiceId: number, info: Type
     ownAddedAt: own.addedAt.toISOString(),
     answeredAt: answer?.at.toISOString() ?? null,
     answerLate: !!answer?.late,
+    crew,
     closed: isClosed(own.status) || own.status === "REJECTED",
     important: incident.important,
     description: log.length ? log[log.length - 1] : incident.description ? { at: "", author: "", text: incident.description } : null,

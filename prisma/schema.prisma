@@ -81,6 +81,8 @@ model Group {
   members   GroupMember[]
   lessons   Lesson[]
   createdAt DateTime      @default(now())
+  /// A finished course: hidden from new lessons and forecasts, its history stays in the reports
+  archivedAt DateTime?
 }
 
 model GroupMember {
@@ -353,6 +355,7 @@ enum CallKind {
 enum CallStatus {
   RINGING
   ACTIVE
+  HELD // «Удержание» at the ДДС place: the counterpart waits on the line, the line is free for another call
   ENDED
   MISSED
 }
@@ -373,6 +376,8 @@ model Call {
   /// [{ role: counterpart|trainee, text, at }]
   messages    Json       @default("[]")
   audioPath   String?
+  /// «Удержание» periods [{ from, to? }]; the last one stays open while status = HELD
+  holds       Json       @default("[]")
   startedAt   DateTime   @default(now())
   answeredAt  DateTime?
   endedAt     DateTime?

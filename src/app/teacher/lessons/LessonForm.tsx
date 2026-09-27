@@ -159,7 +159,7 @@ export function LessonForm({
                 ))}
               </select>
             ) : (
-              <span className="text-sm text-red-700">У вас нет групп. Администратор создаёт группы и назначает преподавателя.</span>
+              <span className="text-sm text-red-700">У вас нет групп. Создайте группу и добавьте учеников в разделе «Группы».</span>
             )}
           </label>
         </div>
@@ -415,7 +415,7 @@ export function LessonForm({
             })}
           </ul>
         ) : (
-          <p className="text-sm text-arm-desc">В группе нет учеников.</p>
+          <p className="text-sm text-arm-desc">В группе нет учеников — добавьте их в разделе «Группы».</p>
         )}
         <div className="mt-2 text-sm text-arm-desc">
           Мест: {included.length} · 112: {included.filter((m) => seats[m.id].role === "OP112").length} · ДДС:{" "}

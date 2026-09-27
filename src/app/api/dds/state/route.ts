@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { phoneState } from "@/lib/dds/calls";
 import { closeLessonCalls, evaluateSeatPlates } from "@/lib/dds/review";
 import { seatForUser, seatInfo } from "@/lib/dds/seat";
+import { isBusyError } from "@/lib/dds/tx";
 import { ensureDdsFlow, seatFeedWhere, settingsOf, type FlowInfo } from "@/lib/flow/dds-flow";
 
 // The flow (new cards, other plates, crew calls) needs a resolution of seconds, not of every poll:
@@ -49,12 +50,17 @@ export async function GET(request: NextRequest) {
     nextCardInSec: null,
     noScenarios: false,
   };
+  // A step that could not get its turn at a busy moment is skipped: the next poll a second later makes it.
+  const skipWhenBusy = (what: string) => (err: unknown) => {
+    if (!isBusyError(err)) throw err;
+    console.error(`dds ${what} skipped: the database is busy`, seat.id);
+  };
   // The flow moves only from the owner's screen: a watching teacher must not deal cards.
-  if (!readOnly) flow = await throttledFlow(seat.id);
+  if (!readOnly) flow = (await throttledFlow(seat.id).catch(skipWhenBusy("flow step"))) ?? flow;
   // A finished lesson gets its calls closed and its review even if the teacher's side did not trigger it.
   if (seat.lesson.status === "FINISHED" && seat.studentId === user.id) {
     await closeLessonCalls(seat.lessonId);
-    await evaluateSeatPlates(seat);
+    await evaluateSeatPlates(seat).catch(skipWhenBusy("final review"));
   }
 
   const waiting = seat.serviceId

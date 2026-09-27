@@ -82,6 +82,15 @@ export function fmtLongDate(d: Date | string | number): string {
   return `${p.weekday}, ${Number(p.dd)} ${MONTHS[Number(p.mm) - 1]} ${p.yyyy}`;
 }
 
+/**
+ * Caption of a service plate: 156 district ДДС of the customer's list are named «Поселение …», so on a
+ * narrow plate «Поселение Северное Бутово» and «Поселение ЮЗАО» both became «Поселение …». The common word
+ * goes, the distinguishing part stays; the full name is in the plate's hint.
+ */
+export function plateCaption(shortName: string): string {
+  return shortName.replace(/^Поселение\s+/, "").trim() || shortName;
+}
+
 /** «0:42», «12:05» */
 export function fmtDuration(sec: number): string {
   const s = Math.max(0, Math.floor(sec));

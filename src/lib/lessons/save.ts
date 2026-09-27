@@ -25,6 +25,7 @@ export async function resolveLessonInput(
     include: { members: { select: { userId: true } } },
   });
   if (!group) return { ok: false, error: "Группа не найдена" };
+  if (group.archivedAt) return { ok: false, error: "Группа в архиве: верните её в разделе «Группы» или выберите другую" };
 
   const { seats, error } = normalizeSeats(input);
   if (error) return { ok: false, error };

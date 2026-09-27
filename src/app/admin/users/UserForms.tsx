@@ -5,8 +5,11 @@ import { createUser, resetPassword, setBlocked, type ActionState } from "./actio
 
 const input = "h-9 border border-arm-plate-gray bg-white px-2 text-sm outline-none focus:border-arm-blue";
 
-export function CreateUserForm() {
+export type GroupChoice = { id: string; name: string; teacher: string | null };
+
+export function CreateUserForm({ groups = [] }: { groups?: GroupChoice[] }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(createUser, {});
+  const [role, setRole] = useState("STUDENT");
   return (
     <form action={action} className="flex flex-wrap items-end gap-2 rounded border bg-white p-3">
       <label className="flex flex-col text-xs text-arm-desc">
@@ -19,12 +22,26 @@ export function CreateUserForm() {
       </label>
       <label className="flex flex-col text-xs text-arm-desc">
         Роль
-        <select name="role" className={input} defaultValue="STUDENT">
+        <select name="role" className={input} value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="STUDENT">Обучающийся</option>
           <option value="TEACHER">Преподаватель</option>
           <option value="ADMIN">Администратор</option>
         </select>
       </label>
+      {role === "STUDENT" && (
+        <label className="flex flex-col text-xs text-arm-desc">
+          Добавить в группу
+          <select name="groupId" className={`${input} w-64`} defaultValue="">
+            <option value="">— без группы —</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+                {g.teacher ? ` · ${g.teacher}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="flex flex-col text-xs text-arm-desc">
         Пароль
         <input name="password" type="password" required className={input} />

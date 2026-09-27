@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { plateCaption } from "@/lib/dds/format";
 import { hhmm } from "./format";
 import { IconAlert, IconBell, IconChevronUp, IconClose, IconHand, IconLink, IconPhone, IconPlus, IconStopwatch } from "./icons";
 
@@ -62,8 +63,10 @@ export function ServicesBar(p: {
                 <IconClose className="h-3.5 w-3.5" />
               </button>
             )}
-            <span className={`w-full truncate text-center text-[13px] font-bold ${s.isMain ? "underline decoration-double underline-offset-4" : ""}`}>
-              {s.shortName}
+            <span
+              className={`line-clamp-2 w-full break-words text-center font-bold leading-[1.1] ${plateCaption(s.shortName).length > 11 ? "text-[11.5px]" : "text-[13px]"} ${s.isMain ? "underline decoration-double underline-offset-4" : ""}`}
+            >
+              {plateCaption(s.shortName)}
             </span>
             {p.saved && s.status && (
               <span className="mt-0.5 text-[10.5px] text-white/85">

@@ -9,6 +9,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
   const { id } = await ctx.params;
   const lesson = await findLesson(user, id);
   if (!lesson) return jsonError("Занятие не найдено", 404);
+  if (lesson.groupId && (await db.group.count({ where: { id: lesson.groupId, archivedAt: { not: null } } }))) {
+    return jsonError("Группа занятия в архиве: верните её в разделе «Группы», чтобы провести занятие ещё раз.", 409);
+  }
 
   // Only students who are still in the group and not blocked keep their places.
   const members = lesson.groupId

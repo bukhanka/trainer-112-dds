@@ -7,7 +7,9 @@ import { requireUser } from "@/lib/auth/session";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { getStudentResults } from "@/lib/student/results";
 import { viewerSession } from "@/lib/student/viewer";
+import { MyTasksSection } from "../MyTasks";
 import { MyForecast } from "./MyForecast";
+import { MyReactionSection } from "./MyReaction";
 
 export default async function MyResultsPage() {
   const user = await requireUser(["STUDENT"]);
@@ -19,6 +21,8 @@ export default async function MyResultsPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
       <PageHeader title="Мои результаты" subtitle="Оценка появляется после проверки преподавателем. До этого попытка — «на проверке»." />
+
+      <MyTasksSection studentId={user.id} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
@@ -37,6 +41,8 @@ export default async function MyResultsPage() {
       </div>
 
       <MyForecast view={forecast} />
+
+      <MyReactionSection studentId={user.id} viewer={viewer} />
 
       <Section title="Прогресс по занятиям">
         {r.progress.length ? (

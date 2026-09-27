@@ -23,6 +23,16 @@ export const Stopwatch = svg(
     <path d="M12 9v4l2 2M10 2h4M12 2v3" />
   </>,
 );
+/** Crew car: the 3-minute timer for sending the crew. */
+export const Car = svg(
+  <>
+    <path d="M3 16v-4l2-5h10l4 5h2v4h-2" />
+    <path d="M3 16h2m4 0h6" />
+    <circle cx="7" cy="17" r="2" />
+    <circle cx="17" cy="17" r="2" />
+    <path d="M9 7v5h8" />
+  </>,
+);
 export const Clipboard = svg(
   <>
     <rect x="5" y="4" width="14" height="18" rx="2" fill="currentColor" stroke="none" />
@@ -80,6 +90,7 @@ export const Warning = svg(
     <path d="M12 9v5M12 17h.01" stroke="#ec653b" />
   </>,
 );
+export const Pause = svg(<path d="M8 5v14M16 5v14" strokeWidth={3} />);
 export const Close = svg(<path d="M6 6l12 12M18 6 6 18" />);
 export const Check = svg(<path d="m5 12 5 5 9-10" />);
 export const Exclaim = svg(

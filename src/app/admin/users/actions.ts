@@ -16,6 +16,7 @@ const createSchema = z.object({
   fullName: z.string().trim().min(3, "Укажите ФИО"),
   role: z.enum(["ADMIN", "TEACHER", "STUDENT"]),
   password: z.string(),
+  groupId: z.string().max(40).optional(), // «добавить в группу» for a new student; empty — no group
 });
 
 export async function createUser(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -25,13 +26,18 @@ export async function createUser(_prev: ActionState, form: FormData): Promise<Ac
   const problem = passwordProblem(parsed.data.password);
   if (problem) return { error: problem };
   if (await db.user.findUnique({ where: { login: parsed.data.login } })) return { error: "Такой логин уже есть" };
+  const groupId = parsed.data.role === "STUDENT" ? parsed.data.groupId?.trim() : "";
+  const group = groupId ? await db.group.findFirst({ where: { id: groupId, archivedAt: null }, select: { id: true, name: true } }) : null;
+  if (groupId && !group) return { error: "Группа не найдена или убрана в архив" };
 
+  // The account and its membership are written together: a student never ends up half-created.
   const user = await db.user.create({
     data: {
       login: parsed.data.login,
       fullName: parsed.data.fullName,
       role: parsed.data.role as Role,
       passwordHash: await hashPassword(parsed.data.password),
+      ...(group ? { memberships: { create: { groupId: group.id } } } : {}),
     },
   });
   await audit({
@@ -40,10 +46,21 @@ export async function createUser(_prev: ActionState, form: FormData): Promise<Ac
     actor: admin.login,
     entity: "User",
     entityId: user.id,
-    after: { login: user.login, fullName: user.fullName, role: user.role },
+    after: { login: user.login, fullName: user.fullName, role: user.role, group: group?.name ?? null },
   });
+  if (group) {
+    await audit({
+      action: "group.member.add",
+      actorId: admin.id,
+      actor: admin.login,
+      entity: "Group",
+      entityId: group.id,
+      after: { group: group.name, studentId: user.id, student: user.login, fullName: user.fullName },
+    });
+  }
   revalidatePath("/admin/users");
-  return { ok: `Создан пользователь ${user.login}` };
+  revalidatePath("/admin/groups");
+  return { ok: `Создан пользователь ${user.login}${group ? ` — в группе «${group.name}»` : ""}` };
 }
 
 export async function setBlocked(userId: string, blocked: boolean): Promise<ActionState> {

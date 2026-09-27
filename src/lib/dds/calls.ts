@@ -3,7 +3,8 @@
  *   — the crew leader calls in with a report when the crew reaches a stage (BRIGADE_IN, rings 25 s);
  *   — the dispatcher calls the crew, the applicant (#739–740) or another service from the card.
  * Every line is kept in Call.messages; crew reports are also kept in Call.counterpart.reports so the
- * review can check that the matching status was set in time.
+ * review can check that the matching status was set in time. «Удержание» parks a call (status HELD, the
+ * periods in Call.holds): the counterpart waits and the line is free for another call.
  */
 import type { Call, CallKind, Prisma, ServiceStatus } from "@prisma/client";
 import { chat, type ChatMessage } from "@/lib/ai/provider";
@@ -12,6 +13,7 @@ import type { CallerPersona, IncidentAddress, IncidentCaller } from "@/lib/incid
 import type { LessonSettings } from "@/lib/lessons/settings";
 import { crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
 import { addressShort } from "./format";
+import { endHold, readHolds, resumeLine, startHold, type HoldPeriod } from "./hold";
 import {
   callerGreeting,
   callerMockReply,
@@ -38,6 +40,7 @@ import {
 import { personaOf, referenceFor } from "./scenario";
 import { seatFeedWhere, settingsOf } from "./scope";
 import type { DdsSeat } from "./seat";
+import { DDS_TX as TX, isBusyError, SERVER_BUSY } from "./tx";
 
 type Tx = Prisma.TransactionClient;
 /** What the phone needs to know about the place. */
@@ -45,6 +48,8 @@ type PhoneSeat = Pick<DdsSeat, "id" | "lessonId" | "serviceId" | "service" | "le
 
 /** An unanswered incoming call is lost after this many seconds. */
 export const RING_SEC = 25;
+
+
 
 export type CallMessage = { role: "counterpart" | "trainee"; text: string; at: string };
 export type Report = { status: ServiceStatus | "DISPATCHED"; at: string };
@@ -89,6 +94,16 @@ function phoneDispatches(calls: Pick<Call, "counterpart">[], incidentId: string)
     .map(cp)
     .filter((c) => c.kind === "crew" && c.crew && c.dispatch?.incidentId === incidentId)
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
+}
+
+/** Crews sent to cards by phone, per card: the dispatch the 3-minute timer and the review both count. */
+export function phoneDispatchesByIncident(calls: Pick<Call, "counterpart">[]): Map<string, { crew: string; at: Date }[]> {
+  const out = new Map<string, { crew: string; at: Date }[]>();
+  for (const c of calls.map(cp)) {
+    if (c.kind !== "crew" || !c.crew || !c.dispatch) continue;
+    out.set(c.dispatch.incidentId, [...(out.get(c.dispatch.incidentId) ?? []), { crew: c.crew, at: new Date(c.dispatch.at) }]);
+  }
+  return out;
 }
 
 type CrewState = { dispatch: Dispatch | null; stage: ServiceStatus | null; ctxFor: (member: CrewMember) => CrewContext };
@@ -159,7 +174,7 @@ export async function phoneTick(tx: Tx, seat: PhoneSeat, settings: LessonSetting
     if (!state.dispatch || !state.stage) continue;
     const told = new Set(mine.flatMap((c) => [...(cp(c).reports ?? []).map((r) => r.status), cp(c).stage]));
     if (told.has(state.stage)) continue;
-    if (mine.some((c) => c.status === "RINGING" || c.status === "ACTIVE")) continue;
+    if (mine.some((c) => c.status === "RINGING" || c.status === "ACTIVE" || c.status === "HELD")) continue;
     const member = crewByNumber(seat.service, state.dispatch.crew);
     const counterpart: Counterpart = {
       kind: "crew",
@@ -205,11 +220,21 @@ export type CallBrief = {
   answeredAt: string | null;
   endedAt: string | null;
   messages: CallMessage[];
+  /** «Удержание» periods; the last one is open while the call waits on hold. */
+  holds: HoldPeriod[];
 };
 
 export type BookEntry = { group: string; name: string; role: string; phone: string; incidentId?: string };
 
-export type PhoneState = { current: CallBrief | null; ringing: CallBrief[]; log: CallBrief[]; book: BookEntry[]; crews: CrewMember[] };
+export type PhoneState = {
+  current: CallBrief | null;
+  ringing: CallBrief[];
+  /** Calls waiting on hold, the latest first. */
+  held: CallBrief[];
+  log: CallBrief[];
+  book: BookEntry[];
+  crews: CrewMember[];
+};
 
 function brief(call: Call & { incident: { number: number } | null }): CallBrief {
   const c = cp(call);
@@ -229,6 +254,7 @@ function brief(call: Call & { incident: { number: number } | null }): CallBrief 
     answeredAt: call.answeredAt?.toISOString() ?? null,
     endedAt: call.endedAt?.toISOString() ?? null,
     messages: msgs(call),
+    holds: readHolds(call.holds),
   };
 }
 
@@ -243,6 +269,7 @@ export async function phoneState(seat: DdsSeat): Promise<PhoneState> {
   return {
     current: briefs.find((c) => c.status === "ACTIVE") ?? null,
     ringing: briefs.filter((c) => c.status === "RINGING"),
+    held: briefs.filter((c) => c.status === "HELD"),
     log: briefs,
     book: await phoneBook(seat),
     crews: seat.service ? crewRoster(seat.service) : [],
@@ -305,7 +332,7 @@ async function reload(id: string): Promise<CallBrief> {
 }
 
 /** Dial a number from the card, the phone book or the keypad. */
-export async function dial(seat: DdsSeat, number: string, incidentId?: string | null, now = new Date()): Promise<CallResult> {
+async function dialNumber(seat: DdsSeat, number: string, incidentId: string | null | undefined, now: Date): Promise<CallResult> {
   if (seat.lesson.status !== "RUNNING") return fail("Занятие завершено", 409);
   if (!seat.service) return fail("У места не выбрана служба", 409);
   if (await db.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" }, select: { id: true } })) return fail(BUSY, 409);
@@ -394,10 +421,15 @@ export async function dial(seat: DdsSeat, number: string, incidentId?: string | 
   return fail("Абонент не найден: наберите номер из карточки или из телефонной книжки", 404);
 }
 
-/** One line per place: taking the handset (dialling or answering) is serialised by this lock. */
+/** One line per place: taking the handset (dialling, answering, hold) is serialised by this lock. */
 async function lockLine(tx: Prisma.TransactionClient, seatId: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-line:${seatId}`}))`;
   return !!(await tx.call.findFirst({ where: { seatId, status: "ACTIVE" }, select: { id: true } }));
+}
+
+/** Lines of one call (messages, hold periods) are rewritten under this lock; taken after the line lock. */
+async function lockCall(tx: Prisma.TransactionClient, callId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-call:${callId}`}))`;
 }
 
 const BUSY = "Сначала положите трубку текущего разговора";
@@ -419,7 +451,7 @@ async function startCall(seat: DdsSeat, kind: CallKind, incidentId: string | nul
       },
     });
     return call.id;
-  });
+  }, TX);
   if (!id) return fail(BUSY, 409);
   return { ok: true, call: await reload(id) };
 }
@@ -434,10 +466,13 @@ async function incidentFor(seat: DdsSeat, incidentId: string | null): Promise<Ca
 }
 
 /** Pick up an incoming call: the crew leader speaks first with the report. */
-export async function answer(seat: DdsSeat, callId: string, now = new Date()): Promise<CallResult> {
+async function answerCall(seat: DdsSeat, callId: string, now: Date): Promise<CallResult> {
   const call = await ownCall(seat, callId);
   if (!call) return fail("Звонок не найден", 404);
   if (call.status !== "RINGING") return fail("Звонок уже завершён", 409);
+  // A ring longer than RING_SEC is lost: the flow is turning it into a missed call right now, and
+  // answering it would only wait for the flow's transaction.
+  if (now.getTime() - call.startedAt.getTime() > RING_SEC * 1000) return fail("Звонок уже пропущен — перезвоните сами", 409);
   const c = cp(call);
   const incident = await incidentFor(seat, call.incidentId);
   let text = "Диспетчер, слушаю.";
@@ -462,16 +497,18 @@ export async function answer(seat: DdsSeat, callId: string, now = new Date()): P
       },
     });
     return moved.count ? null : "Звонок уже завершён";
-  });
+  }, TX);
   if (result) return fail(result, 409);
   return { ok: true, call: await reload(call.id) };
 }
 
+const ON_HOLD = "Разговор на удержании — сначала снимите его с удержания";
+
 /** Say a line in the current call and get the answer (model, or the offline lines). */
-export async function say(seat: DdsSeat, callId: string, text: string, now = new Date()): Promise<CallResult> {
+async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): Promise<CallResult> {
   const call = await ownCall(seat, callId);
   if (!call) return fail("Звонок не найден", 404);
-  if (call.status !== "ACTIVE") return fail("Разговор уже завершён", 409);
+  if (call.status !== "ACTIVE") return fail(call.status === "HELD" ? ON_HOLD : "Разговор уже завершён", 409);
   const line = text.trim().replace(/\s+/g, " ").slice(0, 600);
   if (!line) return fail("Пустая реплика");
 
@@ -535,9 +572,9 @@ export async function say(seat: DdsSeat, callId: string, text: string, now = new
   const before = cp(call);
   const newReports = (c.reports ?? []).slice((before.reports ?? []).length);
   const saved = await db.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-call:${call.id}`}))`;
+    await lockCall(tx, call.id);
     const fresh = await tx.call.findUnique({ where: { id: call.id } });
-    if (!fresh || fresh.status !== "ACTIVE") return false;
+    if (!fresh || fresh.status !== "ACTIVE") return fresh?.status === "HELD" ? ON_HOLD : "Разговор уже завершён";
     const cur = cp(fresh);
     const merged: Counterpart = {
       ...cur,
@@ -549,9 +586,9 @@ export async function say(seat: DdsSeat, callId: string, text: string, now = new
       where: { id: call.id },
       data: { messages: [...msgs(fresh), ...said] as Prisma.InputJsonValue, counterpart: merged as Prisma.InputJsonValue },
     });
-    return true;
-  });
-  if (!saved) return fail("Разговор уже завершён", 409);
+    return null;
+  }, TX);
+  if (saved) return fail(saved, 409);
   return { ok: true, call: await reload(call.id) };
 }
 
@@ -570,12 +607,89 @@ async function speakAs(prompt: string, history: CallMessage[], line: string, fal
   }
 }
 
-/** Put the handset down: an active call ends, a ringing one is declined and counts as missed. */
-export async function hangUp(seat: DdsSeat, callId: string, now = new Date()): Promise<CallResult> {
+/** Put the handset down: an active or held call ends, a ringing one is declined and counts as missed. */
+async function hangUpCall(seat: DdsSeat, callId: string, now: Date): Promise<CallResult> {
   const call = await ownCall(seat, callId);
   if (!call) return fail("Звонок не найден", 404);
+  if (call.status === "HELD") {
+    // The counterpart hears the hang-up while waiting: the open hold period ends with the call.
+    await db.$transaction(async (tx) => {
+      await lockLine(tx, seat.id);
+      await lockCall(tx, call.id);
+      const fresh = await tx.call.findUnique({ where: { id: call.id } });
+      if (fresh?.status !== "HELD") return;
+      await tx.call.update({ where: { id: call.id }, data: { status: "ENDED", endedAt: now, holds: endHold(readHolds(fresh.holds), now) as Prisma.InputJsonValue } });
+    }, TX);
+  }
   // Conditional steps: a call answered a moment ago must not turn into a missed one.
   const ended = await db.call.updateMany({ where: { id: call.id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
   if (!ended.count) await db.call.updateMany({ where: { id: call.id, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
   return { ok: true, call: await reload(call.id) };
 }
+
+/** «Удержание»: the counterpart waits on the line, the line is free for another call. */
+async function holdCall(seat: DdsSeat, callId: string, now: Date): Promise<CallResult> {
+  const error = await db.$transaction(async (tx) => {
+    await lockLine(tx, seat.id);
+    await lockCall(tx, callId);
+    const call = await tx.call.findFirst({ where: { id: callId, seatId: seat.id } });
+    if (!call) return "Звонок не найден";
+    if (call.status === "HELD") return null; // a second click: already waiting
+    if (call.status !== "ACTIVE") return "Разговор уже завершён";
+    await tx.call.update({ where: { id: call.id }, data: { status: "HELD", holds: startHold(readHolds(call.holds), now) as Prisma.InputJsonValue } });
+    return null;
+  }, TX);
+  if (error) return fail(error, error === "Звонок не найден" ? 404 : 409);
+  return { ok: true, call: await reload(callId) };
+}
+
+/**
+ * «Снять с удержания»: back to the waiting counterpart, who says they are still on the line. One line per
+ * place: a conversation going on now goes on hold in its turn, as on a switchboard.
+ */
+async function resumeCall(seat: DdsSeat, callId: string, now: Date): Promise<CallResult> {
+  const error = await db.$transaction(async (tx) => {
+    await lockLine(tx, seat.id);
+    await lockCall(tx, callId);
+    const call = await tx.call.findFirst({ where: { id: callId, seatId: seat.id } });
+    if (!call) return "Звонок не найден";
+    if (call.status === "ACTIVE") return null;
+    if (call.status !== "HELD") return "Собеседник уже положил трубку";
+    const talking = await tx.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" } });
+    if (talking) {
+      await lockCall(tx, talking.id);
+      await tx.call.update({ where: { id: talking.id }, data: { status: "HELD", holds: startHold(readHolds(talking.holds), now) as Prisma.InputJsonValue } });
+    }
+    await tx.call.update({
+      where: { id: call.id },
+      data: {
+        status: "ACTIVE",
+        holds: endHold(readHolds(call.holds), now) as Prisma.InputJsonValue,
+        messages: [...msgs(call), { role: "counterpart", text: resumeLine(cp(call).kind), at: now.toISOString() }] as Prisma.InputJsonValue,
+      },
+    });
+    return null;
+  }, TX);
+  if (error) return fail(error, error === "Звонок не найден" ? 404 : 409);
+  return { ok: true, call: await reload(callId) };
+}
+
+/** A phone step that waited too long for a connection or a lock answers in words (503), not with a bare 500. */
+async function guarded(step: () => Promise<CallResult>): Promise<CallResult> {
+  try {
+    return await step();
+  } catch (err) {
+    if (isBusyError(err)) {
+      console.error("dds phone step did not get its turn", err);
+      return fail(SERVER_BUSY, 503);
+    }
+    throw err;
+  }
+}
+
+export const dial = (seat: DdsSeat, number: string, incidentId?: string | null, now = new Date()) => guarded(() => dialNumber(seat, number, incidentId, now));
+export const answer = (seat: DdsSeat, callId: string, now = new Date()) => guarded(() => answerCall(seat, callId, now));
+export const say = (seat: DdsSeat, callId: string, text: string, now = new Date()) => guarded(() => sayLine(seat, callId, text, now));
+export const hangUp = (seat: DdsSeat, callId: string, now = new Date()) => guarded(() => hangUpCall(seat, callId, now));
+export const hold = (seat: DdsSeat, callId: string, now = new Date()) => guarded(() => holdCall(seat, callId, now));
+export const resume = (seat: DdsSeat, callId: string, now = new Date()) => guarded(() => resumeCall(seat, callId, now));

@@ -45,7 +45,7 @@ export function buildGroupForecast(students: { id: string; name: string; groups:
 
 export async function getGroupForecast(user: SessionUser): Promise<GroupForecast> {
   const groups = await db.group.findMany({
-    where: groupScope(user),
+    where: { ...groupScope(user), archivedAt: null },
     orderBy: { name: "asc" },
     select: { name: true, members: { select: { user: { select: { id: true, fullName: true, role: true } } } } },
   });
