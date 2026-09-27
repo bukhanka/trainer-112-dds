@@ -287,7 +287,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
             max={100}
             labelWidth="22rem"
             bars={report.typical.slice(0, 10).map((t) => ({
-              key: t.code,
+              key: t.title,
               label: t.title,
               title: WEIGHT_GROUPS[t.group],
               value: t.rate,
