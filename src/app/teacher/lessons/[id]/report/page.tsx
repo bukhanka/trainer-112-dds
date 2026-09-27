@@ -7,7 +7,7 @@ import { lessonLevels } from "@/lib/adaptive/report";
 import { lessonForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { formatDateTime, formatDelta, formatDuration, shortName } from "@/lib/format";
+import { formatDateTime, formatDelta, formatDuration, plural, shortName } from "@/lib/format";
 import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
 import { describePassRules } from "@/lib/scoring/pass";
@@ -88,7 +88,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         <Stat
           label="Согласие преподавателя с черновиком"
           value={s.agreement.rate == null ? "—" : `${s.agreement.rate} %`}
-          hint={s.agreement.checks ? `исправлено ${s.agreement.changed} из ${s.agreement.checks} проверок${s.agreement.aiChecks ? `, из них ИИ: ${s.agreement.aiChanged} из ${s.agreement.aiChecks}` : ""}` : undefined}
+          hint={s.agreement.checks ? `исправлено ${s.agreement.changed} из ${s.agreement.checks} ${plural(s.agreement.checks, ["проверки", "проверок", "проверок"])}${s.agreement.aiChecks ? `, из них ИИ: ${s.agreement.aiChanged} из ${s.agreement.aiChecks}` : ""}` : undefined}
         />
       </div>
 
@@ -323,7 +323,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
                       <td
                         key={c.group}
                         className={`rounded p-1.5 text-center tabular-nums ${heatColor(c.rate)}`}
-                        title={c.applicable ? `${c.failed} из ${c.applicable} проверок провалено` : "не проверялось"}
+                        title={c.applicable ? `${c.failed} из ${c.applicable} ${plural(c.applicable, ["проверки", "проверок", "проверок"])} провалено` : "не проверялось"}
                       >
                         {c.rate == null ? "—" : `${c.rate} %`}
                       </td>

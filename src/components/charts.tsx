@@ -3,6 +3,7 @@
  * at zero and the axis shows its range. No chart library — the report must open offline and print.
  */
 import type { CSSProperties, ReactNode } from "react";
+import { countLabel } from "@/lib/format";
 
 export type Bar = {
   key: string;
@@ -151,7 +152,7 @@ export function ForecastScatter({ points }: { points: ScatterPoint[] }) {
   const ticks = [0, 25, 50, 75, 100];
   return (
     <figure className="flex flex-col gap-1">
-      <svg viewBox={`0 0 ${L + W + 14} ${T + H + 44}`} className="w-full max-w-md" role="img" aria-label={`Прогноз и факт: ${points.length} учеников-занятий`}>
+      <svg viewBox={`0 0 ${L + W + 14} ${T + H + 44}`} className="w-full max-w-md" role="img" aria-label={`Прогноз и факт: ${countLabel(points.length, ["ученик-занятие", "ученика-занятия", "учеников-занятий"])}`}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={x(t)} x2={x(t)} y1={T} y2={T + H} className="stroke-arm-gray/60" strokeWidth={1} />

@@ -3,7 +3,7 @@ import { Badge, Empty, LESSON_STATUS, PageHeader } from "@/components/ui";
 import { getForecastHistory, getGroupForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { countLabel, formatDateTime } from "@/lib/format";
 import { lessonScope } from "@/lib/teacher/access";
 import { ForecastHistorySection } from "./ForecastHistorySection";
 import { GroupForecastSection } from "./GroupForecastSection";
@@ -53,7 +53,7 @@ export default async function ReportsPage() {
                     {l.title}
                   </Link>
                   <div className="text-xs text-arm-desc">
-                    {l.group?.name ?? "без группы"} · {formatDateTime(l.startedAt)} · {l._count.seats} мест
+                    {l.group?.name ?? "без группы"} · {formatDateTime(l.startedAt)} · {countLabel(l._count.seats, ["место", "места", "мест"])}
                   </div>
                 </div>
                 <Badge tone={ls.tone}>{ls.label}</Badge>
