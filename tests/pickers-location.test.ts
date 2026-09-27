@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Seat } from "@prisma/client";
 
-// Which card comes next when the lesson has a location.
+// Which card comes next when the lesson has a location, and when the same ticket is already in play
+// at a place of the other role (a ДДС card that repeats the 112 call, or the other way round).
 const store = vi.hoisted(() => ({
   pool: [] as { id: string; difficulty: number; truth: unknown }[],
   openInDds: [] as { scenarioId: string }[],
@@ -66,6 +67,24 @@ describe("ДДС place", () => {
     expect(await pickScenario(tx(), seat(), settings({ location: { okrug: "ЮАО" } }), true)).toBeNull();
     expect((await pickScenario(tx(), seat(["arbat"]), settings({ location: { okrug: "СЗАО" } }), true))?.id).toBe("arbat");
   });
+
+  it("skips the ticket a 112 place of the lesson is working on — an open card or a ringing call", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const szao = settings({ location: { okrug: "СЗАО" } });
+    for (const adaptive of [true, false]) {
+      expect((await pickScenario(tx({ busy112: ["shchukino"] }), seat(), szao, adaptive))?.id).toBe("mitino");
+      expect((await pickScenario(tx({ ringing: ["mitino"] }), seat(), szao, adaptive))?.id).toBe("shchukino");
+    }
+  });
+
+  it("still deals when every choice is busy — a repeat is better than an empty feed", async () => {
+    const szao = settings({ location: { okrug: "СЗАО" } });
+    expect(await pickScenario(tx({ busy112: ["shchukino"], ringing: ["mitino"] }), seat(), szao, true)).not.toBeNull();
+  });
+
+  it("keeps the teacher's order of tasks even when a 112 place has the same one", async () => {
+    expect((await pickScenario(tx({ busy112: ["arbat"] }), seat(["arbat", "mitino"]), settings(), false))?.id).toBe("arbat");
+  });
 });
 
 describe("112 place", () => {
@@ -77,5 +96,15 @@ describe("112 place", () => {
     expect((await nextScenario(seat({ adaptive: false, location: { okrug: "ЦАО" } })))?.id).toBe("arbat");
     expect(await nextScenario(seat({ adaptive: false, location: { okrug: "ЮАО" } }))).toBeNull();
     expect((await nextScenario(seat({ adaptive: false, location: { okrug: "ЮАО" } }, ["mitino"])))?.id).toBe("mitino");
+  });
+
+  it("does not ring with a situation open in a ДДС feed of the lesson while there is another", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    store.pool = pool.slice(0, 2);
+    store.openInDds = [{ scenarioId: "shchukino" }];
+    expect((await nextScenario(seat({ adaptive: false })))?.id).toBe("mitino");
+    expect((await nextScenario(seat({})))?.id).toBe("mitino");
+    store.openInDds = [{ scenarioId: "shchukino" }, { scenarioId: "mitino" }];
+    expect(await nextScenario(seat({ adaptive: false }))).not.toBeNull();
   });
 });
