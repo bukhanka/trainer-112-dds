@@ -250,7 +250,6 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   const endComment = closing ?? (decision === "reject" ? decisionEvent : null);
   if (endComment && ref?.finalMust.length && ref.decision !== "open" && !noCrewClose) {
     const text = endComment.comment ?? "";
-    const hit = ref.finalMust.filter((p) => phraseCovered(text, p));
     const miss = ref.finalMust.filter((p) => !phraseCovered(text, p));
     out.push({
       code: "dds.comment_content",
