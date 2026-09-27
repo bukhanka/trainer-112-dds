@@ -104,7 +104,8 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     crews: phone?.crews ?? [],
     dial: (value, opts) => {
       setOpen(true);
-      void run("/api/dds/calls", { number: value, incidentId: opts?.incidentId ?? cardIncidentId });
+      // Without a card named by the caller the card open on the screen is the context of the call.
+      void run("/api/dds/calls", { number: value, incidentId: opts?.incidentId ?? cardIncidentId, cardNumber: cardNumber ? Number(cardNumber) : null });
     },
   };
 
@@ -351,7 +352,7 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                 {tab === "dial" ? (
                   <DialPad number={number} setNumber={setNumber} disabled={!api.canDial || busy} onDial={() => number.trim() && api.dial(number.trim())} context={cardNumber} />
                 ) : tab === "book" ? (
-                  <PhoneBook entries={phone?.book ?? []} disabled={!api.canDial || busy} onDial={(e) => api.dial(e.phone, { incidentId: e.incidentId })} />
+                  <PhoneBook entries={phone?.book ?? []} openCard={cardNumber} disabled={!api.canDial || busy} onDial={(e) => api.dial(e.phone, { incidentId: e.incidentId })} />
                 ) : (
                   <CallLog calls={phone?.log ?? []} expanded={expanded} setExpanded={setExpanded} now={now} />
                 )}
@@ -398,17 +399,22 @@ function DialPad(props: { number: string; setNumber: (v: string) => void; disabl
   );
 }
 
-function PhoneBook({ entries, disabled, onDial }: { entries: BookEntry[]; disabled: boolean; onDial: (e: BookEntry) => void }) {
+/** The phone book; on an open card its section comes first, so «заявитель» there is the applicant of this card. */
+function PhoneBook({ entries, openCard, disabled, onDial }: { entries: BookEntry[]; openCard?: string; disabled: boolean; onDial: (e: BookEntry) => void }) {
+  const own = openCard ? `Карточка ${openCard}` : null;
   const groups = entries.reduce<Record<string, BookEntry[]>>((acc, e) => {
     (acc[e.group] ??= []).push(e);
     return acc;
   }, {});
+  const sections = Object.entries(groups).sort(([a], [b]) => Number(b === own) - Number(a === own));
   if (!entries.length) return <p className="p-3 text-arm-desc">Книжка пуста.</p>;
   return (
     <div className="pb-2">
-      {Object.entries(groups).map(([group, list]) => (
+      {sections.map(([group, list]) => (
         <div key={group}>
-          <div className="bg-arm-header px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-arm-desc">{group}</div>
+          <div className={`px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${group === own ? "bg-arm-blue text-white" : "bg-arm-header text-arm-desc"}`}>
+            {group === own ? `Открытая карточка ${openCard}` : group}
+          </div>
           {list.map((e, i) => (
             <div key={`${group}-${i}`} className="flex items-center gap-2 border-b border-arm-dark/10 px-3 py-1.5">
               <div className="min-w-0 flex-1">
