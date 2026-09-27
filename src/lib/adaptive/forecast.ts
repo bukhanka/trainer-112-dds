@@ -3,9 +3,11 @@
  * a result yet.
  *
  * Expected score. Every past lesson gives one point — the average confirmed score of the student on
- * it. The series is smoothed with a trend (Holt's method):
- *     level ← α·x + (1 − α)·(level + trend),   trend ← β·(new level − old level) + (1 − β)·trend,
- * starting from the first lesson with no trend. The forecast is level + trend. The interval is ±t·σ,
+ * it. The series is smoothed with a damped trend (Holt's method with damping φ):
+ *     level ← α·x + (1 − α)·(level + φ·trend),   trend ← β·(new level − old level) + (1 − β)·φ·trend,
+ * starting from the first lesson with no trend. The forecast is level + φ·trend: a few good lessons in a
+ * row do not project at full slope. scripts/forecast-check.ts compares it with the plain average of past
+ * lessons on synthetic classes. The interval is ±t·σ,
  * meant to hold the fact 8 times out of 10: σ is how far the same method missed on the student's own
  * past lessons, pulled towards 12 points while the history is short, and t is Student's 80 % quantile
  * (1.89 after one lesson down to 1.28 on a long history) — the fewer misses seen, the wider.
@@ -20,6 +22,8 @@ import type { RatingRole } from "./rating";
 export const FORECAST = {
   alpha: 0.4,
   beta: 0.2,
+  /** Damping of the trend: a short noisy series should not extrapolate a run of lessons at full slope. */
+  phi: 0.8,
   /** Typical miss of a lesson average while there is little history, points. */
   priorSd: 12,
   /** How many «typical» misses are mixed with the student's own ones. */
@@ -134,19 +138,19 @@ export function lessonSeries(attempts: ForecastAttempt[]): LessonPoint[] {
  * Holt's smoothing with a trend. `oneStep[i]` is what the method expected for values[i] before
  * seeing it (none for the first value).
  */
-export function smoothWithTrend(values: number[], alpha: number = FORECAST.alpha, beta: number = FORECAST.beta) {
+export function smoothWithTrend(values: number[], alpha: number = FORECAST.alpha, beta: number = FORECAST.beta, phi: number = FORECAST.phi) {
   if (!values.length) return { level: NaN, trend: 0, next: NaN, oneStep: [] as (number | null)[] };
   let level = values[0];
   let trend = 0;
   const oneStep: (number | null)[] = [null];
   for (const x of values.slice(1)) {
-    const expected = level + trend;
+    const expected = level + phi * trend;
     oneStep.push(expected);
     const next = alpha * x + (1 - alpha) * expected;
-    trend = beta * (next - level) + (1 - beta) * trend;
+    trend = beta * (next - level) + (1 - beta) * phi * trend;
     level = next;
   }
-  return { level, trend, next: level + trend, oneStep };
+  return { level, trend, next: level + phi * trend, oneStep };
 }
 
 export function forecastScore(attempts: ForecastAttempt[], opts: { cutoff?: Date } = {}): ScoreForecast | null {
