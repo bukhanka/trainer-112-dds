@@ -5,7 +5,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import type { ServiceStatus } from "@prisma/client";
 import { crewSecondsLeft, type CrewTimer } from "@/lib/dds/crew";
-import { fmtDate, fmtDateTime, fmtDuration, fmtHM, dateParts, plateCaption } from "@/lib/dds/format";
+import { fmtDate, fmtDateTime, fmtDuration, fmtHM, dateParts, plateCaption, plateCaptionClass } from "@/lib/dds/format";
 import type { CardView, PlateView } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
@@ -341,7 +341,7 @@ function Plate(props: { plate: PlateView; open: boolean; editing: boolean; edita
       ) : null}
       {plate.vis ? <span className="absolute left-1 top-0.5 text-[8px] font-bold">ВИС</span> : null}
       <button onClick={props.onToggle} className="mt-0.5 w-full" title={plate.fullName === plate.shortName ? plate.shortName : `${plate.shortName} — ${plate.fullName}`}>
-        <span className={`line-clamp-2 break-words text-center font-bold leading-[1.1] ${caption.length > 11 ? "text-[11.5px]" : "text-[13px]"} ${plate.main ? "underline" : ""}`}>{caption}</span>
+        <span className={`line-clamp-2 break-words text-center font-bold leading-[1.1] ${plateCaptionClass(caption)} ${plate.main ? "underline" : ""}`}>{caption}</span>
       </button>
       <div className="w-full truncate text-center text-[10px]" title={`${fmtHM(plate.lastAt)} ${plate.label}`}>
         <span className={plate.lastLate ? "font-bold text-arm-late" : ""}>{fmtHM(plate.lastAt)}</span> {plate.label}

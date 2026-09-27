@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import type { BoardState, CardRow, SeatState } from "@/lib/board/state";
-import { formatDuration, formatTime, shortName } from "@/lib/format";
+import { countLabel, formatDuration, formatTime, shortName } from "@/lib/format";
 
 type BoardResponse = BoardState & {
   lesson: { id: string; title: string; status: "DRAFT" | "RUNNING" | "FINISHED"; startedAt: string | null; finishedAt: string | null };
@@ -70,7 +70,7 @@ export function LessonBoard({ lessonId, status, projector = false }: { lessonId:
           <span className="font-medium text-arm-desc">{data.lesson.status === "FINISHED" ? `Итог занятия · длительность ${formatDuration(elapsed)}` : "Занятие не начато"}</span>
         )}
         <span className="text-arm-desc">
-          · мест {s.seats} · работают {s.working}
+          · {countLabel(s.seats, ["место", "места", "мест"])} · работают {s.working}
         </span>
         {s.lateNow > 0 && <Chip red>опаздывают сейчас: {s.lateNow}</Chip>}
         <span className="mx-1 hidden h-5 w-px bg-arm-gray sm:block" />

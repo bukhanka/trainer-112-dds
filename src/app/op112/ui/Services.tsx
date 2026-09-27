@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { plateCaption } from "@/lib/dds/format";
+import { plateCaption, plateCaptionClass } from "@/lib/dds/format";
 import { hhmm } from "./format";
 import { IconAlert, IconBell, IconChevronUp, IconClose, IconHand, IconLink, IconPhone, IconPlus, IconStopwatch } from "./icons";
 
@@ -91,7 +91,7 @@ export function ServicesBar(p: {
               </button>
             )}
             <span
-              className={`line-clamp-2 w-full break-words text-center font-bold leading-[1.1] ${plateCaption(s.shortName).length > 11 ? "text-[11.5px]" : "text-[13px]"} ${s.isMain ? "underline decoration-double underline-offset-4" : ""}`}
+              className={`line-clamp-2 w-full break-words text-center font-bold leading-[1.1] ${plateCaptionClass(plateCaption(s.shortName))} ${s.isMain ? "underline decoration-double underline-offset-4" : ""}`}
             >
               {plateCaption(s.shortName)}
             </span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressFeed, addressTitle, classLine, fmtDateTime, fmtDuration, fmtLongDate, plateCaption, shortName, tagsLine } from "./format";
+import { addressFeed, addressTitle, classLine, fmtDateTime, fmtDuration, fmtLongDate, plateCaption, plateCaptionClass, shortName, tagsLine } from "./format";
 
 describe("format", () => {
   it("prints dates in Moscow time like the customer's system", () => {
@@ -42,5 +42,11 @@ describe("plate caption", () => {
     expect(plateCaption("Поселение ЮЗАО")).toBe("ЮЗАО");
     expect(plateCaption("101")).toBe("101");
     expect(plateCaption("ГБУ «Жилищник района»")).toBe("ГБУ «Жилищник района»");
+  });
+
+  it("fits the longest word whole instead of breaking it", () => {
+    expect(plateCaptionClass("Мосжилинспекция")).toContain("text-[10px]");
+    expect(plateCaptionClass("Служба 101")).toBe("text-[13px]");
+    expect(plateCaptionClass("Северное Бутово")).toBe("text-[11.5px]");
   });
 });

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Badge, Empty, LESSON_STATUS, LinkButton, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { countLabel, formatDateTime } from "@/lib/format";
 import { isPractice } from "@/lib/lessons/form";
 import { lessonScope } from "@/lib/teacher/access";
 
@@ -58,7 +58,7 @@ export default async function TeacherHome() {
           </span>
           <span className="font-semibold">Идёт: {l.title}</span>
           <span className="text-sm text-arm-desc">
-            {l.group?.name} · {l._count.seats} мест · с {formatDateTime(l.startedAt)}
+            {l.group?.name} · {countLabel(l._count.seats, ["место", "места", "мест"])} · с {formatDateTime(l.startedAt)}
           </span>
           <span className="ml-auto text-sm font-medium text-arm-blue">Открыть доску класса →</span>
         </Link>
