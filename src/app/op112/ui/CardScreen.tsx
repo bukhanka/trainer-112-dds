@@ -5,6 +5,7 @@ import type { IncidentAddress, IncidentCaller } from "@/lib/incident/types";
 import type { CallDto, IncidentDto, Op112State, ServiceCallDto } from "@/lib/op112/state";
 import { addressFilled } from "@/lib/op112/card";
 import { kindTitle } from "@/lib/op112/catalog";
+import type { CardRef } from "@/lib/op112/links";
 import type { CallLine, Op112CardDraft, RoutedService } from "@/lib/op112/types";
 import { openForSupplement } from "@/lib/op112/supplement";
 import { phoneNotices, type WorkOff } from "@/lib/op112/workoffs";
@@ -15,12 +16,13 @@ import { FlagsBar, TypeBlock } from "./RightColumn";
 import { AddServicesModal, EmptyCardModal, NotifyModal, PhoneWarnModal, ServicesBar, type Plate, type ServiceItem } from "./Services";
 import { ChatPanel } from "./ChatPanel";
 import { EMPTY_ROW, WorkOffs, type WorkOffDraft } from "./WorkOffs";
+import { LinkModal, MatchButton, MatchModal } from "./Links";
 import { dateTime, hhmm, mmss } from "./format";
 import type { Notify } from "./Workstation";
 
 type Directory = { services: ServiceItem[]; okrugs: string[]; districts: { okrug: string; district: string }[] };
 type PhoneMissing = { name: string; reason: "call" | "record" };
-type ModalState = null | "add" | "notify" | { empty: "noContact" | "dropped" } | { phone: PhoneMissing[] };
+type ModalState = null | "add" | "notify" | "link" | { empty: "noContact" | "dropped" } | { phone: PhoneMissing[] } | { match: "phone" | "address" };
 type TopFlag = "victims" | "refusedAmbulance" | "noAccess";
 
 // Manual additions live in the browser until «сохранить» (the draft on the server has no plates yet).
@@ -84,6 +86,9 @@ export function CardScreen(p: {
   // A saved card: «Просмотр» (Shift+F1) or «Дополнить» (Shift+F2) — fields empty at saving, the description, victims.
   const [mode, setMode] = useState<"view" | "supplement">("view");
   const supplementing = saved && mode === "supplement";
+  // «Совпадение»: saved cards of the lesson with the same phone or place; the main card this one is linked to.
+  const [matches, setMatches] = useState<{ byPhone: CardRef[]; byAddress: CardRef[] }>({ byPhone: [], byAddress: [] });
+  const [linked, setLinked] = useState<{ id: string; number: number } | null>(incident.linkedTo);
   const { data: dir } = useSWR<Directory>("/api/op112/services", getJson, { revalidateOnFocus: false });
   const tick = useNow();
   const now = tick ? tick + state.clockOffset : Date.parse(state.serverNow);
@@ -117,6 +122,35 @@ export function CardScreen(p: {
     }, 200);
     return () => clearTimeout(t);
   }, [cards, answers, flags, address, readOnly]);
+
+  // «Совпадение» is looked up while the card is being filled: by the phones of the caller and by the place.
+  const { caller } = draft;
+  useEffect(() => {
+    if (readOnly) return;
+    const t = setTimeout(() => {
+      send<{ byPhone: CardRef[]; byAddress: CardRef[] }>(`/api/op112/incidents/${incident.id}/matches`, {
+        caller: { aon: caller.aon, provided: caller.provided, onSite: caller.onSite },
+        address,
+      })
+        .then(setMatches)
+        .catch(() => undefined);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [caller.aon, caller.provided, caller.onSite, address, readOnly, incident.id]);
+
+  const linkTo = async (to: string | null) => {
+    setBusy(true);
+    try {
+      const r = await send<{ linkedTo: { id: string; number: number } | null }>(`/api/op112/incidents/${incident.id}/link`, { to });
+      setLinked(r.linkedTo);
+      setModal(null);
+      notify(r.linkedTo ? `Карточка привязана к № ${r.linkedTo.number}${saved ? "" : " — связь установится при сохранении"}` : "Связь снята");
+    } catch (e) {
+      notify(e instanceof ApiError && e.code === "has_linked" ? "К этой карточке уже привязаны другие: она остаётся главной" : "Не удалось привязать карточку");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const patch = (x: Partial<Op112CardDraft>) => setDraft((d) => ({ ...d, ...x }));
   const setCaller = (c: Partial<IncidentCaller>) => setDraft((d) => ({ ...d, caller: { ...d.caller, ...c } }));
@@ -321,6 +355,8 @@ export function CardScreen(p: {
     try {
       const s = await send<Op112State>(`/api/op112/incidents/${incident.id}/supplement`, { draft });
       setMode("view");
+      // Show the card as the server kept it: only empty fields, the description and «Пострадавшие» could change.
+      if (s.incident?.id === incident.id) setDraft({ ...s.incident.draft, manualServiceIds: [] });
       p.apply(s);
       notify("Дополнение сохранено: оно записано в журнал описаний карточки");
     } catch {
@@ -438,6 +474,8 @@ export function CardScreen(p: {
             focusById("op112-chat");
             break;
           case "KeyW":
+            if (!modal) setModal("link");
+            break;
           case "KeyB":
           case "KeyM":
             notify("Эта функция в учебной версии не используется");
@@ -485,6 +523,12 @@ export function CardScreen(p: {
         timer={{ sec: typingSec, late: typingSec > limit, running: !incident.savedAt }}
         onNotAvailable={(what) => notify(`${what}: в учебной версии не используется`)}
         viewMenu={saved ? { supplementing, busy, onView: toView, onSupplement: toSupplement } : undefined}
+        aonMatch={
+          !readOnly && matches.byPhone.length > 0 ? (
+            <MatchButton count={matches.byPhone.length} title="Есть карточка с этим номером заявителя" onOpen={() => setModal({ match: "phone" })} />
+          ) : undefined
+        }
+        linkedNumber={linked?.number ?? null}
       />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2">
@@ -502,6 +546,11 @@ export function CardScreen(p: {
                   districts={dir?.districts ?? []}
                   onMap={() => notify("Карта в учебной версии не подключена: выберите адрес из подсказок, район и округ подставятся сами")}
                   editable={supplementing ? openAddress : undefined}
+                  match={
+                    !readOnly && matches.byAddress.length > 0 ? (
+                      <MatchButton count={matches.byAddress.length} title="Есть карточка по этому адресу" onOpen={() => setModal({ match: "address" })} />
+                    ) : undefined
+                  }
                 />
               )}
               <DescriptionBlock
@@ -603,6 +652,8 @@ export function CardScreen(p: {
         onDial={saved ? dial : undefined}
         onImportant={toggleImportant}
         onNotAvailable={(what) => notify(`${what}: в учебной версии не используется`)}
+        onLink={() => setModal("link")}
+        linkedNumber={linked?.number ?? null}
       />
       {modal === "add" && dir && (
         <AddServicesModal
@@ -620,6 +671,17 @@ export function CardScreen(p: {
       {modal && typeof modal === "object" && "empty" in modal && (
         <EmptyCardModal reason={modal.empty} busy={busy} onConfirm={() => saveEmpty(modal.empty)} onBack={() => setModal(null)} />
       )}
+      {modal && typeof modal === "object" && "match" in modal && (
+        <MatchModal
+          by={modal.match}
+          cards={modal.match === "phone" ? matches.byPhone : matches.byAddress}
+          linkedId={linked?.id ?? null}
+          busy={busy}
+          onLink={(id) => void linkTo(id)}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {modal === "link" && <LinkModal incidentId={incident.id} linked={linked} busy={busy} onLink={(id) => void linkTo(id)} onClose={() => setModal(null)} />}
       {modal && typeof modal === "object" && "phone" in modal && (
         <PhoneWarnModal
           missing={modal.phone}

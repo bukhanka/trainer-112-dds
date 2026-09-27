@@ -18,6 +18,7 @@ import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./g
 import type { Persona } from "./caller";
 import type { ServiceLite } from "./routing";
 import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
+import { linkCheck } from "./links";
 import { phoneCheck, type PhoneNotice } from "./workoffs";
 
 export type EvalCard = {
@@ -51,6 +52,9 @@ export type EvalInput = {
   settableFlags?: string[];
   /** calls to the services working by phone and the work-off rows — known once the card is «отработана» */
   phoneNotices?: PhoneNotice[] | null;
+  /** the main card this one is linked to («Совпадение»), and the lesson's cards of the incident a repeat call repeats */
+  link?: { id: string; number: number } | null;
+  repeatCards?: { id: string; number: number; place: string }[];
 };
 
 // ─── Reference answer ────────────────────────────────────────────────────────
@@ -73,6 +77,7 @@ const truthSchema = z.object({
   descriptionKeywords: z.array(z.string()).optional().catch(undefined),
   traps: z.array(z.string()).catch([]),
   emptyCall: z.enum(["noContact", "dropped"]).optional().catch(undefined),
+  repeatOf: z.string().optional().catch(undefined),
 });
 
 // What the gist of a kind sounds like in the first 100 characters of the description.
@@ -214,6 +219,7 @@ export function normalizeTruth(raw: unknown, catalog: ServiceLite[] = []): Scena
     descriptionKeywords: keywords,
     traps: t.traps,
     emptyCall: t.emptyCall,
+    repeatOf: t.repeatOf,
   };
 }
 
@@ -609,6 +615,9 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   // Services that get the card only by phone: called from the work-off row and written down.
   const phone = phoneCheck(phonePlates(input), input.phoneNotices ?? null);
   if (phone) out.push(phone);
+  // «Совпадение»: a repeat call is linked to the card of the first call; a new incident is not linked to another.
+  const link = linkCheck({ repeatOf: truth?.repeatOf, link: input.link ?? null, repeatCards: input.repeatCards ?? [] });
+  if (link) out.push(link);
 
   return out;
 }

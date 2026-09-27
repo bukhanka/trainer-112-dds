@@ -2,7 +2,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { jsonError, op112User, ownIncident, readJson } from "@/lib/op112/access";
 import { phonePlates } from "@/lib/op112/evaluate";
-import { phoneCallOf, regradePhone } from "@/lib/op112/review";
+import { phoneCallOf, regradeAfterWork } from "@/lib/op112/review";
 import { serviceCatalog } from "@/lib/op112/services";
 import { buildState } from "@/lib/op112/state";
 import { phoneNotices, readWorkLog, unfinishedNotices, type PhoneCall } from "@/lib/op112/workoffs";
@@ -38,6 +38,6 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
     if (r.count) await tx.call.updateMany({ where: { incidentId: id, kind: "SERVICE_OUT", status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
     return r.count > 0;
   });
-  if (closed) await regradePhone(id);
+  if (closed) await regradeAfterWork(id);
   return Response.json(await buildState(user));
 }

@@ -24,6 +24,7 @@ type Scenario = {
   };
   truth: {
     emptyCall?: "noContact" | "dropped";
+    repeatOf?: string;
     typeCodes: number[];
     acceptableTypeCodes: number[];
     flags: Record<string, boolean>;
@@ -256,18 +257,30 @@ describe("scenarios from the tickets", () => {
   });
 });
 
-describe("tasks from the operator's instruction (scripts/line-scenarios.ts)", () => {
+describe("tasks from the operator's instruction (scripts/instruction-scenarios.ts)", () => {
   const task = (ref: string) => tasks.find((s) => s.ticketRef === ref)!;
 
-  it("three approved tasks for the 112 place only: no ДДС card, no ДДС reference", () => {
-    expect(tasks.map((s) => s.ticketRef)).toEqual(["НВ-1", "НВ-2", "НВ-3"]);
+  it("approved tasks for the 112 place only: no ДДС card, no ДДС reference", () => {
+    expect(tasks.map((s) => s.ticketRef)).toEqual(["НВ-1", "НВ-2", "НВ-3", "ПВ-1"]);
     for (const s of tasks) {
       expect(s.status, s.ticketRef).toBe("APPROVED");
       expect(s.approvedSections, s.ticketRef).toEqual(["caller", "truth"]);
       expect(s.ddsCard, s.ticketRef).toBeNull();
       expect(s.ddsReference, s.ticketRef).toBeNull();
-      expect(s.caller.line, s.ticketRef).toBeDefined();
     }
+    for (const ref of ["НВ-1", "НВ-2", "НВ-3"]) expect(task(ref).caller.line, ref).toBeDefined();
+  });
+
+  it("a repeat call keeps the reference card of the ticket it repeats and names it", () => {
+    const repeat = task("ПВ-1");
+    const original = scenarios.find((s) => s.ticketRef === "Б4-1")!;
+    expect(repeat.truth.repeatOf).toBe("Б4-1");
+    expect(repeat.truth.typeCodes).toEqual(original.truth.typeCodes);
+    expect(repeat.truth.address).toEqual(original.truth.address);
+    expect(repeat.truth.services).toEqual(original.truth.services);
+    // A second witness gives the place at once and does not know the first caller.
+    expect(repeat.caller.hiddenAddress).toBeUndefined();
+    expect(repeat.caller.fullName).not.toBe(original.caller.fullName);
   });
 
   it("a silent line and a break on the first words are closed as empty cards, without services", () => {

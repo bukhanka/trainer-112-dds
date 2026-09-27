@@ -146,7 +146,10 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     : settings.categories.length
       ? { AND: [USABLE, { category: { in: settings.categories } }] }
       : USABLE;
-  const found = inLessonLocation(await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] }), seat, settings);
+  const found = await withoutEarlyRepeats(
+    inLessonLocation(await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] }), seat, settings),
+    seat.lessonId,
+  );
   if (!found.length) return null;
   // A place drawing by itself does not ring with a situation open in a ДДС feed of the lesson (lessons/in-play.ts).
   const pool = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAtDds(db, seat.lessonId));
@@ -163,6 +166,30 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
   const fresh = pool.filter((s) => !lastUse.has(s.id));
   if (fresh.length) return fresh[0];
   return [...pool].sort((a, b) => (lastUse.get(a.id) ?? 0) - (lastUse.get(b.id) ?? 0))[0];
+}
+
+/** The ticket a scenario repeats («Совпадение»: a second call about an incident already on a card). */
+export function repeatOf(truth: unknown): string | undefined {
+  const r = truth && typeof truth === "object" ? (truth as { repeatOf?: unknown }).repeatOf : undefined;
+  return typeof r === "string" && r ? r : undefined;
+}
+
+/**
+ * A repeat call rings only once the lesson has a saved card of the incident it repeats (at any place of the
+ * lesson): otherwise there is nothing to link it to.
+ */
+async function withoutEarlyRepeats<T extends { truth: unknown }>(pool: T[], lessonId: string): Promise<T[]> {
+  const refs = [...new Set(pool.map((s) => repeatOf(s.truth)).filter((r): r is string => Boolean(r)))];
+  if (!refs.length) return pool;
+  const cards = await db.incident.findMany({
+    where: { lessonId, status: { in: ["registered", "worked"] }, scenario: { ticketRef: { in: refs } } },
+    select: { scenario: { select: { ticketRef: true } } },
+  });
+  const played = new Set(cards.map((c) => c.scenario?.ticketRef));
+  return pool.filter((s) => {
+    const r = repeatOf(s.truth);
+    return !r || played.has(r);
+  });
 }
 
 /** «Опер. 1003»: a stable operator number per account, like the numbers on the customer's cards. */

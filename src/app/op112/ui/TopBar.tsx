@@ -21,6 +21,10 @@ type Props = {
   onNotAvailable: (what: string) => void;
   /** A saved card: «просмотр» (Shift+F1) and «дополнение» (Shift+F2) at the top right, as on the workstation. */
   viewMenu?: { supplementing: boolean; busy: boolean; onView: () => void; onSupplement: () => void };
+  /** «⚠ совпадение» by a phone number: shown only in the АОН block, as the instruction says */
+  aonMatch?: React.ReactNode;
+  /** the main card this one is linked to */
+  linkedNumber?: number | null;
 };
 
 const TONE: Record<Telephony["tone"], string> = {
@@ -63,6 +67,7 @@ export function TopBar(p: Props) {
           readOnly
           extraIcons={
             <>
+              {p.aonMatch}
               <a
                 href="/help#op112"
                 target="_blank"
@@ -109,6 +114,7 @@ export function TopBar(p: Props) {
             <div className="text-[12.5px]">
               Опер. {p.operatorNo}, АРМ {p.armNo}, УМЦ
             </div>
+            {p.linkedNumber ? <div className="text-[12px] text-arm-blue">связана с № {p.linkedNumber}</div> : null}
           </>
         ) : (
           <div className="text-[13px] text-arm-desc">

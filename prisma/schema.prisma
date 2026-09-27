@@ -33,11 +33,11 @@ model User {
 
   sessions     Session[]
   memberships  GroupMember[]
-  groupsTaught Group[]       @relation("GroupTeacher")
-  lessons      Lesson[]      @relation("LessonTeacher")
+  groupsTaught Group[]            @relation("GroupTeacher")
+  lessons      Lesson[]           @relation("LessonTeacher")
   seats        Seat[]
-  attempts     Attempt[]     @relation("AttemptStudent")
-  reviews      Attempt[]     @relation("AttemptReviewer")
+  attempts     Attempt[]          @relation("AttemptStudent")
+  reviews      Attempt[]          @relation("AttemptReviewer")
   forecasts    ForecastSnapshot[]
 }
 
@@ -74,13 +74,13 @@ model AuditLog {
 }
 
 model Group {
-  id        String        @id @default(cuid())
-  name      String
-  teacherId String?
-  teacher   User?         @relation("GroupTeacher", fields: [teacherId], references: [id])
-  members   GroupMember[]
-  lessons   Lesson[]
-  createdAt DateTime      @default(now())
+  id         String        @id @default(cuid())
+  name       String
+  teacherId  String?
+  teacher    User?         @relation("GroupTeacher", fields: [teacherId], references: [id])
+  members    GroupMember[]
+  lessons    Lesson[]
+  createdAt  DateTime      @default(now())
   /// A finished course: hidden from new lessons and forecasts, its history stays in the reports
   archivedAt DateTime?
 }
@@ -258,19 +258,19 @@ model Seat {
 
 /// Incident card (карточка происшествия).
 model Incident {
-  id              String    @id @default(cuid())
-  number          Int       @unique @default(autoincrement())
+  id              String     @id @default(cuid())
+  number          Int        @unique @default(autoincrement())
   lessonId        String?
-  lesson          Lesson?   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  lesson          Lesson?    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   scenarioId      String?
-  scenario        Scenario? @relation(fields: [scenarioId], references: [id])
+  scenario        Scenario?  @relation(fields: [scenarioId], references: [id])
   source          String // generated | op112 | vis
   createdBySeatId String?
   /// ДДС place a generated card was sent to (each place gets its own stream); null for cards saved at 112 places
   ddsSeatId       String?
   operatorNo      String? // «Опер.»
   armNo           String? // «АРМ»
-  status          String    @default("draft") // draft | registered | worked
+  status          String     @default("draft") // draft | registered | worked
   /// { fullName, status, aon, provided, onSite, channel }
   caller          Json?
   /// { country, subject, city, object, okrug, district, street, house, building, structure, flat, entrance, floor, code, descriptive }
@@ -279,18 +279,22 @@ model Incident {
   /// chosen tag rows: [{ row, value }]
   tags            Json?
   /// { victims, refusedAmbulance, blocked, noAccess, threat, med, evac, gas, offense, traffic, ... }
-  flags           Json      @default("{}")
+  flags           Json       @default("{}")
   description     String?
   /// [{ at, author, text }]
-  descriptionLog  Json      @default("[]")
+  descriptionLog  Json       @default("[]")
   /// «Журнал отработок» of the 112 operator after «сохранить»: calls to services not notified by the system
   /// [{ id, at, operator, arm, serviceId?, service?, where?, phone?, acceptedBy?, summary?, callId? }]
-  workLog         Json      @default("[]")
-  important       Boolean   @default(false) // «ЧС» mark
+  workLog         Json       @default("[]")
+  /// «Совпадение» / «создать связь»: the main card this one is linked to (it becomes the subordinate one)
+  linkedToId      String?
+  linkedTo        Incident?  @relation("IncidentLinks", fields: [linkedToId], references: [id], onDelete: SetNull)
+  linked          Incident[] @relation("IncidentLinks")
+  important       Boolean    @default(false) // «ЧС» mark
   openedAt        DateTime?
   savedAt         DateTime?
   workedAt        DateTime?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime   @default(now())
 
   services IncidentService[]
   calls    Call[]
@@ -298,6 +302,7 @@ model Incident {
 
   @@index([lessonId, createdAt])
   @@index([ddsSeatId, createdAt])
+  @@index([linkedToId])
 }
 
 enum ServiceStatus {

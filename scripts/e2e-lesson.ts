@@ -2,8 +2,9 @@
  * End-to-end check of a class lesson through the HTTP API — the same calls the screens make.
  * The teacher creates and starts a lesson with a 112 place and a ДДС place; the 112 student takes the
  * call, talks to the AI caller and saves the card, calls the service that works by phone and writes the
- * work-off; the card reaches the ДДС place, which accepts it. A second 112 place gets a silent line and
- * closes it with «нет контакта». The teacher watches the board, stops the lesson and gets the attempts.
+ * work-off; then a second witness of the same fire calls, and «Совпадение» links the new card to the first. The
+ * card reaches the ДДС place, which accepts it. A second 112 place gets a silent line and closes it with «нет
+ * контакта». The teacher watches the board, stops the lesson and gets the attempts.
  *
  *   pnpm exec tsx scripts/e2e-lesson.ts --base http://localhost:3100 [--keep]
  *
@@ -59,6 +60,7 @@ async function main() {
   const [s1, s2, s3] = await Promise.all(["student1", "student2", "student3"].map((login) => db.user.findUniqueOrThrow({ where: { login } })));
   const scenario = await db.scenario.findFirstOrThrow({ where: { ticketRef: "Б4-1" } });
   const silent = await db.scenario.findFirstOrThrow({ where: { ticketRef: "НВ-1" } });
+  const repeat = await db.scenario.findFirstOrThrow({ where: { ticketRef: "ПВ-1" } });
   const dds = await db.service.findFirstOrThrow({ where: { shortName: "Поселение Северное Бутово" } });
   // A grey plate: the service gets the card only by phone (Service.delivery = PHONE).
   const byPhone = await db.service.findFirstOrThrow({ where: { delivery: "PHONE", visible: true } });
@@ -78,7 +80,7 @@ async function main() {
     groupId: group.id,
     settings: { cardSource: "students", tempoSec: 60, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true },
     seats: [
-      { studentId: s1.id, role: "OP112", scenarioIds: [scenario.id] },
+      { studentId: s1.id, role: "OP112", scenarioIds: [scenario.id, repeat.id] },
       { studentId: s2.id, role: "DDS", serviceId: dds.id },
       { studentId: s3.id, role: "OP112", scenarioIds: [silent.id] },
     ],
@@ -141,6 +143,32 @@ async function main() {
     const worked = await op.call("POST", `/api/op112/incidents/${incident!.id}/worked`);
     check(worked.status === 200, "оператор нажал «отработана»");
 
+    // 3c. A second witness of the same fire: «Совпадение» by the address → «привязать» to the first card.
+    const ring3 = await op.call("POST", "/api/op112/ring");
+    const call3 = ring3.body.call as { id?: string; phone?: string } | undefined;
+    check(call3?.phone === (repeat.caller as { phone?: string }).phone, "повторный вызов звонит после карточки первого", call3?.phone ?? JSON.stringify(ring3.body).slice(0, 120));
+    const answered3 = await op.call("POST", `/api/op112/calls/${call3?.id}/answer`);
+    const card3 = answered3.body.incident as { id: string; number: number } | null;
+    const place = { city: "Москва", street: "улица Грина", house: "11", district: "Северное Бутово", okrug: "ЮЗАО" };
+    const found = await op.call("POST", `/api/op112/incidents/${card3?.id}/matches`, { caller: {}, address: place });
+    const firstCard = ((found.body.byAddress as { id: string; number: number }[] | undefined) ?? []).find((c) => c.number === incident!.number);
+    check(!!firstCard, "«Совпадение» по адресу нашло карточку первого вызова", firstCard ? `№ ${firstCard.number}` : JSON.stringify(found.body).slice(0, 160));
+    const linked = await op.call("POST", `/api/op112/incidents/${card3?.id}/link`, { to: firstCard?.id ?? null });
+    check(linked.status === 200 && (linked.body.linkedTo as { number?: number } | null)?.number === incident!.number, "новая карточка привязана к первой (подчинённая)");
+    await op.call("POST", `/api/op112/incidents/${card3?.id}/save`, {
+      draft: {
+        caller: { fullName: "Ковалёв Дмитрий", status: "очевидец" },
+        address: place,
+        flags: {},
+        cards: [],
+        answers: {},
+        description: "Повторный звонок: горит балкон на 13 этаже, ул. Грина, 11, звонит сосед из дома напротив.",
+        manualServiceIds: [],
+      },
+    });
+    const worked3 = await op.call("POST", `/api/op112/incidents/${card3?.id}/worked`);
+    check(worked3.status === 200, "повторная карточка отработана");
+
     // 3b. The second 112 place: silence on the line → «нет контакта», an empty card without services.
     const ring2 = await quiet.call("POST", "/api/op112/ring");
     const call2 = (ring2.body.call as { id?: string } | undefined)?.id;
@@ -171,13 +199,19 @@ async function main() {
     check(board.status === 200, "доска класса отвечает", `мест: ${((board.body.seats as unknown[]) ?? []).length}`);
     const stopped = await teacher.call("POST", `/api/teacher/lessons/${lessonId}/stop`);
     check(stopped.status < 300, "занятие остановлено");
-    const attempts = await db.attempt.findMany({ where: { lessonId }, select: { kind: true, score: true, criteria: true, seatId: true, seat: { select: { studentId: true } } } });
+    const attempts = await db.attempt.findMany({
+      where: { lessonId },
+      select: { kind: true, score: true, criteria: true, seatId: true, incidentId: true, seat: { select: { studentId: true } } },
+    });
     const byKind = (k: string) => attempts.filter((a) => a.kind === k);
-    const main112 = byKind("OP112").find((a) => a.seat.studentId === s1.id);
+    const main112 = attempts.find((a) => a.kind === "OP112" && a.incidentId === incident!.id);
+    const repeat112 = attempts.find((a) => a.kind === "OP112" && a.incidentId === card3?.id);
     const quiet112 = byKind("OP112").find((a) => a.seat.studentId === s3.id);
     check(!!main112, "попытка места 112 создана", `балл ${main112?.score ?? "—"}, проверок ${(main112?.criteria as unknown[] | undefined)?.length ?? 0}`);
     const phone = ((main112?.criteria ?? []) as { code: string; ok: boolean | null; evidence?: string }[]).find((c) => c.code === "op112.phone.notified");
     check(phone?.ok === true, "разбор: службы по телефону оповещены", phone?.evidence ?? "проверки нет");
+    const link = ((repeat112?.criteria ?? []) as { code: string; ok: boolean | null; evidence?: string }[]).find((c) => c.code === "op112.link.repeat");
+    check(link?.ok === true, "разбор повторного вызова: привязан к первой карточке, дубля нет", link?.evidence ?? "проверки нет");
     const empty = ((quiet112?.criteria ?? []) as { code: string; ok: boolean | null }[]).find((c) => c.code === "op112.empty.button");
     check(empty?.ok === true, "разбор второго места: пустой вызов закрыт верной кнопкой", `балл ${quiet112?.score ?? "—"}`);
     check(byKind("DDS").length === 1, "попытка места ДДС создана", `балл ${byKind("DDS")[0]?.score ?? "—"}, проверок ${(byKind("DDS")[0]?.criteria as unknown[] | undefined)?.length ?? 0}`);

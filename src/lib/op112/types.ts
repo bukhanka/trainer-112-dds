@@ -97,4 +97,6 @@ export type ScenarioTruth = {
   descriptionKeywords: string[]; // regex sources; each must be in the first 100 characters
   traps: string[];
   emptyCall?: "noContact" | "dropped"; // the right answer is an empty card
+  /** a repeat call about the incident of this scenario (ticket reference): the card must be linked to that one */
+  repeatOf?: string;
 };

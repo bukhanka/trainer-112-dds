@@ -55,6 +55,8 @@ export type IncidentDto = {
   serviceCalls: ServiceCallDto[];
   /** «Класс.» of the saved card: what the operator tells a service on the phone */
   classes: string[];
+  /** the main card this one is linked to («Совпадение», «создать связь») */
+  linkedTo: { id: string; number: number } | null;
 };
 
 export type JournalRow = {
@@ -113,7 +115,7 @@ export function serviceCallDto(call: Call): ServiceCallDto {
 }
 
 export function incidentDto(
-  incident: Incident & { services: (IncidentService & { service: Service })[] },
+  incident: Incident & { services: (IncidentService & { service: Service })[]; linkedTo?: { id: string; number: number } | null },
   updatedLabel?: string | null,
   serviceCalls: Call[] = [],
   classes: string[] = [],
@@ -133,6 +135,7 @@ export function incidentDto(
     workLog: readWorkLog(incident.workLog),
     serviceCalls: serviceCalls.map(serviceCallDto),
     classes,
+    linkedTo: incident.linkedTo ?? null,
   };
 }
 
@@ -155,7 +158,7 @@ export async function buildState(user: SessionUser): Promise<Op112State> {
     db.incident.findFirst({
       where: { createdBySeatId: seat.id, status: { in: ["draft", "registered"] } },
       orderBy: { createdAt: "desc" },
-      include: { services: { include: { service: true }, orderBy: { addedAt: "asc" } } },
+      include: { services: { include: { service: true }, orderBy: { addedAt: "asc" } }, linkedTo: { select: { id: true, number: true } } },
     }),
     db.incident.findMany({
       where: { createdBySeatId: seat.id, lessonId: seat.lessonId, status: { in: ["registered", "worked", "empty"] } },

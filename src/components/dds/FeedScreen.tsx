@@ -11,7 +11,7 @@ import { getJson, postJson, useNow, withSeat } from "./client";
 import { ClockBlock } from "./ClockBlock";
 import { useDds } from "./DdsShell";
 import { ResultsPanel } from "./ResultsPanel";
-import { Bolt, Bookmark, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Hourglass, MapPinOff, Search, Stopwatch } from "./icons";
+import { Bolt, Bookmark, Chain, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Hourglass, MapPinOff, Search, Stopwatch } from "./icons";
 
 type FeedBody = { rows: FeedRow[]; total: number; page: number; pages: number; size: number };
 
@@ -285,7 +285,9 @@ function FeedRecord(props: { row: FeedRow; now: number; ackSec: number; workSec:
             {preview ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
         </Cell>
-        <Cell />
+        <Cell title={row.linkedTo ? `Связана с карточкой № ${row.linkedTo} (главная): повторный вызов о том же происшествии` : undefined}>
+          {row.linkedTo ? <Chain className="h-4 w-4 text-white" title={`Связана с № ${row.linkedTo}`} /> : null}
+        </Cell>
         <Cell>
           <Bookmark className="h-5 w-4 text-[#8e979d]" />
         </Cell>

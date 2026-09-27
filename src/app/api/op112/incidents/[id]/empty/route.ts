@@ -19,7 +19,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
   const claimed = await db.$transaction(async (tx) => {
     const r = await tx.incident.updateMany({
       where: { id, status: "draft" },
-      data: { status: "empty", savedAt: now, workedAt: now, description: EMPTY_TEXT[body.data.reason] },
+      // An empty card is not a subordinate of anything: a link made by mistake goes with it.
+      data: { status: "empty", savedAt: now, workedAt: now, description: EMPTY_TEXT[body.data.reason], linkedToId: null },
     });
     if (r.count) await tx.call.updateMany({ where: { incidentId: id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
     return r.count > 0;

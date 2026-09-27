@@ -7,7 +7,8 @@
  * address, services by the routing engine, required questions), the card as a ДДС sees it,
  * a difficulty estimate; for the tickets worked through by hand (scripts/deep-scenarios.ts) also
  * the ДДС reference — those become APPROVED. Then the tasks written from the operator's instruction
- * (scripts/line-scenarios.ts: a silent line, calls that break off) — approved, for the 112 place only.
+ * (scripts/instruction-scenarios.ts: a silent line, calls that break off, a repeat call) — approved, for the
+ * 112 place only.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -21,7 +22,7 @@ import {
 import type { CallerPersona, CallerStatus, IncidentAddress } from "../src/lib/incident/types";
 import { TICKETS, type Ticket, type TicketAddress } from "./tickets";
 import { DEEP, DDS_RULES } from "./deep-scenarios";
-import { LINE_TASKS } from "./line-scenarios";
+import { INSTRUCTION_TASKS } from "./instruction-scenarios";
 
 const ROOT = path.join(__dirname, "..");
 const DATA = path.join(ROOT, "data");
@@ -196,6 +197,8 @@ function title(t: Ticket): string {
 
 const scenarios = [];
 const addressIndex = new Map<string, Record<string, unknown>>();
+/** Reference 112 cards of the tickets, for the repeat calls of the instruction tasks. */
+const truthByRef = new Map<string, object>();
 
 for (const t of TICKETS) {
   const primaryTypes = t.types.map(typeOf);
@@ -250,6 +253,7 @@ for (const t of TICKETS) {
     ...(deep ? { descriptionKeywords: deep.keywords } : {}),
     traps: t.trap ?? [],
   };
+  truthByRef.set(t.ref, truth);
 
   const ddsCard = {
     classLabel: primary?.finalType ?? t.kind ?? null,
@@ -317,7 +321,27 @@ for (const t of TICKETS) {
 }
 
 // Tasks from the instruction: no ДДС card (the ДДС places never draw them), approved for the 112 place.
-for (const t of LINE_TASKS) {
+for (const t of INSTRUCTION_TASKS) {
+  // A repeat call: the reference card is the one of the original ticket, the right answer adds the link.
+  const original = t.repeatOf ? truthByRef.get(t.repeatOf) : undefined;
+  if (t.repeatOf && !original) throw new Error(`${t.ref}: no ticket ${t.repeatOf} to repeat`);
+  if (original) {
+    scenarios.push({
+      ticketRef: t.ref,
+      source: "instruction",
+      title: t.title,
+      category: t.category,
+      difficulty: t.difficulty,
+      status: "APPROVED",
+      caller: t.caller,
+      truth: { ...original, requiredQuestions: t.questions, traps: t.traps, repeatOf: t.repeatOf },
+      ddsCard: null,
+      ddsReference: null,
+      approvedSections: ["caller", "truth"],
+      teacherNote: null,
+    });
+    continue;
+  }
   const primaryTypes = (t.types ?? []).map(typeOf);
   const primary = primaryTypes[0];
   const flags: RoutingFlags = t.flags ?? {};
@@ -377,5 +401,5 @@ writeFileSync(path.join(DATA, "addresses.json"), JSON.stringify(addresses, null,
 
 const approved = scenarios.filter((s) => s.status === "APPROVED").length;
 console.log(
-  `scenarios.json: ${scenarios.length} scenarios (${approved} approved, ${LINE_TASKS.length} from the instruction); addresses.json: ${addressIndex.size} Moscow addresses, ${unresolved.length} unresolved`,
+  `scenarios.json: ${scenarios.length} scenarios (${approved} approved, ${INSTRUCTION_TASKS.length} from the instruction); addresses.json: ${addressIndex.size} Moscow addresses, ${unresolved.length} unresolved`,
 );

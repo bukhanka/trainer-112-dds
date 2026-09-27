@@ -93,6 +93,8 @@ export function AddressBlock(p: {
   onMap: () => void;
   /** «Дополнить»: only the fields that were empty when the card was saved */
   editable?: (field: keyof IncidentAddress) => boolean;
+  /** «⚠ совпадение» by the place: a saved card of the lesson at the same address */
+  match?: React.ReactNode;
 }) {
   const a = p.address;
   const ro = (f: keyof IncidentAddress) => (p.editable ? !p.editable(f) : p.readOnly);
@@ -147,6 +149,7 @@ export function AddressBlock(p: {
         <button type="button" onClick={p.onMap} title="Карта" className="text-arm-dark hover:text-arm-blue">
           <IconMap className="h-4 w-4" />
         </button>
+        {p.match && <span className="ml-auto">{p.match}</span>}
       </div>
       <div className="relative" ref={boxRef} data-hk="Alt+A">
         <div className="flex items-center border-b border-[#b3bbc0] focus-within:border-arm-blue">

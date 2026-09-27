@@ -17,6 +17,8 @@ import {
   referenceLeaves,
   type EvalInput,
 } from "./evaluate";
+import { LINK_CODES, linkCheck } from "./links";
+import { lessonCards } from "./links-db";
 import { PHONE_CODE, phoneCheck, phoneNotices, readWorkLog, type PhoneCall } from "./workoffs";
 import { regionOf, treesFor, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
@@ -54,7 +56,12 @@ function settableFlags(trees: Record<string, { rows: { flag?: string; options?: 
 export async function loadEvalInput(incidentId: string): Promise<{ input: EvalInput; lessonId: string; seatId: string; studentId: string; scenarioId: string | null } | null> {
   const incident = await db.incident.findUnique({
     where: { id: incidentId },
-    include: { services: true, scenario: true, calls: { where: { kind: { in: ["CALLER_IN", "SERVICE_OUT"] } }, orderBy: { startedAt: "desc" } } },
+    include: {
+      services: true,
+      scenario: true,
+      calls: { where: { kind: { in: ["CALLER_IN", "SERVICE_OUT"] } }, orderBy: { startedAt: "desc" } },
+      linkedTo: { select: { id: true, number: true } },
+    },
   });
   if (!incident?.createdBySeatId || !incident.lessonId) return null;
   const seat = await db.seat.findUnique({ where: { id: incident.createdBySeatId }, include: { lesson: true } });
@@ -105,6 +112,13 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
     typeNames: await typeNames([...incident.typeCodes, ...(truth?.typeCodes ?? [])]),
     settableFlags: settableFlags(await treesFor(cards)),
   };
+  // «Совпадение»: the link and, for a repeat call, the cards of the first call in this lesson.
+  input.link = incident.linkedTo;
+  if (truth?.repeatOf) {
+    input.repeatCards = (await lessonCards(incident.lessonId, incident.id))
+      .filter((c) => c.scenarioRef === truth.repeatOf)
+      .map((c) => ({ id: c.ref.id, number: c.ref.number, place: c.ref.place }));
+  }
   // The calls to the services working by phone are made after «сохранить»: they are judged at «отработана».
   if (incident.status === "worked") {
     const calls = incident.calls.filter((c) => c.kind === "SERVICE_OUT").map(phoneCallOf).filter((c): c is PhoneCall => c !== null);
@@ -127,22 +141,27 @@ export function phoneCallOf(call: { id: string; counterpart: unknown; messages: 
 }
 
 /**
- * «отработана»: the phone check of the card's Attempt, now that the calls are made. Only this check changes: the
- * card itself was graded as it was sent to the services.
+ * «отработана»: the checks of what is done after saving — the calls to the services working by phone, and a link
+ * made in the view mode («Кнопка доступна как в режиме создания карточки, так и в режиме просмотра»). Only these
+ * checks change: the card itself was graded as it was sent to the services.
  */
-export async function regradePhone(incidentId: string): Promise<void> {
+export async function regradeAfterWork(incidentId: string): Promise<void> {
   try {
     const loaded = await loadEvalInput(incidentId);
     if (!loaded) return;
-    const check = phoneCheck(phonePlates(loaded.input), loaded.input.phoneNotices ?? null);
-    if (!check) return;
+    const { input } = loaded;
+    const fresh = [
+      phoneCheck(phonePlates(input), input.phoneNotices ?? null),
+      input.card.empty ? null : linkCheck({ repeatOf: input.truth?.repeatOf, link: input.link ?? null, repeatCards: input.repeatCards ?? [] }),
+    ].filter((c): c is CriterionResult => c !== null);
+    const replaced = new Set<string>([PHONE_CODE, ...LINK_CODES]);
     const attempt = await db.attempt.findFirst({ where: { incidentId, kind: "OP112" }, orderBy: { createdAt: "desc" } });
     if (!attempt) return;
-    const criteria = [...((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => c.code !== PHONE_CODE), check];
+    const criteria = [...((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !replaced.has(c.code)), ...fresh];
     const score = computeScore(criteria, await activeWeights(), attempt.override as Record<string, boolean | null> | null);
     await db.attempt.update({ where: { id: attempt.id }, data: { criteria: criteria as unknown as Prisma.InputJsonValue, score } });
   } catch (err) {
-    console.error("op112 phone check failed", incidentId, err);
+    console.error("op112 after-work checks failed", incidentId, err);
   }
 }
 

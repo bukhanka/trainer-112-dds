@@ -1,6 +1,7 @@
 /**
  * Tasks written from the operator's instruction, not from the customer's tickets: the tickets always have a
- * caller who talks, so nothing in them ever needs «нет контакта» or «срыв звонка».
+ * caller who talks, so nothing in them ever needs «нет контакта» or «срыв звонка»; and a ticket is never called in
+ * twice within one lesson, so nothing needs «Совпадение».
  *
  * The instruction («Инструкция по заведению карточки», раздел «Телефоны заявителя»): «Для быстрой обработки
  * нерезультативных вызовов предусмотрены кнопки: «Нет контакта» при отсутствии контакта с заявителем, «Срыв
@@ -10,12 +11,18 @@
  *
  * The line itself is played by rules (src/lib/op112/caller.ts, lineTurn), so the tasks behave the same with
  * and without a language model. scripts/build-scenarios.ts turns them into approved scenarios for the 112 place.
+ *
+ * «Совпадение» (ПВ-1): «При заведении карточки система может сообщить, что карточка с таким же номером заявителя
+ * или местом происшествия уже была добавлена в систему недавно… После нажатия на кнопку «Привязать» текущая
+ * карточка станет связанной с выбранной карточкой». A second witness of a fire from a ticket calls in after the
+ * first card of the lesson: the right answer is to link the new card to that one. The reference card is the
+ * ticket's own; the task rings only once the lesson has a card made from that ticket (src/lib/op112/seat.ts).
  */
 import type { CallerPersona } from "../src/lib/incident/types";
 import type { RoutingFlags } from "../src/lib/routing/engine";
 import type { TicketAddress } from "./tickets";
 
-export type LineTask = {
+export type InstructionTask = {
   ref: string;
   title: string;
   category: string;
@@ -31,13 +38,15 @@ export type LineTask = {
   questions: string[];
   keywords?: string[];
   traps: string[];
+  /** A repeat call about the incident of this ticket: its reference card is the ticket's, the answer is a link. */
+  repeatOf?: string;
 };
 
 export const LINE_CATEGORY = "тишина и срыв звонка";
 
 const BUTTONS_FADE = "Кнопки «нет контакта» и «срыв звонка» работают, пока не выбран тип происшествия";
 
-export const LINE_TASKS: LineTask[] = [
+export const INSTRUCTION_TASKS: InstructionTask[] = [
   {
     ref: "НВ-1",
     title: "НВ-1. Тишина на линии",
@@ -121,6 +130,32 @@ export const LINE_TASKS: LineTask[] = [
     traps: [
       "Связь прервалась, но суть и адрес уже известны: вызов результативный — завести карточку и оповестить службы, а не нажимать «срыв звонка»",
       "Имя заявителя может остаться неизвестным: не выдумывать его",
+    ],
+  },
+  {
+    ref: "ПВ-1",
+    title: "ПВ-1. Повторный вызов: горит балкон на ул. Грина",
+    category: "пожар",
+    difficulty: 6,
+    caller: {
+      fullName: "Ковалёв Дмитрий Андреевич",
+      role: "очевидец",
+      phone: "+7 (903) 771-25-40",
+      visibleAddress: "улица Грина, дом 11, где библиотека",
+      situation: "В доме напротив горит балкон на тринадцатом этаже, валит чёрный дым. Улица Грина, дом 11.",
+      facts: [
+        "Горит балкон на 13-м этаже, пламя и чёрный дым, видно из окна дома напротив",
+        "Людей на балконе не видно, пострадавших не видит",
+        "Дом 14 этажей, газифицирован (сообщает только на вопрос)",
+        "Пожарных машин пока не видно",
+      ],
+      temper: "calm",
+      voice: "male",
+    },
+    repeatOf: "Б4-1",
+    questions: ["Этажность и этаж", "Газифицирован ли дом", "ФИО и статус заявителя, контактный телефон"],
+    traps: [
+      "Это второй звонок о пожаре, по которому в занятии уже есть карточка: «Совпадение» по адресу → «привязать», а не вторая отдельная карточка",
     ],
   },
 ];

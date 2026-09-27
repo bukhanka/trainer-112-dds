@@ -44,6 +44,9 @@ export function ServicesBar(p: {
   onDial?: (serviceId: number) => void;
   onImportant: () => void;
   onNotAvailable: (what: string) => void;
+  /** «создать связь» (Alt+W); the button is lit while the card is linked to a main one */
+  onLink: () => void;
+  linkedNumber?: number | null;
 }) {
   return (
     <footer
@@ -123,9 +126,17 @@ export function ServicesBar(p: {
             </button>
           )}
         </span>
-        <button type="button" className="arm-bar-btn" title="Создать связь (Alt+W)" onClick={() => p.onNotAvailable("Связи карточек")}>
-          <IconLink className="h-6 w-6" />
-        </button>
+        <span data-hk="Alt+W" className="flex">
+          <button
+            type="button"
+            className={`arm-bar-btn ${p.linkedNumber ? "bg-white !text-arm-blue" : ""}`}
+            aria-pressed={Boolean(p.linkedNumber)}
+            title={p.linkedNumber ? `Связана с карточкой № ${p.linkedNumber} (Alt+W)` : "Создать связь (Alt+W)"}
+            onClick={p.onLink}
+          >
+            <IconLink className="h-6 w-6" />
+          </button>
+        </span>
         <button type="button" className="arm-bar-btn" title="Напоминание (Alt+B)" onClick={() => p.onNotAvailable("Напоминание")}>
           <IconStopwatch className="h-6 w-6" />
         </button>
