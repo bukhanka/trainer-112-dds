@@ -66,6 +66,13 @@ export function crewPlanFor(ref: DdsReferenceEntry | null): { chain: ServiceStat
       plan: { ...ref.crew, refuse: ref.crew.refuse ?? "это не наша зона ответственности, пусть диспетчер передаст информацию по принадлежности" },
     };
   }
+  if (ref?.decision === "open") {
+    // Nobody asked for a crew; one sent anyway comes back with nothing to do.
+    return {
+      chain: ["STARTED", "ARRIVED", "FINISHED"],
+      plan: { ...ref.crew, result: ref.crew.result ?? "на месте работают профильные службы, наша помощь не потребовалась" },
+    };
+  }
   return { chain: crewChain(ref), plan: ref?.crew ?? {} };
 }
 

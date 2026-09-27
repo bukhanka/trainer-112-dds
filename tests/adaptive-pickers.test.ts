@@ -86,6 +86,31 @@ describe("ДДС place: which card comes next", () => {
     expect((await pickScenario(withServices, seat(), settings, true))?.id).toBe("district");
   });
 
+  it("prefers the situations whose reference judges the place's level over those that only reach it", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.1);
+    const services = new Map([
+      [191, "Поселение Вороновское"],
+      [60, "Поселение Щукино"],
+      [101, "Служба 101"],
+    ]);
+    const card = (ids: number[]) => ({ services: ids });
+    const pool = [
+      { ...s("reachesOnly", 5), ddsCard: card([101, 60]), ddsReference: { services: [{ serviceId: 101, service: "Служба 101", decision: "ACCEPTED", chain: ["ACCEPTED", "FINISHED"] }] } },
+      { ...s("judged", 5), ddsCard: card([101, 60]), ddsReference: { services: [{ serviceId: 60, service: "Поселение Щукино", decision: "REJECTED", chain: ["REJECTED"] }] } },
+    ];
+    const withServices = {
+      scenario: { findMany: async () => pool },
+      incident: { findMany: async () => [] },
+      call: { findMany: async () => [] },
+      attempt: { findMany: async () => [] },
+      service: {
+        findUnique: async ({ where }: { where: { id: number } }) => ({ shortName: services.get(where.id) }),
+        findMany: async ({ where }: { where: { id: { in: number[] } } }) => where.id.in.map((id) => ({ id, shortName: services.get(id) })),
+      },
+    } as never;
+    expect((await pickScenario(withServices, seat(), settings, false))?.id).toBe("judged");
+  });
+
   it("gives a strong student the hard card", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.1);
     const pool = [s("easy", 3), s("hard", 9)];

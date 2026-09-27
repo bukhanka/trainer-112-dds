@@ -198,7 +198,12 @@ export function platesForPlace<T extends { id: number; shortName: string }>(plat
 
 // ─── Reference decision of a ДДС ────────────────────────────────────────────
 
-export type DdsDecision = "accept" | "reject";
+/**
+ * «open» — the reference does not judge the first answer: the memo says «Принята» only when the service will act,
+ * and what this service does here is not in the materials (see data/README.md). The 30 seconds and the comments
+ * are still judged; no crew is expected.
+ */
+export type DdsDecision = "accept" | "reject" | "open";
 
 /** What the crew reports by phone; the lines are built from these facts. */
 export type CrewPlan = {
@@ -244,6 +249,7 @@ function decisionOf(v: unknown): DdsDecision | null {
   if (v === false) return "reject";
   const s = str(v)?.toLowerCase();
   if (!s) return null;
+  if (/^(open|either|не\s*оценива)/.test(s)) return "open";
   if (/^(reject|rejected|не\s*принята|не\s*реагировать|отказ)/.test(s)) return "reject";
   if (/^(accept|accepted|принята|реагировать)/.test(s)) return "accept";
   return null;
@@ -277,8 +283,31 @@ function entryOf(v: unknown): DdsReferenceEntry | null {
   };
 }
 
-/** Reference entry for one service plate, or null when the scenario has none for it or for its role. */
+/** A territorial place the reference says nothing about: its first answer and crew are not judged. */
+export const NO_ENTRY_FOR_LEVEL =
+  "В эталоне нет записи для ДДС этого уровня: что делает управа или префектура в таком случае, из материалов не видно — решение и наряд не оцениваются, оцениваются ответ за 30 с и комментарий";
+
+function openEntry(why: string): DdsReferenceEntry {
+  return { decision: "open", why, transferTo: [], chain: [], finalMust: [], crew: {}, contacts: [], traps: [] };
+}
+
+/**
+ * Reference entry for one service plate. A territorial ДДС (district or prefecture) without an entry of its own
+ * or of its level gets an «open» entry: absence of a record is not a reason to demand «Принята» and a crew.
+ * Null — no entry for any other service.
+ */
 export function referenceFor(raw: unknown, service: { id: number; shortName: string }): DdsReferenceEntry | null {
+  const own = ownReference(raw, service);
+  if (own) return own;
+  return territorialLevel(service.shortName) ? openEntry(NO_ENTRY_FOR_LEVEL) : null;
+}
+
+/** Whether the reference has its own entry for the place: by service, by its territorial level, or a default one. */
+export function hasOwnReference(raw: unknown, service: { id: number; shortName: string }): boolean {
+  return ownReference(raw, service) !== null;
+}
+
+function ownReference(raw: unknown, service: { id: number; shortName: string }): DdsReferenceEntry | null {
   const list: unknown[] = Array.isArray(raw) ? raw : isObj(raw) && Array.isArray(raw.services) ? raw.services : [];
   if (list.length) {
     const exact = list.find((e) => isObj(e) && (Number(e.serviceId) === service.id || str(e.service) === service.shortName));
@@ -306,7 +335,7 @@ export const DEFAULT_CHAIN: ServiceStatus[] = ["STARTED", "ARRIVED", "WORKING", 
 
 export function crewChain(ref: DdsReferenceEntry | null): ServiceStatus[] {
   if (!ref) return DEFAULT_CHAIN;
-  if (ref.decision === "reject") return [];
+  if (ref.decision === "reject" || ref.decision === "open") return [];
   return ref.chain.length ? ref.chain : DEFAULT_CHAIN;
 }
 

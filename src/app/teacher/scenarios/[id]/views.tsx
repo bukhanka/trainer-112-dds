@@ -181,6 +181,8 @@ const DECISION: Record<string, { label: string; cls: string }> = {
   accept: { label: "Принять", cls: "bg-emerald-700 text-white" },
   REJECTED: { label: "Не принимать", cls: "bg-red-600 text-white" },
   reject: { label: "Не принимать", cls: "bg-red-600 text-white" },
+  OPEN: { label: "Решение не оценивается", cls: "bg-slate-500 text-white" },
+  open: { label: "Решение не оценивается", cls: "bg-slate-500 text-white" },
 };
 
 /** Reference actions of a ДДС with the right moves highlighted: decision, status chain, what to write, traps. */

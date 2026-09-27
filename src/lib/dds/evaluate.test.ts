@@ -221,6 +221,21 @@ describe("phraseCovered", () => {
     expect(list["dds.comment_content"].evidence).toContain("не хватает");
   });
 
+  it("does not judge the decision or the crew of an «open» reference, but still the 30 s and the comment", () => {
+    const open: DdsReferenceEntry = { ...pipeRef, decision: "open", chain: [], finalMust: ["что-то особое"], why: "не задано" };
+    const list = Object.fromEntries(
+      evaluateDdsPlate(
+        facts({ reference: open, status: "FINISHED", dispatch: null, events: [ev("ADDED", 0), ev("ACCEPTED", 45), ev("FINISHED", 300, "ок")] }),
+      ).map((c) => [c.code, c]),
+    );
+    expect(list["dds.decision"].ok).toBeNull();
+    expect(list["dds.crew_in_time"]).toBeUndefined();
+    expect(list["dds.progress_statuses"]).toBeUndefined();
+    expect(list["dds.comment_content"]).toBeUndefined();
+    expect(list["dds.ack_in_time"].ok).toBe(false);
+    expect(list["dds.final_comment"].ok).toBe(false);
+  });
+
   it("does not ask an okrug ДДС for a crew", () => {
     const info: DdsReferenceEntry = { ...pipeRef, chain: ["FINISHED"], finalMust: ["принято к сведению"] };
     const list = Object.fromEntries(
