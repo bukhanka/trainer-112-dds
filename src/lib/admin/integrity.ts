@@ -80,7 +80,7 @@ export const REF_LABELS: Record<RefKey, string> = {
   types: "типы происшествий",
   routes: "правила маршрутизации",
   services: "службы",
-  scenarios: "сценарии из билетов",
+  scenarios: "сценарии из билетов и инструкции",
 };
 export const REF_FILES: Record<RefKey, string> = {
   groups: "classifier.json",
@@ -255,7 +255,8 @@ async function collectChecks(now: Date): Promise<Check[]> {
       db.incidentType.count(),
       db.route.count(),
       db.service.count(),
-      db.scenario.count({ where: { source: "ticket" } }),
+      // The delivered library: ticket situations and the instruction's tasks (both come from data/scenarios.json).
+      db.scenario.count({ where: { source: { in: ["ticket", "instruction"] } } }),
     ]);
     checks.push(referenceCheck(expectedCounts({ classifier, services, scenarios }), { groups, types, routes, services: serviceRows, scenarios: ticketScenarios }));
 
