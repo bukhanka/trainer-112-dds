@@ -656,7 +656,7 @@
    "object": null,
    "district": "Тверской",
    "okrug": "ЦАО",
-   "confidence": "low",
+   "confidence": "medium",
    "tickets": [
     "Б27-2"
    ]
