@@ -211,7 +211,15 @@ export type CrewPlan = {
   work?: string; // what they do on site
   result?: string; // summary for «Работы завершены» (the reference's brigadeReport)
   refuse?: string; // why the right closing is «Отказ от выполнения работ»
+  cardError?: string; // what the crew finds on arrival that differs from the card
 };
+
+/**
+ * An error in the card the 112 operator saved (customer's answer of 27.09): the crew finds it on arrival and
+ * tells the dispatcher, who does not edit the 112 fields but phones 112 with the card number and the right
+ * information. `mustSay` — patterns of the right information (regular expressions, any one will do).
+ */
+export type CardError = { what: string; inCard: string; onSite: string; report: string; mustSay: string[] };
 
 export type DdsContact = { name: string; phone: string };
 
@@ -229,7 +237,29 @@ export type DdsReferenceEntry = {
   /** Extra numbers for the phone book of this card (a managing company, a utility). */
   contacts: DdsContact[];
   traps: string[];
+  /** The card has an error the crew reports on arrival (scenario-wide: every service meets the same card). */
+  cardError?: CardError;
 };
+
+function cardErrorOf(raw: unknown): CardError | undefined {
+  const v = isObj(raw) && isObj(raw.cardError) ? raw.cardError : null;
+  if (!v || !str(v.report) || !str(v.onSite)) return undefined;
+  const mustSay = strList(v.mustSay).filter((src) => {
+    try {
+      new RegExp(src, "i");
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return { what: str(v.what) ?? "сведения", inCard: str(v.inCard) ?? "", onSite: str(v.onSite)!, report: str(v.report)!, mustSay };
+}
+
+/** The right information of a card error is said in this text. */
+export function saysCardErrorRight(text: string, error: CardError): boolean {
+  const t = text.toLowerCase().replace(/ё/g, "е");
+  return error.mustSay.some((src) => new RegExp(src, "i").test(t));
+}
 
 const STATUS_BY_WORD: Record<string, ServiceStatus> = Object.fromEntries([
   ...Object.entries(STATUS_LABEL).map(([k, label]) => [label.toLowerCase(), k as ServiceStatus]),
@@ -285,7 +315,7 @@ function entryOf(v: unknown): DdsReferenceEntry | null {
 
 /** A territorial place the reference says nothing about: its first answer and crew are not judged. */
 export const NO_ENTRY_FOR_LEVEL =
-  "В эталоне нет записи для ДДС этого уровня: что делает управа или префектура в таком случае, из материалов не видно — решение и наряд не оцениваются, оцениваются ответ за 30 с и комментарий";
+  "В эталоне нет записи для ДДС этого уровня: что делает управа или префектура в таком случае, из материалов не видно — решение и наряд не оцениваются, оцениваются нормативы и комментарий";
 
 function openEntry(why: string): DdsReferenceEntry {
   return { decision: "open", why, transferTo: [], chain: [], finalMust: [], crew: {}, contacts: [], traps: [] };
@@ -297,9 +327,9 @@ function openEntry(why: string): DdsReferenceEntry {
  * Null — no entry for any other service.
  */
 export function referenceFor(raw: unknown, service: { id: number; shortName: string }): DdsReferenceEntry | null {
-  const own = ownReference(raw, service);
-  if (own) return own;
-  return territorialLevel(service.shortName) ? openEntry(NO_ENTRY_FOR_LEVEL) : null;
+  const entry = ownReference(raw, service) ?? (territorialLevel(service.shortName) ? openEntry(NO_ENTRY_FOR_LEVEL) : null);
+  const cardError = cardErrorOf(raw);
+  return entry && cardError ? { ...entry, cardError, crew: { ...entry.crew, cardError: cardError.report } } : entry;
 }
 
 /** Whether the reference has its own entry for the place: by service, by its territorial level, or a default one. */

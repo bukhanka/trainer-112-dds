@@ -24,7 +24,7 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
           orderBy: { addedAt: "asc" },
           include: {
             service: { select: { shortName: true, delivery: true, visible: true } },
-            events: { orderBy: { at: "asc" }, select: { status: true, at: true, seatId: true } },
+            events: { orderBy: { at: "asc" }, select: { status: true, at: true, seatId: true, comment: true } },
           },
         },
       },

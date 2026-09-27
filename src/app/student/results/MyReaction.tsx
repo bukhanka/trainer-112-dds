@@ -4,9 +4,9 @@ import { countLabel, formatDuration } from "@/lib/format";
 import { getReaction, type Reaction, type RoleReaction } from "@/lib/student/reaction";
 import type { ViewerSession } from "@/lib/student/results";
 
-const LABEL = { DDS: "ДДС: «Принята / Не принята»", OP112: "112: набор карточки" } as const;
-const SHORT = { DDS: "ДДС: ответ", OP112: "112: набор" } as const;
-const FROM = { DDS: "от «Добавлена» до первого ответа службы", OP112: "от «Принять» до «сохранить»" } as const;
+const LABEL = { DDS: "ДДС: открытие карточки", OP112: "112: набор карточки" } as const;
+const SHORT = { DDS: "ДДС: открыть", OP112: "112: набор" } as const;
+const FROM = { DDS: "от «Добавлена» до открытия карточки", OP112: "от «Принять» до «сохранить»" } as const;
 
 /** «Время реакции»: the average first-answer time by role against the norm, confirmed attempts only. */
 export function MyReaction({ reaction }: { reaction: Reaction }) {

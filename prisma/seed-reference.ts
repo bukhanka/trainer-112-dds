@@ -173,7 +173,8 @@ export async function seedReference(db: PrismaClient): Promise<void> {
   const started = Date.now();
   const classifier = read<ClassifierFile>("classifier.json");
   const services = read<ServiceFile>("services.json");
-  const scenarios = read<ScenarioFile>("scenarios.json");
+  // Variants of approved tickets with an error in the card (customer's answer of 27.09): the crew reports it on arrival.
+  const scenarios = [...(read<ScenarioFile>("scenarios.json") ?? []), ...(read<ScenarioFile>("scenarios-card-errors.json") ?? [])];
 
   const parts: string[] = [];
   if (classifier) {
@@ -181,7 +182,7 @@ export async function seedReference(db: PrismaClient): Promise<void> {
     parts.push(`${c.groups} groups, ${c.types} types, ${c.routes} routes`);
   }
   if (services) parts.push(`${await seedServices(db, services)} services`);
-  if (scenarios) {
+  if (scenarios.length) {
     const s = await seedScenarios(db, scenarios);
     parts.push(`${s.total} scenarios from tickets and the instruction (${s.created} new)`);
   }

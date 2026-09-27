@@ -106,7 +106,10 @@ export function reportLine(stage: ServiceStatus | null, ctx: CrewContext): strin
     case "STARTED":
       return `Диспетчер, ${who}, ${surname(ctx.leader)}. Выехали на ${ctx.address}, будем минут через десять.`;
     case "ARRIVED":
-      return `${cap(who)} прибыл на место, ${ctx.address}. Осматриваемся.`;
+      // A card error shows on arrival: the crew tells the dispatcher what differs from the card.
+      return ctx.plan.cardError
+        ? `${cap(who)} прибыл на место, ${ctx.address}. Внимание, диспетчер: в карточке ошибка — ${clean(ctx.plan.cardError)}.`
+        : `${cap(who)} прибыл на место, ${ctx.address}. Осматриваемся.`;
     case "WORKING":
       return `${cap(who)}: приступили к работам — ${clean(ctx.plan.work ?? "работаем на месте")}.`;
     case "FINISHED":
@@ -297,9 +300,17 @@ export function operatorGreeting(): string {
 }
 
 /** Offline 112 operator: wants the address, the card number and what changed, then takes the information. */
+const CORRECTION = /(ошиб|неверн|неправильн|не тот|не та\b|не то\b|исправ|на самом деле|фактическ|перепута)/i;
+
 export function operatorMockReply(said: string, turn: number): string {
   const hasPlace = /(адрес|улиц|дом|пос\.|посёл|посел|мкр|д\.\s*\d)/i.test(said);
   const hasCard = /(карточ|кп)\D{0,12}\d{5,}/i.test(said) || /\d{8}/.test(said);
+  // An error in the card: the 112 operator corrects the card the dispatcher cannot edit.
+  if (CORRECTION.test(said)) {
+    return hasCard
+      ? "Принял: исправлю карточку и сообщу всем службам по ней. Кто передал?"
+      : "Понял, в карточке ошибка. Назовите номер карточки и что указать верно.";
+  }
   if (hasPlace && hasCard) return "Информацию принял: дополню карточку и оповещу нужные службы. Что-то ещё?";
   if (turn >= 3 && (hasPlace || hasCard)) return "Принял, передам старшему смены. Спасибо.";
   if (!hasPlace) return "Назовите адрес происшествия и что изменилось на месте.";
@@ -308,8 +319,9 @@ export function operatorMockReply(said: string, turn: number): string {
 
 export function operatorPrompt(ownService: string): string {
   return [
-    `Ты — оператор ${OPERATOR_112}. Тебе звонит диспетчер ДДС «${ownService}»: обстановка на месте изменилась, нужны другие службы.`,
+    `Ты — оператор ${OPERATOR_112}. Тебе звонит диспетчер ДДС «${ownService}»: обстановка на месте изменилась или в карточке ошибка.`,
     "Как по памятке: попроси представиться, назвать адрес, повод, номер карточки, по которой работает служба, и что изменилось.",
-    "Когда всё названо — подтверди, что дополнишь карточку и оповестишь службы. Одна-две короткие фразы, не говори, что ты программа.",
+    "Если диспетчер сообщает об ошибке в карточке (адрес, подъезд, пострадавшие и т. п.) — попроси номер карточки и верные сведения: поля карточки 112 исправляешь ты, диспетчер ДДС их не правит.",
+    "Когда всё названо — подтверди, что дополнишь или исправишь карточку и оповестишь службы. Одна-две короткие фразы, не говори, что ты программа.",
   ].join("\n");
 }

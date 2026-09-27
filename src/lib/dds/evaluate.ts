@@ -2,7 +2,8 @@
  * Review of one ДДС plate against the dispatcher memo's error catalogue (report D4) — rules only, no model.
  * Each check becomes a CriterionResult of a weight group; «не применимо» is ok: null and does not count.
  *
- *   timeliness   — answer within ackSec; crew sent within workSec; crew calls answered; status after a report
+ *   timeliness   — the card opened within ackSec (30 s) and its first record — status and text — within workSec
+ *                  (3 min), both from «Добавлена» (customer's answer of 27.09); crew calls answered; status after a report
  *   comments     — reason and «кому передано» for Не принята / Отказ; meaningful final comment
  *   statusOrder  — progress statuses not skipped; statuses by the facts of reports; status matches its meaning;
  *                  the card closed with the right status
@@ -17,10 +18,11 @@ import { errorTitle } from "@/lib/scoring/errors";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import { describeTemplates, matchTemplate, parseTemplates, templateProblem } from "@/lib/scoring/template";
 import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
-import { crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
+import { CREW_PACE_SEC, crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
-import { crewExpected, type DdsReferenceEntry } from "./scenario";
-import { awaitsAnswer, NO_CREW_COMMENT, PROGRESS, STATUS_LABEL, type ServiceRules } from "./status";
+import { mentionsCardNumber } from "./personas";
+import { saysCardErrorRight, type DdsReferenceEntry } from "./scenario";
+import { awaitsAnswer, isRecord, NO_CREW_COMMENT, PROGRESS, STATUS_LABEL, type ServiceRules } from "./status";
 
 export type PlateEvent = { status: ServiceStatus; comment: string | null; crewNumber: string | null; at: Date; late: boolean };
 
@@ -39,6 +41,10 @@ export type PlateFacts = {
   /** Incoming crew calls: rang / lost. */
   crewCalls: { rang: number; missed: number };
   callbacks: { at: Date; namedCardNumber: boolean }[];
+  /** Number of the card: a call to 112 about an error names it. */
+  cardNumber?: number;
+  /** Calls to 112 about this card (or naming it): when, and the dispatcher's lines. */
+  calls112?: { at: Date; lines: string[] }[];
   /** Moment of the review: closing of the plate or the end of the lesson. */
   now: Date;
   /** Abbreviations printed on the service plates (they count as official in the clarity check). */
@@ -108,49 +114,70 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   const noCrewClose = f.rules.noReject && first?.status === "FINISHED";
   const ref = f.reference;
 
-  // ── timeliness ──
-  if (first) {
-    const delay = secBetween(f.addedAt, first.at);
+  // ── timeliness: two norms, by the customer's answer of 27.09 ──
+  // 30 s from «Добавлена» to opening the card; 3 min from «Добавлена» to the first record — a status with a
+  // text. Statuses have no other time norms: the works may take hours.
+  const hms = (d: Date) => fmtDateTime(d).slice(11);
+  const opened = f.events.find((e) => e.status !== "ADDED") ?? null;
+  const record = own.find((e) => isRecord(e)) ?? null;
+  const waited = secBetween(f.addedAt, f.now);
+  const trail = [`появилась ${hms(f.addedAt)}`, opened ? `открыта ${hms(opened.at)}` : null, record ? `первая запись ${hms(record.at)}` : null]
+    .filter(Boolean)
+    .join(", ");
+  if (opened) {
+    const delay = secBetween(f.addedAt, opened.at);
     out.push({
-      code: "dds.ack_in_time",
+      code: "dds.open_in_time",
       group: "timeliness",
-      title: `Ответ «Принята / Не принята» за ${f.ackSec} с`,
+      title: `Карточка открыта за ${f.ackSec} с`,
       ok: delay <= f.ackSec,
-      evidence: `«${STATUS_LABEL[first.status]}» через ${fmtDuration(delay)} после «Добавлена» (норматив ${fmtDuration(f.ackSec)})`,
-      expected: `Первый статус — в течение ${f.ackSec} с после «Добавлена», даже если карточка ещё в очереди`,
+      evidence: `Карточка ${trail}: открыта через ${fmtDuration(delay)} (норматив ${fmtDuration(f.ackSec)})`,
+      expected: `Открыть карточку в течение ${f.ackSec} с после того, как она появилась в ленте («Добавлена»), даже если она ждёт в очереди`,
       source: "rule",
     });
   } else {
     // A card that came in just before the end still had time left: nothing to judge yet.
-    const waited = secBetween(f.addedAt, f.now);
     const expired = waited > f.ackSec;
     out.push({
-      code: "dds.ack_in_time",
+      code: "dds.open_in_time",
       group: "timeliness",
-      title: `Ответ «Принята / Не принята» за ${f.ackSec} с`,
+      title: `Карточка открыта за ${f.ackSec} с`,
       ok: expired ? false : null,
       critical: expired,
       evidence: expired
-        ? `Ответа нет: карточка получает статус «Не оповещено» (прошло ${fmtDuration(waited)})`
+        ? `Карточку не открыли: появилась ${hms(f.addedAt)}, прошло ${fmtDuration(waited)} — «Не оповещено»`
         : `Карточка пришла за ${fmtDuration(waited)} до конца — норматив ещё не истёк`,
-      expected: "Поставить «Принята» или «Не принята» в течение норматива",
+      expected: `Открыть карточку в течение ${f.ackSec} с после «Добавлена»`,
       source: "rule",
     });
   }
 
-  if (decision === "accept" && !noCrewClose && crewExpected(ref)) {
-    const sent = f.dispatch ? secBetween(f.addedAt, f.dispatch.at) : null;
-    const stillTime = sent === null && secBetween(f.addedAt, f.now) <= f.workSec;
+  const bare = own.find((e) => !e.comment?.trim()) ?? null;
+  if (record) {
+    const delay = secBetween(f.addedAt, record.at);
     out.push({
-      code: "dds.crew_in_time",
+      code: "dds.first_record_in_time",
       group: "timeliness",
-      title: `Наряд направлен в пределах отработки (${fmtDuration(f.workSec)})`,
-      ok: stillTime ? null : sent !== null && sent <= f.workSec,
-      evidence:
-        sent === null
-          ? "Наряд не назначен: номер наряда не указан, по телефону наряд не направлен"
-          : `Наряд ${f.dispatch!.crew} ${f.dispatch!.via === "phone" ? "направлен по телефону" : "указан в статусе"} через ${fmtDuration(sent)}`,
-      expected: "После «Принята» выбрать наряд и указать его номер в статусе",
+      title: `Первая запись — статус и текст — за ${fmtDuration(f.workSec)}`,
+      ok: delay <= f.workSec,
+      evidence: `Карточка ${trail}: «${STATUS_LABEL[record.status]}: ${record.comment!.length > 80 ? `${record.comment!.slice(0, 77)}…` : record.comment}» через ${fmtDuration(delay)} (норматив ${fmtDuration(f.workSec)})`,
+      expected: `Первая запись — статус и текст — в течение ${fmtDuration(f.workSec)} после «Добавлена»; статус без текста запись не закрывает`,
+      source: "rule",
+    });
+  } else {
+    const expired = waited > f.workSec;
+    out.push({
+      code: "dds.first_record_in_time",
+      group: "timeliness",
+      title: `Первая запись — статус и текст — за ${fmtDuration(f.workSec)}`,
+      ok: expired ? false : null,
+      critical: expired && !bare,
+      evidence: expired
+        ? bare
+          ? `Карточка ${trail}: «${STATUS_LABEL[bare.status]}» поставлен без текста — это не запись; записи с текстом нет`
+          : `Карточка ${trail}: записи нет — прошло ${fmtDuration(waited)}`
+        : `Карточка пришла за ${fmtDuration(waited)} до конца — норматив ещё не истёк`,
+      expected: "Поставить статус («Принята» или «Не принята») с текстом: что делаете или почему не берёте и кому передано",
       source: "rule",
     });
   }
@@ -285,7 +312,7 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   const expectedProgress = chain.filter((s) => PROGRESS.includes(s));
   // An «open» reference expects no crew: progress statuses are asked for only if the dispatcher sent one.
   if (decision === "accept" && !noCrewClose && expectedProgress.length && (ref?.decision !== "open" || f.dispatch) && (closing || f.dispatch)) {
-    const schedule = crewSchedule(chain, f.workSec);
+    const schedule = crewSchedule(chain, CREW_PACE_SEC);
     const reached = f.dispatch ? stageAt(schedule, secBetween(f.dispatch.at, closing?.at ?? f.now)) : null;
     const due = f.dispatch ? expectedProgress.filter((s) => reached && RANK[reached] >= RANK[s]) : expectedProgress;
     const set = new Set(own.map((e) => e.status));
@@ -306,7 +333,7 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   }
 
   if (f.dispatch && decision === "accept") {
-    const schedule = crewSchedule(chain, f.workSec);
+    const schedule = crewSchedule(chain, CREW_PACE_SEC);
     const early = own.filter((e) => {
       if (!["STARTED", "ARRIVED", "WORKING", "FINISHED"].includes(e.status) || e.at <= f.dispatch!.at) return false; // the dispatch event itself is fine
       const step = schedule.find((s) => s.status === e.status);
@@ -398,6 +425,45 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
       expected: "«Вы звонили в 112 по поводу …» — номер карточки заявителю не называют",
       source: "rule",
     });
+  }
+
+  // ── an error in the card: the crew reports it, the dispatcher phones 112 (customer's answer of 27.09) ──
+  const error = ref?.cardError;
+  if (error && decision === "accept" && !noCrewClose) {
+    const heard = [...f.reports].filter((r) => r.status === "ARRIVED").sort((a, b) => a.at.getTime() - b.at.getTime())[0] ?? null;
+    if (heard) {
+      const after = (f.calls112 ?? []).filter((c) => c.at.getTime() >= heard.at.getTime() - 5_000);
+      const good = after.find((c) => {
+        const text = c.lines.join(" ");
+        return (f.cardNumber == null || mentionsCardNumber(text, f.cardNumber)) && saysCardErrorRight(text, error);
+      });
+      const quoteCall = (c: { at: Date; lines: string[] }) => `звонок в 112 в ${fmtDateTime(c.at).slice(11)}: ${quote(c.lines.join(" "))}`;
+      out.push({
+        code: "dds.card_error_reported",
+        group: "completeness",
+        title: "Об ошибке в карточке сообщено в 112",
+        ok: !!good,
+        evidence: good
+          ? `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)}; ${quoteCall(good)}`
+          : after.length
+            ? `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)}; ${quoteCall(after[0])} — не названы номер карточки и верные сведения`
+            : `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)} (в карточке ${error.inCard || error.what}, на месте ${error.onSite}), в 112 не звонили`,
+        expected: `Позвонить в 112 (набор «112»), назвать номер карточки и верные сведения: ${error.onSite}. Поля, заполненные службой 112, диспетчер ДДС не правит`,
+        source: "rule",
+      });
+      if (closing) {
+        const right = saysCardErrorRight(closing.comment ?? "", error);
+        out.push({
+          code: "dds.card_error_in_comment",
+          group: "comments",
+          title: "Итоги — по верным сведениям, а не по ошибке карточки",
+          ok: right,
+          evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}${right ? "" : ` — нет верных сведений (на месте ${error.onSite})`}`,
+          expected: `В итоговом комментарии — как на самом деле: ${error.onSite}`,
+          source: "rule",
+        });
+      }
+    }
   }
 
   // ── literacy: the refusal and final comments read without a phone call (rules; the model adds its own check) ──

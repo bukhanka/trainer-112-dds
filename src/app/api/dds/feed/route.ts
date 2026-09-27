@@ -2,7 +2,6 @@ import type { NextRequest } from "next/server";
 import { apiUser } from "@/lib/auth/session";
 import { practiceKey } from "@/lib/dds/api";
 import { db } from "@/lib/db";
-import { crewTimersFor } from "@/lib/dds/plate";
 import { seatForUser } from "@/lib/dds/seat";
 import { feedRow, incidentInclude, typeInfos, type FeedRow } from "@/lib/dds/view";
 import { seatFeedWhere } from "@/lib/flow/dds-flow";
@@ -33,9 +32,9 @@ export async function GET(request: NextRequest) {
     orderBy: [{ savedAt: "desc" }, { createdAt: "desc" }],
     take: 300,
   });
-  const [infos, crews] = await Promise.all([typeInfos(incidents), crewTimersFor(seat, incidents)]);
+  const infos = await typeInfos(incidents);
   const rows = incidents
-    .map((i) => (seat.serviceId ? feedRow(i, seat.serviceId, infos.get(i.id)!, crews.get(i.id) ?? null) : null))
+    .map((i) => (seat.serviceId ? feedRow(i, seat.serviceId, infos.get(i.id)!) : null))
     .filter((r): r is FeedRow => !!r);
 
   const q = (params.get("q") ?? "").trim().toLowerCase();

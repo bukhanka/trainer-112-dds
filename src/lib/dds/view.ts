@@ -5,11 +5,10 @@
 import type { Prisma, ServiceDelivery, ServiceStatus } from "@prisma/client";
 import type { DescriptionEntry, IncidentAddress, IncidentCaller, IncidentFlags, TagChoice } from "@/lib/incident/types";
 import { db } from "@/lib/db";
-import type { CrewTimer } from "./crew";
 import { addressFeed, addressTitle, classLine, fmtHM, tagsLine } from "./format";
 import { servicePhone } from "./personas";
 import { ddsCardOf } from "./scenario";
-import { awaitsAnswer, isClosed, STATUS_LABEL } from "./status";
+import { awaitsAnswer, isClosed, normMoments, STATUS_LABEL } from "./status";
 
 export const incidentInclude = {
   services: {
@@ -147,10 +146,9 @@ export type FeedRow = {
   ownStatus: ServiceStatus;
   ownLabel: string;
   ownAddedAt: string;
-  answeredAt: string | null;
-  answerLate: boolean;
-  /** 3 minutes to send the crew after «Принята» (null — not counting now). */
-  crew: CrewTimer | null;
+  /** The two norms (customer's answer of 27.09): the card opened within 30 s, the first record — status and text — within 3 min. */
+  openedAt: string | null;
+  recordAt: string | null;
   closed: boolean;
   important: boolean;
   description: DescriptionEntry | null;
@@ -159,10 +157,10 @@ export type FeedRow = {
   linkedTo: number | null;
 };
 
-export function feedRow(incident: IncidentFull, ownServiceId: number, info: TypeInfo, crew: CrewTimer | null = null): FeedRow | null {
+export function feedRow(incident: IncidentFull, ownServiceId: number, info: TypeInfo): FeedRow | null {
   const own = incident.services.find((p) => p.serviceId === ownServiceId);
   if (!own) return null;
-  const answer = firstAnswer(own);
+  const moments = normMoments(own.events);
   const log = (incident.descriptionLog as DescriptionEntry[] | null) ?? [];
   const caller = (incident.caller as IncidentCaller | null) ?? {};
   const flags = (incident.flags as IncidentFlags | null) ?? {};
@@ -185,9 +183,8 @@ export function feedRow(incident: IncidentFull, ownServiceId: number, info: Type
     ownStatus: own.status,
     ownLabel: STATUS_LABEL[own.status],
     ownAddedAt: own.addedAt.toISOString(),
-    answeredAt: answer?.at.toISOString() ?? null,
-    answerLate: !!answer?.late,
-    crew,
+    openedAt: moments.openedAt?.toISOString() ?? null,
+    recordAt: moments.recordAt?.toISOString() ?? null,
     closed: isClosed(own.status) || own.status === "REJECTED",
     important: incident.important,
     description: log.length ? log[log.length - 1] : incident.description ? { at: "", author: "", text: incident.description } : null,

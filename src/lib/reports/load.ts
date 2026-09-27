@@ -5,7 +5,6 @@ import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { passRulesOf } from "@/lib/scoring/pass";
 import type { ReportInput } from "./lesson";
 
-const ANSWER = new Set(["ACCEPTED", "REJECTED"]);
 
 /** Rows of one lesson for the report; the caller has checked access to the lesson. */
 export async function loadReportInput(lesson: Lesson): Promise<ReportInput> {
@@ -42,8 +41,9 @@ export async function loadReportInput(lesson: Lesson): Promise<ReportInput> {
       let timeSec: number | null = null;
       let actions = 0;
       if (a.kind === "DDS" && a.incidentService) {
-        const answer = a.incidentService.events.find((e) => ANSWER.has(e.status));
-        if (answer) timeSec = Math.round((answer.at.getTime() - a.incidentService.addedAt.getTime()) / 1000);
+        // «Добавлена» → the card opened: the 30-second norm (customer's answer of 27.09).
+        const opened = a.incidentService.events.find((e) => e.status !== "ADDED");
+        if (opened) timeSec = Math.round((opened.at.getTime() - a.incidentService.addedAt.getTime()) / 1000);
         actions = a.incidentService.events.filter((e) => e.seatId === a.seatId && e.status !== "ADDED").length;
       } else if (a.kind === "OP112" && a.incident?.savedAt) {
         timeSec = Math.round((a.incident.savedAt.getTime() - (a.incident.openedAt ?? a.incident.createdAt).getTime()) / 1000);

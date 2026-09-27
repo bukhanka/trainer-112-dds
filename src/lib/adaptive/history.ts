@@ -1,7 +1,7 @@
 /**
  * A student's attempts with everything the level and the forecast need: score and review state,
  * scenario difficulty, and the time against the norm (the same definition as in the lesson report:
- * 112 — card typing, ДДС — «Добавлена» → «Принята / Не принята»).
+ * 112 — card typing, ДДС — «Добавлена» → the card opened, the 30-second norm of the customer's answer of 27.09).
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -24,7 +24,8 @@ const historySelect = {
   scenario: { select: { difficulty: true } },
   incident: { select: { createdAt: true, openedAt: true, savedAt: true } },
   incidentService: {
-    select: { addedAt: true, events: { where: { status: { in: ["ACCEPTED", "REJECTED"] } }, orderBy: { at: "asc" }, take: 1, select: { at: true } } },
+    // ДДС time: «Добавлена» → the card opened (the 30-second norm, customer's answer of 27.09).
+    select: { addedAt: true, events: { where: { status: { not: "ADDED" } }, orderBy: { at: "asc" }, take: 1, select: { at: true } } },
   },
 } satisfies Prisma.AttemptSelect;
 
@@ -38,7 +39,7 @@ export type HistoryAttempt = ForecastAttempt &
     lessonSettings: unknown;
   };
 
-/** The lesson's time norm of a role: 112 — card typing, ДДС — «Принята / Не принята». */
+/** The lesson's time norm of a role: 112 — card typing, ДДС — opening the card. */
 export function normFor(settings: unknown, role: RatingRole): number {
   const parsed = lessonSettingsSchema.safeParse(settings ?? {});
   const s = parsed.success ? parsed.data : lessonSettingsSchema.parse({});

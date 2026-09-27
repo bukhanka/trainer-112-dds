@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useState } from "react";
 import useSWR from "swr";
-import { crewSecondsLeft } from "@/lib/dds/crew";
 import { dateParts, fmtDateShort, fmtDateTime, fmtDuration } from "@/lib/dds/format";
 import type { FeedRow } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
@@ -102,7 +101,7 @@ export function FeedScreen() {
             Список происшествий {collapsed ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
           </button>
           <div className="flex items-center gap-4 text-[13px]">
-            <span className="flex items-center gap-1.5" title="Карточки без ответа «Принята / Не принята»">
+            <span className="flex items-center gap-1.5" title="Карточки, по которым служба ещё не ответила">
               <span className="grid h-4 w-4 place-items-center rounded-full bg-white/80 text-[11px] font-bold text-arm-feed">!</span>
               уведомления
               {state.waiting ? <b className="rounded bg-arm-late px-1.5 text-white">{state.waiting}</b> : null}
@@ -218,32 +217,36 @@ function Cell({ className = "", children, title }: { className?: string; childre
   );
 }
 
+/**
+ * The norms of the own plate (customer's answer of 27.09): first 30 s from «Добавлена» to opening the card
+ * (counting up), then 3 min from «Добавлена» to the first record — a status with a text (counting down).
+ * Red when late; once the record is made the cell shows when it was made.
+ */
 function TimerCell({ row, now, ackSec, workSec, live }: { row: FeedRow; now: number; ackSec: number; workSec: number; live: boolean }) {
   const added = Date.parse(row.ownAddedAt);
-  if (!row.answeredAt) {
+  if (!row.openedAt) {
     const sec = now ? (now - added) / 1000 : 0;
     const over = sec > ackSec;
     return (
       <Cell
         className={over ? "bg-arm-late! font-bold text-white" : "text-white"}
-        title={over ? `Норматив ${ackSec} с на «Принята / Не принята» превышен` : `С момента «Добавлена». Норматив ${ackSec} с`}
+        title={over ? `Норматив ${ackSec} с на открытие карточки превышен` : `С момента «Добавлена». Открыть карточку — ${ackSec} с`}
       >
         <Stopwatch className="mr-1 h-4 w-4 shrink-0" />
         <span className="tabular-nums">{fmtDuration(sec)}</span>
       </Cell>
     );
   }
-  if (live && row.crew && !row.crew.sentAt) {
-    // After «Принята»: time left to work the card (send a crew or close it), counted from «Добавлена» like the 30 seconds.
-    const left = now ? crewSecondsLeft(row.crew, now) : workSec;
+  if (!row.recordAt && live && !row.closed) {
+    const left = now ? workSec - (now - added) / 1000 : workSec;
     const late = left < 0;
     return (
       <Cell
         className={late ? "bg-arm-late! font-bold text-white" : "text-white"}
         title={
           late
-            ? `Норматив отработки ${fmtDuration(workSec)} от «Добавлена» превышен`
-            : `Осталось на отработку: отправьте наряд или закройте карточку. Норматив ${fmtDuration(workSec)} от «Добавлена»`
+            ? `Норматив ${fmtDuration(workSec)} на первую запись превышен`
+            : `Осталось на первую запись — статус и текст. Норматив ${fmtDuration(workSec)} от «Добавлена»`
         }
       >
         <Hourglass className="mr-1 h-4 w-4 shrink-0" />
@@ -251,9 +254,13 @@ function TimerCell({ row, now, ackSec, workSec, live }: { row: FeedRow; now: num
       </Cell>
     );
   }
-  const sec = (Date.parse(row.answeredAt) - added) / 1000;
+  const sec = (Date.parse(row.recordAt ?? row.openedAt) - added) / 1000;
+  const late = row.recordAt ? sec > workSec : sec > ackSec;
   return (
-    <Cell className={row.answerLate ? "text-arm-late" : "text-white/55"} title={row.answerLate ? "Ответ с опозданием" : "Время ответа службы"}>
+    <Cell
+      className={late ? "text-arm-late" : "text-white/55"}
+      title={row.recordAt ? (late ? "Первая запись сделана с опозданием" : "Первая запись — через столько после «Добавлена»") : "Карточка открыта через столько после «Добавлена»"}
+    >
       <Stopwatch className="mr-1 h-4 w-4 shrink-0" />
       <span className="tabular-nums">{fmtDuration(sec)}</span>
     </Cell>
@@ -402,7 +409,7 @@ function SeatStrip() {
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 bg-arm-dark/60 px-3 py-2 text-[13px]">
       <span>
         {seat.practice ? "Самостоятельная тренировка" : seat.lessonTitle} · место «{seat.serviceShort}». Карточки приходят каждые {seat.tempoSec} с,
-        в очереди не больше {seat.maxQueue}. На «Принята / Не принята» — {seat.ackSec} с, на отработку (отправить наряд или закрыть карточку) — {fmtDuration(seat.workSec)} от «Добавлена».
+        в очереди не больше {seat.maxQueue}. Открыть карточку — {seat.ackSec} с, первая запись (статус и текст) — {fmtDuration(seat.workSec)} от «Добавлена».
       </span>
       <span className="text-white/80">
         {flow?.noScenarios

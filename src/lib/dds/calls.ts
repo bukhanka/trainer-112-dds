@@ -11,7 +11,7 @@ import { chat, type ChatMessage } from "@/lib/ai/provider";
 import { db } from "@/lib/db";
 import type { CallerPersona, IncidentAddress, IncidentCaller } from "@/lib/incident/types";
 import type { LessonSettings } from "@/lib/lessons/settings";
-import { crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
+import { CREW_PACE_SEC, crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
 import { addressShort } from "./format";
 import { endHold, openHold, readHolds, resumeLine, startHold, type HoldPeriod } from "./hold";
 import {
@@ -98,16 +98,6 @@ function phoneDispatches(calls: Pick<Call, "counterpart">[], incidentId: string)
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
 }
 
-/** Crews sent to cards by phone, per card: the dispatch the 3-minute timer and the review both count. */
-export function phoneDispatchesByIncident(calls: Pick<Call, "counterpart">[]): Map<string, { crew: string; at: Date }[]> {
-  const out = new Map<string, { crew: string; at: Date }[]>();
-  for (const c of calls.map(cp)) {
-    if (c.kind !== "crew" || !c.crew || !c.dispatch) continue;
-    out.set(c.dispatch.incidentId, [...(out.get(c.dispatch.incidentId) ?? []), { crew: c.crew, at: new Date(c.dispatch.at) }]);
-  }
-  return out;
-}
-
 type CrewState = { dispatch: Dispatch | null; stage: ServiceStatus | null; ctxFor: (member: CrewMember) => CrewContext };
 
 function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "counterpart">[], settings: LessonSettings, now: Date): CrewState {
@@ -115,7 +105,7 @@ function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "c
   const dispatch = own ? dispatchOf(own.events, phoneDispatches(calls, incident.id)) : null;
   const ref = seat.service ? referenceFor(incident.scenario?.ddsReference, seat.service) : null;
   const { chain, plan } = crewPlanFor(ref);
-  let stage = dispatch ? stageAt(crewSchedule(chain, settings.workSec), (now.getTime() - dispatch.at.getTime()) / 1000) : null;
+  let stage = dispatch ? stageAt(crewSchedule(chain, CREW_PACE_SEC), (now.getTime() - dispatch.at.getTime()) / 1000) : null;
   // Once the dispatcher closed the plate the crew is done as well.
   if (dispatch && own && (own.status === "FINISHED" || own.status === "REFUSED")) stage = own.status;
   const address = addressShort(incident.address as IncidentAddress | null);

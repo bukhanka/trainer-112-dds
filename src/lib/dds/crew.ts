@@ -4,7 +4,7 @@
  *   dispatch = the first own status with a crew number (Принята + «Номер наряда»), or the moment the
  *              dispatcher sent a free crew by phone, whichever is earlier;
  *   stages   = the scenario's expected chain (Начало реагирования → Прибытие → … → Работы завершены),
- *              spread over the lesson's workSec from the dispatch.
+ *              spread over CREW_PACE_SEC from the dispatch.
  *
  * The crew reports every stage it reaches by phone; the dispatcher is expected to set the matching
  * status soon after the report.
@@ -12,7 +12,14 @@
 import type { ServiceStatus } from "@prisma/client";
 import { crewChain, type CrewPlan, type DdsReferenceEntry } from "./scenario";
 
-/** Share of workSec after the dispatch when the crew reaches a stage. */
+/**
+ * The crew's own pace in the simulation: stages spread over this many seconds after the dispatch. Not a
+ * norm of the dispatcher — statuses have no time norms (customer's answer of 27.09), the pace only makes
+ * the reports come within a lesson.
+ */
+export const CREW_PACE_SEC = 180;
+
+/** Share of the crew's pace after the dispatch when the crew reaches a stage. */
 export const STAGE_SHARE: Partial<Record<ServiceStatus, number>> = {
   STARTED: 0.15,
   ARRIVED: 0.45,
@@ -74,26 +81,4 @@ export function crewPlanFor(ref: DdsReferenceEntry | null): { chain: ServiceStat
     };
   }
   return { chain: crewChain(ref), plan: ref?.crew ?? {} };
-}
-
-/**
- * The 3-minute norm at the place, counted as the review counts it (check «Наряд направлен в пределах
- * отработки», evaluate.ts): the crew goes out within workSec of «Добавлена». The seat shows it once the
- * service has said «Принята» and until the plate is closed; null means there is nothing to count down.
- */
-export type CrewTimer = { dueAt: string; sentAt: string | null };
-
-export function crewTimer(
-  plate: { status: ServiceStatus; addedAt: Date; events: { status: ServiceStatus; crewNumber: string | null; at: Date }[] },
-  phone: { crew: string; at: Date }[],
-  workSec: number,
-): CrewTimer | null {
-  if (!WORKING_STATES.includes(plate.status)) return null;
-  const dispatch = dispatchOf(plate.events, phone);
-  return { dueAt: new Date(plate.addedAt.getTime() + workSec * 1000).toISOString(), sentAt: dispatch?.at.toISOString() ?? null };
-}
-
-/** Seconds left to send the crew; negative when late. */
-export function crewSecondsLeft(timer: CrewTimer, nowMs: number): number {
-  return (Date.parse(timer.dueAt) - nowMs) / 1000;
 }

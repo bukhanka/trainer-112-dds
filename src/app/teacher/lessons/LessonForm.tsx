@@ -223,8 +223,8 @@ export function LessonForm({
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <NumberField label="Темп: новая карточка раз в, с" value={settings.tempoSec} min={10} max={1800} onChange={(v) => set("tempoSec", v)} />
             <NumberField label="Очередь на месте, карточек" value={settings.maxQueue} min={1} max={10} onChange={(v) => set("maxQueue", v)} />
-            <NumberField label="Норматив ответа ДДС, с" value={settings.ackSec} min={5} max={600} onChange={(v) => set("ackSec", v)} />
-            <NumberField label="Норматив обработки, с" value={settings.workSec} min={30} max={3600} onChange={(v) => set("workSec", v)} />
+            <NumberField label="Открыть карточку, с" value={settings.ackSec} min={5} max={600} onChange={(v) => set("ackSec", v)} />
+            <NumberField label="Первая запись — статус и текст, с" value={settings.workSec} min={30} max={3600} onChange={(v) => set("workSec", v)} />
             <NumberField label="Набор карточки 112, с" value={settings.typingSec} min={20} max={600} onChange={(v) => set("typingSec", v)} />
           </div>
 

@@ -28,7 +28,7 @@ const seat = (id: string, role: "OP112" | "DDS", extra: Partial<BoardInput["seat
 });
 
 type Plate = BoardInput["incidents"][number]["plates"][number];
-const plate = (id: string, addedSec: number, status: Plate["status"], events: [Plate["status"], number, string | null][] = [], extra: Partial<Plate> = {}): Plate => ({
+const plate = (id: string, addedSec: number, status: Plate["status"], events: ([Plate["status"], number, string | null] | [Plate["status"], number, string | null, string])[] = [], extra: Partial<Plate> = {}): Plate => ({
   id,
   serviceId: 191,
   serviceName: "Поселение Вороновское",
@@ -36,7 +36,7 @@ const plate = (id: string, addedSec: number, status: Plate["status"], events: [P
   visible: true,
   status,
   addedAt: ago(addedSec),
-  events: [["ADDED", addedSec, null] as [Plate["status"], number, string | null], ...events].map(([s, sec, seatId]) => ({ status: s, at: ago(sec), seatId })),
+  events: [["ADDED", addedSec, null] as [Plate["status"], number, string | null], ...events].map(([s, sec, seatId, comment]) => ({ status: s, at: ago(sec), seatId, comment: comment ?? null })),
   ...extra,
 });
 
@@ -58,16 +58,16 @@ const incident = (id: string, plates: Plate[], extra: Partial<BoardInput["incide
 const input = (over: Partial<BoardInput>): BoardInput => ({ lesson: lesson(), seats: [], incidents: [], calls: [], attempts: [], ...over });
 
 describe("buildBoard: ДДС place", () => {
-  it("turns the answer timer red and marks «Не оповещено» after 30 s", () => {
-    const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 40, "RECEIVED", [["RECEIVED", 35, "1"]])])] }), NOW);
+  it("turns the open timer red and marks «Не оповещено» 30 s after «Добавлена» (customer, 27.09)", () => {
+    const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 40, "ADDED", [], { seatId: "1" })])] }), NOW);
     const s = board.seats[0];
-    expect(s.timer).toMatchObject({ phase: "ack", late: true, normSec: 30 });
+    expect(s.timer).toMatchObject({ phase: "open", late: true, normSec: 30 });
     expect(s.state).toBe("late");
     expect(s.red.notNotified).toBe(1);
     expect(board.cards[0].control).toEqual([{ label: "Не оповещено", red: true }]);
   });
 
-  it("moves to processing after an answer in time and counts the queue", () => {
+  it("after opening in time waits for the first record — a status with a text — and counts the queue", () => {
     const board = buildBoard(
       input({
         seats: [seat("1", "DDS")],
@@ -79,11 +79,18 @@ describe("buildBoard: ДДС place", () => {
       NOW,
     );
     const s = board.seats[0];
-    expect(s.timer).toMatchObject({ phase: "dispatch", late: false });
+    expect(s.timer).toMatchObject({ phase: "record", late: false, normSec: 180 }); // «Принята» without a text is not a record
     expect(s.current?.number).toBe(1);
     expect(s.queue).toBe(1);
-    expect(s.counts).toEqual({ opened: 1, answered: 1, submitted: 0 });
+    expect(s.counts).toEqual({ opened: 1, answered: 0, submitted: 0 });
     expect(s.red.notNotified).toBe(0);
+
+    const recorded = buildBoard(
+      input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 100, "ACCEPTED", [["RECEIVED", 95, "1"], ["ACCEPTED", 80, "1", "Направлен наряд 23"]])])] }),
+      NOW,
+    ).seats[0];
+    expect(recorded.timer).toMatchObject({ phase: "brigade", normSec: null, late: false }); // no other time norms
+    expect(recorded.counts.answered).toBe(1);
   });
 
   it("marks a refusal red and closes the plate", () => {
@@ -213,7 +220,7 @@ describe("buildBoard: cards of the ДДС card flow", () => {
 describe("buildBoard: review fixes", () => {
   it("keeps the late mark on the right plate when a hidden plate comes first", () => {
     const hidden = plate("p-hidden", 60, "ACCEPTED", [["ACCEPTED", 55, null]], { serviceId: 999, serviceName: "Невидимая", visible: false });
-    const late = plate("p-late", 60, "RECEIVED", [["RECEIVED", 55, "1"]]);
+    const late = plate("p-late", 60, "RECEIVED", [["RECEIVED", 20, "1"]]); // opened 40 s after «Добавлена»
     const onTime = plate("p-ok", 60, "ACCEPTED", [["ACCEPTED", 50, null]], { serviceId: 1, serviceName: "Служба 101", delivery: "VIS" });
     const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [hidden, late, onTime])] }), NOW);
     const plates = board.cards[0].plates;

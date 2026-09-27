@@ -228,14 +228,17 @@ async function collectChecks(now: Date): Promise<Check[]> {
   }
   if (dbOk) checks.push(check("db", true, `Ответ за ${Date.now() - t0} мс`));
 
-  const [folders, classifier, services, scenarios, minGb, free] = await Promise.all([
+  const [folders, classifier, services, scenarioFile, cardErrors, minGb, free] = await Promise.all([
     migrationFolders(),
     readJson("classifier.json"),
     readJson("services.json"),
     readJson("scenarios.json"),
+    readJson("scenarios-card-errors.json"),
     getSetting("integrity.minFreeGb", 2).catch(() => 2),
     freeGb(),
   ]);
+  // The seed loads the ticket variants with an error in the card too (prisma/seed-reference.ts).
+  const scenarios = Array.isArray(scenarioFile) ? [...scenarioFile, ...(Array.isArray(cardErrors) ? cardErrors : [])] : scenarioFile;
 
   if (!dbOk) {
     for (const code of ["migrations", "reference", "backup"] as const) checks.push(check(code, false, "Не проверено: база недоступна"));
