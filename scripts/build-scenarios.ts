@@ -5,7 +5,8 @@
  *
  * For every ticket situation: the AI caller persona, the reference 112 card (types, flags,
  * address, services by the routing engine, required questions), the card as a ДДС sees it,
- * a difficulty estimate; for the 15 deep tickets also the ДДС reference.
+ * a difficulty estimate; for the tickets worked through by hand (scripts/deep-scenarios.ts) also
+ * the ДДС reference — those become APPROVED.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
