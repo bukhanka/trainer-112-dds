@@ -43,9 +43,14 @@ export default async function ScenariosPage(props: PageProps<"/teacher/scenarios
         title="Сценарии"
         subtitle="Всё, что сгенерировано, — черновик. В занятие попадают только утверждённые сценарии: целиком или раздел за разделом."
         actions={
-          <Link href="/teacher/scenarios/new" className={buttonClass("primary")}>
-            + Сценарий из текста
-          </Link>
+          <>
+            <Link href={`/teacher/scenarios/generate${category ? `?category=${encodeURIComponent(category)}` : ""}`} className={buttonClass("primary")}>
+              Сгенерировать по категории
+            </Link>
+            <Link href="/teacher/scenarios/new" className={buttonClass("primary")}>
+              + Сценарий из текста
+            </Link>
+          </>
         }
       />
       <div className="flex flex-wrap items-end gap-2">
