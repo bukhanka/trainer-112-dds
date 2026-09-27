@@ -1,8 +1,11 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { decodeLocation, inLocation, placeLabel } from "./location";
+import { scenarioPlace } from "./place";
 import { presentSections } from "./sections";
 
-export type ScenarioFilters = { status?: string | null; category?: string | null; q?: string | null };
+/** loc — «СЗАО» or «СЗАО|Щукино» (location.ts). */
+export type ScenarioFilters = { status?: string | null; category?: string | null; q?: string | null; loc?: string | null };
 
 export function scenarioWhere(f: ScenarioFilters): Prisma.ScenarioWhereInput {
   const where: Prisma.ScenarioWhereInput = {};
@@ -34,8 +37,12 @@ export async function listScenarios(f: ScenarioFilters) {
       ddsReference: true,
     },
   });
-  return rows.map(({ caller, truth, ddsCard, ddsReference, ...r }) => {
+  // The location follows the reference address, so it is read here rather than filtered in SQL.
+  const location = decodeLocation(f.loc);
+  return rows.flatMap(({ caller, truth, ddsCard, ddsReference, ...r }) => {
+    const place = scenarioPlace(truth);
+    if (!inLocation(place, location)) return [];
     const present = presentSections({ caller, truth, ddsCard, ddsReference });
-    return { ...r, present: present.length, approved: present.filter((k) => r.approvedSections.includes(k)).length };
+    return [{ ...r, place: placeLabel(place), present: present.length, approved: present.filter((k) => r.approvedSections.includes(k)).length }];
   });
 }
