@@ -1,8 +1,18 @@
 /** What the filled panels mean: classifier leaves, routing flags and the tag line stored on Incident. */
-import type { IncidentFlags } from "@/lib/incident/types";
+import type { IncidentAddress, IncidentFlags } from "@/lib/incident/types";
 import { resolveTree } from "@/lib/routing/tags";
 import { findKind, kindTitle, panelFor, picked, visibleRows, type TagTree } from "./catalog";
 import type { CardAnswers, StoredTag } from "./types";
+
+/**
+ * The instruction: «После заполнения формы «Адрес» становится доступной экранная форма с дополнительными
+ * вопросами» — the questionnaire of a chosen kind opens once there is a place to go: a street (from the
+ * suggestions or typed), an object or a descriptive address. The subject alone («Москва», set on every new
+ * card) is not an address.
+ */
+export function addressFilled(address: IncidentAddress): boolean {
+  return [address.street, address.object, address.descriptive].some((v) => Boolean(v?.trim()));
+}
 
 /** Flags the top buttons of the card set directly; the panels add the rest. */
 export const TOP_FLAGS = ["victims", "refusedAmbulance", "noAccess"] as const;

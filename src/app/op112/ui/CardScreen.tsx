@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import type { IncidentCaller } from "@/lib/incident/types";
 import type { CallDto, IncidentDto, Op112State } from "@/lib/op112/state";
+import { addressFilled } from "@/lib/op112/card";
 import type { CallLine, Op112CardDraft, RoutedService } from "@/lib/op112/types";
 import { ApiError, getJson, send, useNow, type StateWithClock } from "./client";
 import { TopBar } from "./TopBar";
@@ -354,6 +355,8 @@ export function CardScreen(p: {
               answers={draft.answers}
               readOnly={readOnly}
               classes={classes}
+              addressReady={addressFilled(draft.address)}
+              onAddress={() => focusById("op112-address")}
               onCards={(c, a) => patch({ cards: c, answers: a })}
             />
             {saved && (

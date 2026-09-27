@@ -81,6 +81,9 @@ export function TypeBlock(p: {
   answers: Record<string, CardAnswers>;
   readOnly: boolean;
   classes: string[];
+  /** The questionnaire opens only once the address is filled, as the instruction orders the blocks. */
+  addressReady: boolean;
+  onAddress: () => void;
   onCards: (cards: string[], answers: Record<string, CardAnswers>) => void;
 }) {
   const [q, setQ] = useState("");
@@ -203,18 +206,42 @@ export function TypeBlock(p: {
           {p.classes.length > 0 && <span className="ml-2 text-[12.5px] text-arm-desc">Класс.: {p.classes.join("; ")}</span>}
         </div>
       )}
-      {p.cards.map((k, i) => (
-        <QuestionCardView
-          key={k}
-          index={i}
-          cardKey={k}
-          answers={p.answers[k] ?? {}}
-          readOnly={p.readOnly}
-          onChange={(a) => p.onCards(p.cards, { ...p.answers, [k]: a })}
-          onClose={() => remove(k)}
-        />
-      ))}
+      {p.cards.map((k, i) =>
+        p.readOnly || p.addressReady ? (
+          <QuestionCardView
+            key={k}
+            index={i}
+            cardKey={k}
+            answers={p.answers[k] ?? {}}
+            readOnly={p.readOnly}
+            onChange={(a) => p.onCards(p.cards, { ...p.answers, [k]: a })}
+            onClose={() => remove(k)}
+          />
+        ) : (
+          <SurveyLocked key={k} index={i} cardKey={k} onAddress={p.onAddress} onClose={() => remove(k)} />
+        ),
+      )}
     </>
+  );
+}
+
+/** A chosen kind before the address is filled: its header and a hint instead of the questions. */
+function SurveyLocked(p: { cardKey: string; index: number; onAddress: () => void; onClose: () => void }) {
+  return (
+    <section className="shrink-0 bg-white" id={`op112-card-${p.index + 1}`} data-survey-locked="">
+      <div className="flex items-center justify-between bg-arm-dark px-3 py-1.5 text-white">
+        <h3 className="text-[14px] font-bold">{kindTitle(p.cardKey)}</h3>
+        <button type="button" title="Снять тип" onClick={p.onClose} className="p-0.5 hover:text-arm-orange">
+          <IconClose className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13.5px] text-arm-desc">
+        <span>Опросная карта откроется после заполнения адреса.</span>
+        <button type="button" className="arm-mini-btn" onClick={p.onAddress}>
+          к адресу (Alt+A)
+        </button>
+      </div>
+    </section>
   );
 }
 
