@@ -39,6 +39,14 @@ describe("clarity of a ДДС comment by rules", () => {
     expect(kinds(final("ул. Лесная, д. 5, кв. 12: течь устранена"))).toEqual([]);
   });
 
+  it("does not take vehicle makes and number plates for abbreviations", () => {
+    expect(kinds(final("ВАЗ-2107 с госномером А123АА77 эвакуирован, проезд освобождён"))).toEqual([]);
+    expect(kinds(final("Скрылся автомобиль КАМАЗ, номер известен частично: А*23ОР 199, план «Перехват» введён"))).toEqual([]);
+    expect(kinds(final("Эвакуирован автомобиль, номер ХХ 77, проезд освобождён"))).toEqual([]);
+    // Letters without digits next to them are still read as an abbreviation.
+    expect(kinds(final("Эвакуирован автомобиль, проезд освобождён АБ"))).toEqual(["abbreviation"]);
+  });
+
   it("does not read a comment typed in capitals as abbreviations", () => {
     expect(kinds(final("ТЕЧЬ УСТРАНЕНА, ВОДА ПОДАНА"))).toEqual([]);
   });

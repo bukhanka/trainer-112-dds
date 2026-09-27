@@ -49,6 +49,8 @@ export const OFFICIAL_ABBREVIATIONS: ReadonlySet<string> = new Set([
   // roads and territories
   "МКАД", "ТТК", "ЦКАД", "МЦК", "МЦД", "ДТП", "ТС", "РФ", "ФИО",
   "ЦАО", "САО", "СВАО", "ВАО", "ЮВАО", "ЮАО", "ЮЗАО", "СЗАО", "НАО", "ТАО",
+  // vehicle makes a crew reads off the car
+  "ВАЗ", "ГАЗ", "УАЗ", "ЗИЛ", "КАМАЗ", "МАЗ", "ПАЗ", "ЛИАЗ", "КАВЗ", "ЗАЗ", "БМВ",
 ]);
 
 /** Standard shortenings with a dot or without vowels: addresses, units, «гр.», «зам.», «нач.». */
@@ -88,6 +90,12 @@ export function fromEnglishLayout(word: string): string {
 
 const LETTER = /[a-zа-яё]/i;
 const CYR_WORD = /[а-яё]+/gi;
+/**
+ * Number plates, whole or partly known: «А123АА77», «а 123 аа 777», «А*23АА», «АА 77». Their letters come
+ * from the plate, they are not the dispatcher's abbreviations.
+ */
+const PLATE =
+  /(?<![а-яё])[авекмнорстух*?]\s?[\d*?]{3}\s?[авекмнорстух*?]{2}(?:\s?\d{2,3})?(?![а-яё])|(?<![а-яё])[авекмнорстух]{2}\s?\d{2,3}(?![\dа-яё])/gi;
 const VOWEL = /[аеёиоуыэюя]/i;
 
 /** Status echoed instead of a result: «Работы завершены», «Выполнено», «Сделано». */
@@ -142,7 +150,7 @@ export function commentIssues(c: JudgedComment, known: ReadonlySet<string> = new
   }
 
   // Upper-case words are abbreviations unless the whole comment is typed in capitals.
-  const words = text.match(CYR_WORD) ?? [];
+  const words = text.replace(PLATE, " ").match(CYR_WORD) ?? [];
   const upper = [...text].filter((ch) => /[А-ЯЁ]/.test(ch)).length;
   const shouting = words.length >= 3 && upper >= letters * 0.6;
   const seen = new Set<string>();
