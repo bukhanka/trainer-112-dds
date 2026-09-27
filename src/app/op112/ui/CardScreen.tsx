@@ -1,15 +1,16 @@
 "use client";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
-import type { IncidentCaller } from "@/lib/incident/types";
+import type { IncidentAddress, IncidentCaller } from "@/lib/incident/types";
 import type { CallDto, IncidentDto, Op112State, ServiceCallDto } from "@/lib/op112/state";
 import { addressFilled } from "@/lib/op112/card";
 import { kindTitle } from "@/lib/op112/catalog";
 import type { CallLine, Op112CardDraft, RoutedService } from "@/lib/op112/types";
+import { openForSupplement } from "@/lib/op112/supplement";
 import { phoneNotices, type WorkOff } from "@/lib/op112/workoffs";
 import { ApiError, getJson, send, useNow, type StateWithClock } from "./client";
 import { TopBar } from "./TopBar";
-import { AddressBlock, CallerRow, DescriptionBlock } from "./LeftColumn";
+import { AddressBlock, AddressSummary, CallerRow, DescriptionBlock } from "./LeftColumn";
 import { FlagsBar, TypeBlock } from "./RightColumn";
 import { AddServicesModal, EmptyCardModal, NotifyModal, PhoneWarnModal, ServicesBar, type Plate, type ServiceItem } from "./Services";
 import { ChatPanel } from "./ChatPanel";
@@ -40,6 +41,10 @@ function writeManual(id: string, ids: number[] | null) {
     /* private mode: additions just are not remembered across reloads */
   }
 }
+
+/** Alt+Y and Alt+N of a saved card are options of the status «Проверена» (the instruction's table). */
+const NOT_CHECKED = (what: string) =>
+  `${what} — кнопка карточки в статусе «Проверена», её ставит проверка; у этой карточки статус «Зарегистрирована»`;
 
 function focusById(id: string) {
   const el = document.getElementById(id) as HTMLElement | null;
@@ -76,6 +81,9 @@ export function CardScreen(p: {
   const [svcCalls, setSvcCalls] = useState<ServiceCallDto[]>(incident.serviceCalls);
   const [chatWith, setChatWith] = useState<string>(() => incident.serviceCalls.at(-1)?.id ?? "caller");
   const [svcPending, setSvcPending] = useState(false);
+  // A saved card: «Просмотр» (Shift+F1) or «Дополнить» (Shift+F2) — fields empty at saving, the description, victims.
+  const [mode, setMode] = useState<"view" | "supplement">("view");
+  const supplementing = saved && mode === "supplement";
   const { data: dir } = useSWR<Directory>("/api/op112/services", getJson, { revalidateOnFocus: false });
   const tick = useNow();
   const now = tick ? tick + state.clockOffset : Date.parse(state.serverNow);
@@ -299,6 +307,31 @@ export function CardScreen(p: {
     }
   };
 
+  const toView = () => {
+    // Leaving «Дополнить» without «сохранить» drops what was typed.
+    if (mode === "supplement") setDraft({ ...incident.draft, manualServiceIds: [] });
+    setMode("view");
+  };
+  const toSupplement = () => {
+    setMode("supplement");
+    setTimeout(() => focusById("op112-description"), 50);
+  };
+  const saveSupplement = async () => {
+    setBusy(true);
+    try {
+      const s = await send<Op112State>(`/api/op112/incidents/${incident.id}/supplement`, { draft });
+      setMode("view");
+      p.apply(s);
+      notify("Дополнение сохранено: оно записано в журнал описаний карточки");
+    } catch {
+      notify("Дополнение не сохранилось — попробуйте ещё раз");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const openCaller = (f: keyof IncidentCaller) => supplementing && openForSupplement(incident.draft.caller[f]);
+  const openAddress = (f: keyof IncidentAddress) => supplementing && openForSupplement(incident.draft.address[f]);
+
   const toggleImportant = () => {
     const next = !important;
     setImportant(next);
@@ -313,6 +346,20 @@ export function CardScreen(p: {
         if (modal) {
           e.preventDefault();
           setModal(null);
+        }
+        return;
+      }
+      // Shift+F1 / Shift+F2: the menu items of a saved card, «Просмотр» and «Дополнить».
+      if (e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && (e.code === "F1" || e.code === "F2")) {
+        if (!saved || modal) return;
+        e.preventDefault();
+        switch (`Shift+${e.code}`) {
+          case "Shift+F1":
+            toView();
+            break;
+          case "Shift+F2":
+            toSupplement();
+            break;
         }
         return;
       }
@@ -350,10 +397,17 @@ export function CardScreen(p: {
             focusById("op112-address");
             break;
           case "KeyP":
-            if (!readOnly) toggleFlag("victims");
+            if (!readOnly || supplementing) toggleFlag("victims");
             break;
           case "KeyN":
-            if (!readOnly && !draft.cards.length) setModal({ empty: "noContact" });
+            // Creating: to the «нет контакта / срыв звонка» block. Viewing: «Вернуть на доработку» of a «Проверена» card.
+            if (saved) notify(NOT_CHECKED("«Вернуть на доработку» (Alt+N)"));
+            else if (readOnly) break;
+            else if (draft.cards.length) notify("«Нет контакта» и «срыв звонка» работают, пока не выбран тип происшествия");
+            else focusById("op112-nocontact");
+            break;
+          case "KeyY":
+            if (saved) notify(NOT_CHECKED("«Проверена» (Alt+Y)"));
             break;
           case "KeyT":
             focusById("op112-type");
@@ -362,7 +416,9 @@ export function CardScreen(p: {
             focusById("op112-significant");
             break;
           case "KeyO":
-            focusById("op112-description");
+            // Creating (and supplementing): the description. Viewing a saved card: the work-offs.
+            if (saved && !supplementing) focusById("op112-workoff-service");
+            else focusById("op112-description");
             break;
           case "KeyZ":
             if (!readOnly) setModal("add");
@@ -370,7 +426,8 @@ export function CardScreen(p: {
           case "KeyS":
             if (modal === "notify") void save();
             else if (!modal) {
-              if (saved) void worked();
+              if (supplementing) void saveSupplement();
+              else if (saved) void worked();
               else if (!readOnly) setModal("notify");
             }
             break;
@@ -421,32 +478,46 @@ export function CardScreen(p: {
         caller={draft.caller}
         onCaller={setCaller}
         editable={!readOnly}
+        phoneEditable={(f) => openCaller(f)}
         incident={{ number: incident.number, savedLabel }}
         operatorNo={state.user.operatorNo}
         armNo={state.seat?.armNo ?? "1"}
         timer={{ sec: typingSec, late: typingSec > limit, running: !incident.savedAt }}
         onNotAvailable={(what) => notify(`${what}: в учебной версии не используется`)}
+        viewMenu={saved ? { supplementing, busy, onView: toView, onSupplement: toSupplement } : undefined}
       />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2">
           <div className="flex min-h-0 flex-1 gap-2">
             <section className="flex min-h-0 w-[43%] min-w-[400px] max-w-[860px] flex-col gap-2 overflow-y-auto">
-              <CallerRow caller={draft.caller} onChange={setCaller} readOnly={readOnly} />
-              <AddressBlock
-                address={draft.address}
-                onChange={(a) => patch({ address: a })}
-                readOnly={readOnly}
-                okrugs={dir?.okrugs ?? []}
-                districts={dir?.districts ?? []}
-                onMap={() => notify("Карта в учебной версии не подключена: выберите адрес из подсказок, район и округ подставятся сами")}
+              <CallerRow caller={draft.caller} onChange={setCaller} readOnly={readOnly} editable={supplementing ? openCaller : undefined} />
+              {saved && !supplementing ? (
+                <AddressSummary address={draft.address} onMap={() => notify("Карта в учебной версии не подключена")} />
+              ) : (
+                <AddressBlock
+                  address={draft.address}
+                  onChange={(a) => patch({ address: a })}
+                  readOnly={readOnly}
+                  okrugs={dir?.okrugs ?? []}
+                  districts={dir?.districts ?? []}
+                  onMap={() => notify("Карта в учебной версии не подключена: выберите адрес из подсказок, район и округ подставятся сами")}
+                  editable={supplementing ? openAddress : undefined}
+                />
+              )}
+              <DescriptionBlock
+                value={draft.description}
+                onChange={(v) => patch({ description: v })}
+                readOnly={readOnly && !supplementing}
+                hints={Boolean(state.lesson?.hints)}
+                hk={saved && !supplementing ? undefined : "Alt+O"}
               />
-              <DescriptionBlock value={draft.description} onChange={(v) => patch({ description: v })} readOnly={readOnly} hints={Boolean(state.lesson?.hints)} />
             </section>
             <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
               <FlagsBar
                 flags={draft.flags}
                 onToggle={toggleFlag}
                 readOnly={readOnly}
+                victimsEditable={supplementing}
                 typeChosen={draft.cards.length > 0}
                 onEmpty={(reason) => setModal({ empty: reason })}
               />
@@ -459,7 +530,13 @@ export function CardScreen(p: {
                 onAddress={() => focusById("op112-address")}
                 onCards={(c, a) => patch({ cards: c, answers: a })}
               />
-              {saved && (
+              {supplementing && (
+                <div className="shrink-0 border-l-4 border-arm-orange bg-white px-4 py-3 text-[14px]">
+                  Дополнение: можно заполнить поля, пустые при сохранении, дописать описание и изменить «Пострадавшие». «сохранить» (Alt+S) запишет
+                  дополнение в журнал описаний карточки — его увидят службы; «просмотр» (Shift+F1) — выйти без сохранения.
+                </div>
+              )}
+              {saved && !supplementing && (
                 <div className="shrink-0 border-l-4 border-arm-blue bg-white px-4 py-3 text-[14px]">
                   Карточка зарегистрирована и ушла в службы ({incident.plates.length}).
                   {phoneOnly.length > 0 && ` ${phoneOnly.map((x) => x.name).join(", ")} получает карточку только по телефону — позвоните из «Отработок» (Alt+O) и запишите, кто принял.`}{" "}
@@ -521,6 +598,8 @@ export function CardScreen(p: {
         onRemove={(id) => setManual(draft.manualServiceIds.filter((x) => x !== id))}
         onSave={() => setModal("notify")}
         onWorked={() => void worked()}
+        supplement={supplementing}
+        onSupplementSave={() => void saveSupplement()}
         onDial={saved ? dial : undefined}
         onImportant={toggleImportant}
         onNotAvailable={(what) => notify(`${what}: в учебной версии не используется`)}
@@ -595,3 +674,4 @@ function ChatTabs(p: { calls: ServiceCallDto[]; current: string; onPick: (id: st
     </div>
   );
 }
+

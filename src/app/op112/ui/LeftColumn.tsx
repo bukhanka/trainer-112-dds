@@ -12,7 +12,10 @@ export function CallerRow(p: {
   caller: IncidentCaller;
   onChange: (patch: Partial<IncidentCaller>) => void;
   readOnly: boolean;
+  /** «Дополнить»: only the fields that were empty when the card was saved */
+  editable?: (field: keyof IncidentCaller) => boolean;
 }) {
+  const ro = (f: keyof IncidentCaller) => (p.editable ? !p.editable(f) : p.readOnly);
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-2 bg-arm-panel px-3 2xl:gap-4">
       <div className="min-w-[100px] flex-[2]" data-hk="Alt+Q">
@@ -22,7 +25,7 @@ export function CallerRow(p: {
           placeholder="Фамилия и имя заявителя"
           maxLength={120}
           value={p.caller.fullName ?? ""}
-          readOnly={p.readOnly}
+          readOnly={ro("fullName")}
           onChange={(e) => p.onChange({ fullName: capitalizeWords(e.target.value) })}
           className="arm-field"
         />
@@ -31,7 +34,7 @@ export function CallerRow(p: {
         <select
           aria-label="Статус заявителя"
           value={p.caller.status ?? ""}
-          disabled={p.readOnly}
+          disabled={ro("status")}
           onChange={(e) => p.onChange({ status: (e.target.value || undefined) as IncidentCaller["status"] })}
           className={`arm-field ${p.caller.status ? "" : "text-[#8b959b]"}`}
         >
@@ -48,7 +51,7 @@ export function CallerRow(p: {
           id="op112-channel"
           aria-label="Канал связи"
           value={p.caller.channel ?? ""}
-          disabled={p.readOnly}
+          disabled={ro("channel")}
           onChange={(e) => p.onChange({ channel: e.target.value || undefined })}
           className="arm-field"
         >
@@ -61,7 +64,7 @@ export function CallerRow(p: {
       <button
         type="button"
         aria-pressed={Boolean(p.caller.foreignLanguage)}
-        disabled={p.readOnly}
+        disabled={ro("foreignLanguage")}
         title="Вызов на иностранном языке"
         onClick={() => p.onChange({ foreignLanguage: !p.caller.foreignLanguage })}
         className={`flex h-9 w-10 shrink-0 items-center justify-center border ${p.caller.foreignLanguage ? "border-arm-blue bg-arm-blue text-white" : "border-[#8f989e] bg-white text-arm-dark"}`}
@@ -88,8 +91,11 @@ export function AddressBlock(p: {
   okrugs: string[];
   districts: District[];
   onMap: () => void;
+  /** «Дополнить»: only the fields that were empty when the card was saved */
+  editable?: (field: keyof IncidentAddress) => boolean;
 }) {
   const a = p.address;
+  const ro = (f: keyof IncidentAddress) => (p.editable ? !p.editable(f) : p.readOnly);
   const [query, setQuery] = useState(() => [a.street, a.house && `${a.house}`].filter(Boolean).join(" ") || a.subject || "");
   const [items, setItems] = useState<AddressSuggestion[]>([]);
   const [open, setOpen] = useState(false);
@@ -121,7 +127,12 @@ export function AddressBlock(p: {
   const set = (patch: Partial<IncidentAddress>) => p.onChange({ ...a, ...patch });
   const pick = (s: AddressSuggestion) => {
     // Keep what the operator already typed below (flat, entrance…) and the descriptive address.
-    p.onChange({ ...a, ...s.address, flat: a.flat, entrance: a.entrance, floor: a.floor, code: a.code, descriptive: a.descriptive });
+    const next: IncidentAddress = { ...a, ...s.address, flat: a.flat, entrance: a.entrance, floor: a.floor, code: a.code, descriptive: a.descriptive };
+    // A supplement fills only what was empty: a saved field keeps its value.
+    const keep = p.editable
+      ? (Object.fromEntries((Object.keys(next) as (keyof IncidentAddress)[]).map((k) => [k, p.editable!(k) ? next[k] : a[k]])) as IncidentAddress)
+      : next;
+    p.onChange(keep);
     setQuery(s.label.split(" — ")[0]);
     setOpen(false);
     setItems([]);
@@ -144,7 +155,7 @@ export function AddressBlock(p: {
             aria-label="Поиск адреса"
             maxLength={200}
             value={query}
-            readOnly={p.readOnly}
+            readOnly={ro("street")}
             autoComplete="off"
             placeholder="улица и дом одной строкой"
             onFocus={(e) => {
@@ -173,7 +184,7 @@ export function AddressBlock(p: {
             }}
             className="min-w-0 flex-1 bg-transparent py-1 text-[15px] outline-none"
           />
-          {!p.readOnly && (
+          {!ro("street") && (
             <button type="button" title="Стереть строку поиска" onClick={() => setQuery("")} className="p-1 text-arm-dark hover:text-arm-late">
               <IconClose className="h-4 w-4" />
             </button>
@@ -199,24 +210,24 @@ export function AddressBlock(p: {
       </div>
       <div className="grid grid-cols-[1fr_1fr_1.4fr] gap-x-4 gap-y-2">
         <F label="Страна:">
-          <input className="arm-field" maxLength={60} value={a.country ?? ""} readOnly={p.readOnly} onChange={(e) => set({ country: e.target.value })} />
+          <input className="arm-field" maxLength={60} value={a.country ?? ""} readOnly={ro("country")} onChange={(e) => set({ country: e.target.value })} />
         </F>
         <F label="Субъект:">
-          <input className="arm-field" maxLength={80} value={a.subject ?? ""} readOnly={p.readOnly} onChange={(e) => set({ subject: e.target.value })} />
+          <input className="arm-field" maxLength={80} value={a.subject ?? ""} readOnly={ro("subject")} onChange={(e) => set({ subject: e.target.value })} />
         </F>
         <F label="Населенный пункт:">
-          <input className="arm-field" maxLength={80} value={a.city ?? ""} readOnly={p.readOnly} onChange={(e) => set({ city: e.target.value })} />
+          <input className="arm-field" maxLength={80} value={a.city ?? ""} readOnly={ro("city")} onChange={(e) => set({ city: e.target.value })} />
         </F>
       </div>
       <div className="grid grid-cols-[1.6fr_1fr_1fr] gap-x-4">
         <F label="Объект:">
-          <input className="arm-field" maxLength={200} value={a.object ?? ""} readOnly={p.readOnly} onChange={(e) => set({ object: e.target.value })} />
+          <input className="arm-field" maxLength={200} value={a.object ?? ""} readOnly={ro("object")} onChange={(e) => set({ object: e.target.value })} />
         </F>
         <F label="Округ:">
           <select
             className="arm-field"
             value={a.okrug ?? ""}
-            disabled={p.readOnly}
+            disabled={ro("okrug")}
             onChange={(e) => set({ okrug: e.target.value || undefined, district: undefined })}
           >
             <option value="" />
@@ -229,7 +240,7 @@ export function AddressBlock(p: {
           <select
             className="arm-field"
             value={a.district ?? ""}
-            disabled={p.readOnly}
+            disabled={ro("district")}
             onChange={(e) => {
               const d = p.districts.find((x) => x.district === e.target.value);
               set({ district: e.target.value || undefined, okrug: d?.okrug || a.okrug });
@@ -245,30 +256,30 @@ export function AddressBlock(p: {
       </div>
       <div className="grid grid-cols-[2fr_1fr_1fr] gap-x-4">
         <F label="Улица:">
-          <input className="arm-field" maxLength={200} value={a.street ?? ""} readOnly={p.readOnly} onChange={(e) => set({ street: e.target.value })} />
+          <input className="arm-field" maxLength={200} value={a.street ?? ""} readOnly={ro("street")} onChange={(e) => set({ street: e.target.value })} />
         </F>
         <F label="Дом/Вл:">
-          <input className="arm-field" maxLength={20} value={a.house ?? ""} readOnly={p.readOnly} onChange={(e) => set({ house: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.house ?? ""} readOnly={ro("house")} onChange={(e) => set({ house: e.target.value })} />
         </F>
         <F label="Корпус:">
-          <input className="arm-field" maxLength={20} value={a.building ?? ""} readOnly={p.readOnly} onChange={(e) => set({ building: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.building ?? ""} readOnly={ro("building")} onChange={(e) => set({ building: e.target.value })} />
         </F>
       </div>
       <div className="grid grid-cols-5 gap-x-4">
         <F label="Стр/соор:">
-          <input className="arm-field" maxLength={20} value={a.structure ?? ""} readOnly={p.readOnly} onChange={(e) => set({ structure: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.structure ?? ""} readOnly={ro("structure")} onChange={(e) => set({ structure: e.target.value })} />
         </F>
         <F label="Квартира/офис:">
-          <input className="arm-field" maxLength={20} value={a.flat ?? ""} readOnly={p.readOnly} onChange={(e) => set({ flat: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.flat ?? ""} readOnly={ro("flat")} onChange={(e) => set({ flat: e.target.value })} />
         </F>
         <F label="Подъезд:">
-          <input className="arm-field" maxLength={20} value={a.entrance ?? ""} readOnly={p.readOnly} onChange={(e) => set({ entrance: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.entrance ?? ""} readOnly={ro("entrance")} onChange={(e) => set({ entrance: e.target.value })} />
         </F>
         <F label="Этаж:">
-          <input className="arm-field" maxLength={20} value={a.floor ?? ""} readOnly={p.readOnly} onChange={(e) => set({ floor: e.target.value })} />
+          <input className="arm-field" maxLength={20} value={a.floor ?? ""} readOnly={ro("floor")} onChange={(e) => set({ floor: e.target.value })} />
         </F>
         <F label="Код:">
-          <input className="arm-field" maxLength={40} value={a.code ?? ""} readOnly={p.readOnly} onChange={(e) => set({ code: e.target.value })} />
+          <input className="arm-field" maxLength={40} value={a.code ?? ""} readOnly={ro("code")} onChange={(e) => set({ code: e.target.value })} />
         </F>
       </div>
       <F label="Описательный адрес:">
@@ -277,11 +288,11 @@ export function AddressBlock(p: {
           className="arm-field resize-none"
           maxLength={1000}
           value={a.descriptive ?? ""}
-          readOnly={p.readOnly}
+          readOnly={ro("descriptive")}
           onChange={(e) => set({ descriptive: e.target.value })}
         />
       </F>
-      {!p.readOnly && (
+      {!p.readOnly && !p.editable && (
         <div className="flex justify-end">
           <button
             type="button"
@@ -299,10 +310,36 @@ export function AddressBlock(p: {
   );
 }
 
-export function DescriptionBlock(p: { value: string; onChange: (v: string) => void; readOnly: boolean; hints: boolean }) {
+/**
+ * A saved card shows the address as one line, as the workstation's view mode does:
+ * «Россия, Москва, (СЗАО, Щукино), улица Рогова, 12» — then the flat, entrance, floor, code and the descriptive address.
+ */
+export function AddressSummary(p: { address: IncidentAddress; onMap: () => void }) {
+  const a = p.address;
+  const place = [a.okrug, a.district].filter(Boolean).join(", ");
+  const house = [a.house, a.building && `к. ${a.building}`, a.structure && `с. ${a.structure}`].filter(Boolean).join(", ");
+  const line = [a.country, a.city || a.subject, place && `(${place})`, a.street, house].filter(Boolean).join(", ");
+  const details = [a.object, a.entrance && `подъезд ${a.entrance}`, a.floor && `этаж ${a.floor}`, a.flat && `кв./офис ${a.flat}`, a.code && `код ${a.code}`]
+    .filter(Boolean)
+    .join(", ");
+  return (
+    <div className="flex shrink-0 items-start gap-3 bg-arm-panel px-3 py-3" aria-label="Адрес">
+      <div className="min-w-0 flex-1">
+        <div className="text-[15px] font-bold text-arm-dark">{a.street || a.descriptive || a.object ? line : "Адрес не заполнен"}</div>
+        {details && <div className="mt-1 text-[13.5px] text-arm-dark">{details}</div>}
+        {a.descriptive && <div className="mt-1 text-[13.5px] text-arm-desc">{a.descriptive}</div>}
+      </div>
+      <button type="button" onClick={p.onMap} title="Карта" className="shrink-0 text-arm-dark hover:text-arm-blue">
+        <IconMap className="h-5 w-5" />
+      </button>
+    </div>
+  );
+}
+
+export function DescriptionBlock(p: { value: string; onChange: (v: string) => void; readOnly: boolean; hints: boolean; hk?: string }) {
   const first = p.value.trim().slice(0, 100);
   return (
-    <div className="flex min-h-[150px] flex-1 flex-col bg-arm-panel px-3 pb-2 pt-2" data-hk="Alt+O">
+    <div className="flex min-h-[150px] flex-1 flex-col bg-arm-panel px-3 pb-2 pt-2" data-hk={p.hk}>
       <label htmlFor="op112-description" className="arm-label">
         Описание со слов заявителя
       </label>

@@ -26,6 +26,8 @@ export function FlagsBar(p: {
   flags: IncidentFlags;
   onToggle: (flag: TopFlag) => void;
   readOnly: boolean;
+  /** «Дополнить»: the victims flag may still change after saving (instruction, v1.8) */
+  victimsEditable?: boolean;
   typeChosen: boolean;
   onEmpty: (reason: "noContact" | "dropped") => void;
 }) {
@@ -35,7 +37,7 @@ export function FlagsBar(p: {
         type="button"
         id={`op112-flag-${flag}`}
         aria-pressed={Boolean(p.flags[flag])}
-        disabled={p.readOnly}
+        disabled={p.readOnly && !(flag === "victims" && p.victimsEditable)}
         onClick={() => p.onToggle(flag)}
         className="arm-flag-btn w-full"
       >
@@ -64,8 +66,9 @@ export function FlagsBar(p: {
           </>,
         )}
       </div>
-      <div className="flex flex-1 items-center gap-1.5 bg-arm-panel p-2" data-hk="Alt+N">
-        <button type="button" className="arm-orange-btn flex-1" disabled={p.readOnly || p.typeChosen} onClick={() => p.onEmpty("noContact")}>
+      {/* In a saved card Alt+N means «Вернуть на доработку», so the hint is not shown here. */}
+      <div className="flex flex-1 items-center gap-1.5 bg-arm-panel p-2" data-hk={p.readOnly ? undefined : "Alt+N"}>
+        <button type="button" id="op112-nocontact" className="arm-orange-btn flex-1" disabled={p.readOnly || p.typeChosen} onClick={() => p.onEmpty("noContact")}>
           нет контакта
         </button>
         <button type="button" className="arm-orange-btn flex-1" disabled={p.readOnly || p.typeChosen} onClick={() => p.onEmpty("dropped")}>

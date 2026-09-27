@@ -37,6 +37,9 @@ export function ServicesBar(p: {
   onRemove: (id: number) => void;
   onSave: () => void;
   onWorked: () => void;
+  /** «Дополнить» is open: the main button saves the supplement instead of «отработана». */
+  supplement?: boolean;
+  onSupplementSave?: () => void;
   /** After «сохранить»: the handset on a grey plate calls the service (a row of the work-offs). */
   onDial?: (serviceId: number) => void;
   onImportant: () => void;
@@ -106,7 +109,11 @@ export function ServicesBar(p: {
       </div>
       <div className="flex items-center gap-1.5">
         <span data-hk="Alt+S" className="flex">
-          {p.saved ? (
+          {p.saved && p.supplement ? (
+            <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" onClick={p.onSupplementSave}>
+              сохранить
+            </button>
+          ) : p.saved ? (
             <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" onClick={p.onWorked}>
               отработана
             </button>
