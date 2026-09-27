@@ -108,7 +108,9 @@ export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings,
   if (seat.scenarioIds.length) where.id = { in: seat.scenarioIds };
   else if (settings.categories.length) where.category = { in: settings.categories };
 
-  const found = inLessonLocation(await tx.scenario.findMany({ where, select: scenarioSelect }), seat, settings);
+  // A scenario without a ДДС card (a silent line, a call that breaks off) is a task for the 112 place only.
+  const withCard = (await tx.scenario.findMany({ where, select: scenarioSelect })).filter((s) => s.ddsCard !== null);
+  const found = inLessonLocation(withCard, seat, settings);
   if (!found.length) return null;
   // A place drawing by itself skips what the 112 places of the lesson are working on right now (lessons/in-play.ts)
   // and takes first the situations that would reach its ДДС in real work.

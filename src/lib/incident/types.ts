@@ -68,4 +68,15 @@ export type CallerPersona = {
   facts: string[]; // answered only when asked
   temper?: "calm" | "panic" | "elderly" | "child" | "drunk" | "angry";
   voice?: "male" | "female";
+  /**
+   * What the line does, for the «нет контакта» / «срыв звонка» tasks: «silent» — the operator hears only noise;
+   * «drops» — the call breaks off after `dropAfter` operator lines or when the address is asked a second time.
+   */
+  line?: "silent" | "drops";
+  /** Operator lines after which the line goes dead (silent: the caller hangs up; drops: the call breaks). */
+  dropAfter?: number;
+  /** The first words, said as written instead of a generated opening (a call that breaks mid-sentence). */
+  opening?: string;
+  /** Last words cut off by the break («Алло, вы меня слы…»). */
+  dropLine?: string;
 };

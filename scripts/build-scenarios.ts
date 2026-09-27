@@ -6,7 +6,8 @@
  * For every ticket situation: the AI caller persona, the reference 112 card (types, flags,
  * address, services by the routing engine, required questions), the card as a ДДС sees it,
  * a difficulty estimate; for the tickets worked through by hand (scripts/deep-scenarios.ts) also
- * the ДДС reference — those become APPROVED.
+ * the ДДС reference — those become APPROVED. Then the tasks written from the operator's instruction
+ * (scripts/line-scenarios.ts: a silent line, calls that break off) — approved, for the 112 place only.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -20,6 +21,7 @@ import {
 import type { CallerPersona, CallerStatus, IncidentAddress } from "../src/lib/incident/types";
 import { TICKETS, type Ticket, type TicketAddress } from "./tickets";
 import { DEEP, DDS_RULES } from "./deep-scenarios";
+import { LINE_TASKS } from "./line-scenarios";
 
 const ROOT = path.join(__dirname, "..");
 const DATA = path.join(ROOT, "data");
@@ -123,8 +125,8 @@ function addressLine(a: TicketAddress): string {
 }
 
 /** «что случилось» for the reference card. */
-function kindName(t: Ticket, primary?: ClassifierType): string | null {
-  if (t.kind) return t.kind;
+function kindName(kind: string | undefined, primary?: ClassifierType): string | null {
+  if (kind) return kind;
   if (!primary) return null;
   const exact = kinds.kinds.find((k) => k.groupId === primary.groupId && k.subgroup && norm(k.subgroup) === norm(primary.subgroup ?? ""));
   return (exact ?? kinds.kinds.find((k) => k.groupId === primary.groupId))?.name ?? null;
@@ -234,7 +236,7 @@ for (const t of TICKETS) {
 
   const acceptable = [...primaryTypes, ...altTypes].map((x) => x.code);
   const truth = {
-    kind: kindName(t, primary),
+    kind: kindName(t.kind, primary),
     typeCodes: primaryTypes.map((x) => x.code),
     acceptableTypeCodes: acceptable,
     finalType: primary?.finalType ?? null,
@@ -314,6 +316,50 @@ for (const t of TICKETS) {
   }
 }
 
+// Tasks from the instruction: no ДДС card (the ДДС places never draw them), approved for the 112 place.
+for (const t of LINE_TASKS) {
+  const primaryTypes = (t.types ?? []).map(typeOf);
+  const primary = primaryTypes[0];
+  const flags: RoutingFlags = t.flags ?? {};
+  const services =
+    primary && t.addr
+      ? selectServices(
+          { typeCodes: primaryTypes.map((x) => x.code), flags, district: t.addr.district, okrug: t.addr.okrug, region: t.addr.region ?? null },
+          reference,
+        ).map((s) => ({ serviceId: s.serviceId, shortName: servicesJson.find((x) => x.id === s.serviceId)!.shortName, isMain: s.isMain, reason: s.reason }))
+      : [];
+  const truth = {
+    kind: kindName(undefined, primary),
+    typeCodes: primaryTypes.map((x) => x.code),
+    acceptableTypeCodes: [...primaryTypes, ...(t.alt ?? []).map(typeOf)].map((x) => x.code),
+    finalType: primary?.finalType ?? null,
+    tags: primary ? [primary.sign1, primary.sign2, primary.sign3].filter(Boolean) : [],
+    flags,
+    address: t.addr ? toCardAddress(t.addr) : {},
+    addressLine: t.addr ? addressLine(t.addr) : "",
+    inMoscow: !t.addr?.region,
+    services,
+    requiredQuestions: t.questions,
+    ...(t.keywords ? { descriptionKeywords: t.keywords } : {}),
+    traps: t.traps,
+    ...(t.emptyCall ? { emptyCall: t.emptyCall } : {}),
+  };
+  scenarios.push({
+    ticketRef: t.ref,
+    source: "instruction",
+    title: t.title,
+    category: t.category,
+    difficulty: t.difficulty,
+    status: "APPROVED",
+    caller: t.caller,
+    truth,
+    ddsCard: null,
+    ddsReference: null,
+    approvedSections: ["caller", "truth"],
+    teacherNote: null,
+  });
+}
+
 const lines = (items: unknown[]) => "[\n" + items.map((x) => JSON.stringify(x)).join(",\n") + "\n]\n";
 writeFileSync(path.join(DATA, "scenarios.json"), lines(scenarios));
 
@@ -331,5 +377,5 @@ writeFileSync(path.join(DATA, "addresses.json"), JSON.stringify(addresses, null,
 
 const approved = scenarios.filter((s) => s.status === "APPROVED").length;
 console.log(
-  `scenarios.json: ${scenarios.length} scenarios (${approved} approved); addresses.json: ${addressIndex.size} Moscow addresses, ${unresolved.length} unresolved`,
+  `scenarios.json: ${scenarios.length} scenarios (${approved} approved, ${LINE_TASKS.length} from the instruction); addresses.json: ${addressIndex.size} Moscow addresses, ${unresolved.length} unresolved`,
 );

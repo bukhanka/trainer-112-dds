@@ -23,15 +23,19 @@ export type LessonFormOptions = {
   locations: LocationGroup[];
 };
 
-/** Scenarios a lesson may deal, with their location: approved ones, and drafts with an approved caller (they play at 112 places only). */
+/**
+ * Scenarios a lesson may deal, with their location: approved ones, and drafts with an approved caller (they play
+ * at 112 places only). An approved scenario without a ДДС card (a silent line, a call that breaks off) is for the
+ * 112 place only too.
+ */
 export async function dealableScenarios(): Promise<CoverageScenario[]> {
   const rows = await db.scenario.findMany({
     where: { OR: [{ status: "APPROVED" }, { status: "DRAFT", approvedSections: { has: "caller" } }] },
-    select: { id: true, category: true, status: true, truth: true },
+    select: { id: true, category: true, status: true, truth: true, ddsCard: true },
   });
   return rows.map((s) => {
     const place = scenarioPlace(s.truth);
-    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved: s.status === "APPROVED" };
+    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved: s.status === "APPROVED" && s.ddsCard !== null };
   });
 }
 

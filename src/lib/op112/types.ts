@@ -33,6 +33,8 @@ export type CallLine = {
   text: string;
   at: string;
   revealed?: string[]; // fact keys the caller disclosed in this line
+  /** Not words but what the operator hears: silence on the line, or short beeps after the caller is cut off. */
+  noise?: "silence" | "hangup";
 };
 
 /** A fact the caller knows and how the card should reflect it once said. */

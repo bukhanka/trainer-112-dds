@@ -6,6 +6,7 @@ import { kindTitle } from "./catalog";
 import { tagsToAnswers } from "./card";
 import { draftFromIncident } from "./draft";
 import { addressLine } from "./gazetteer";
+import { EMPTY_TEXT } from "./review";
 import { findActiveSeat, findSeatWithOpenCard, hasDdsSeat, isSelfTraining, lessonSettings, operatorNumber, type Op112Seat } from "./seat";
 import { currentSessionId } from "./session-key";
 import type { CallLine, Op112CardDraft } from "./types";
@@ -175,7 +176,7 @@ export function journalRow(i: Incident, score: number | null): JournalRow {
     openedAt: i.openedAt?.toISOString() ?? null,
     savedAt: i.savedAt?.toISOString() ?? null,
     status: i.status,
-    chips: i.status === "empty" ? "<Нет контакта>" : chips,
+    chips: i.status === "empty" ? (i.description === EMPTY_TEXT.dropped ? EMPTY_TEXT.dropped : EMPTY_TEXT.noContact) : chips,
     address: addressLine(i.address as never),
     score,
     typingSec: typing,

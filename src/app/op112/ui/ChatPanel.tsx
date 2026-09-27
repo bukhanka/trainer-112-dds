@@ -97,7 +97,8 @@ export function ChatPanel(p: {
   const last = p.lines[p.lines.length - 1];
   const lastKey = last ? `${last.at}|${last.text}` : null;
   useEffect(() => {
-    if (!last || last.role !== "counterpart" || !active || muted || spoken.current === lastKey) return;
+    // Silence and beeps are what the operator hears, not words: they are shown, never read out.
+    if (!last || last.role !== "counterpart" || last.noise || !active || muted || spoken.current === lastKey) return;
     spoken.current = lastKey;
     void say(last.text, gender, manner);
   }, [last, lastKey, active, muted, gender, manner, say]);
@@ -198,18 +199,24 @@ export function ChatPanel(p: {
 
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-[#f4f5f6] px-3 py-3" aria-live="polite">
         {!p.lines.length && <div className="m-auto text-center text-[13px] text-arm-desc">Здесь будет разговор с заявителем.</div>}
-        {p.lines.map((l, i) => (
-          <div key={i} className={`flex max-w-[88%] flex-col ${l.role === "trainee" ? "self-end items-end" : "self-start items-start"}`}>
-            <div
-              className={`px-3 py-2 text-[14px] leading-snug ${l.role === "trainee" ? "bg-arm-blue text-white" : "border border-[#dde1e3] bg-white text-arm-dark"}`}
-            >
+        {p.lines.map((l, i) =>
+          l.noise ? (
+            <div key={i} className="self-center px-2 text-center text-[13px] italic text-arm-desc" data-noise={l.noise}>
               {l.text}
             </div>
-            <div className="mt-0.5 text-[10.5px] text-arm-desc">
-              {l.role === "trainee" ? "Оператор" : "Заявитель"} · {hhmm(l.at)}
+          ) : (
+            <div key={i} className={`flex max-w-[88%] flex-col ${l.role === "trainee" ? "self-end items-end" : "self-start items-start"}`}>
+              <div
+                className={`px-3 py-2 text-[14px] leading-snug ${l.role === "trainee" ? "bg-arm-blue text-white" : "border border-[#dde1e3] bg-white text-arm-dark"}`}
+              >
+                {l.text}
+              </div>
+              <div className="mt-0.5 text-[10.5px] text-arm-desc">
+                {l.role === "trainee" ? "Оператор" : "Заявитель"} · {hhmm(l.at)}
+              </div>
             </div>
-          </div>
-        ))}
+          ),
+        )}
         {p.pending && <div className="self-start text-[12.5px] italic text-arm-desc">Заявитель отвечает…</div>}
       </div>
 

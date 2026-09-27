@@ -147,7 +147,8 @@ export function CardScreen(p: {
     try {
       const r = await send<{ lines: CallLine[]; status: string }>(`/api/op112/calls/${call.id}/messages`, { text });
       setLines((l) => [...l, ...r.lines.filter((x) => x.role === "counterpart")]);
-      if (r.status !== "ACTIVE") setCall((c) => (c ? { ...c, status: "ENDED" } : c));
+      // The caller hung up or the line broke: the conversation is over, the card stays open.
+      if (r.status !== "ACTIVE") setCall((c) => (c ? { ...c, status: "ENDED", endedAt: c.endedAt ?? new Date().toISOString() } : c));
     } catch (e) {
       if (e instanceof ApiError && e.code === "call_not_active") {
         setCall((c) => (c ? { ...c, status: "ENDED" } : c));

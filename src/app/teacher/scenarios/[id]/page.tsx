@@ -19,7 +19,14 @@ export default async function ScenarioPage(props: PageProps<"/teacher/scenarios/
     scenarioLockedBy(s),
     db.scenario.findMany({ distinct: ["category"], select: { category: true }, orderBy: { category: "asc" } }),
   ]);
-  const source = s.ticketRef ? `билет ${s.ticketRef}` : s.source === "generated" ? "сгенерирован ИИ" : "составлен преподавателем";
+  const source =
+    s.source === "instruction"
+      ? `по инструкции оператора, ${s.ticketRef}`
+      : s.ticketRef
+        ? `билет ${s.ticketRef}`
+        : s.source === "generated"
+          ? "сгенерирован ИИ"
+          : "составлен преподавателем";
   const place = placeLabel(scenarioPlace(s.truth)) || "район не определён";
 
   return (
