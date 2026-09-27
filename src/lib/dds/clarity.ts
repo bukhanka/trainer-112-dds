@@ -147,8 +147,9 @@ export function commentIssues(c: JudgedComment, known: ReadonlySet<string> = new
   const shouting = words.length >= 3 && upper >= letters * 0.6;
   const seen = new Set<string>();
   const flag = (word: string, hint: string) => {
-    if (seen.has(word.toLowerCase())) return;
-    seen.add(word.toLowerCase());
+    const key = word.toLowerCase().replace(/\.$/, ""); // «бр.» and «бр» are one problem
+    if (seen.has(key)) return;
+    seen.add(key);
     add("abbreviation", word, hint);
   };
   const spell = (word: string) => {

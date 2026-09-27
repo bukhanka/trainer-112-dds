@@ -35,6 +35,7 @@ describe("clarity of a ДДС comment by rules", () => {
     expect(kinds(final("ДДС района уведомлена, ЦЭМП и ГБУ «Жилищник» на месте, течь устранена, СВАО в курсе"))).toEqual([]);
     expect(commentIssues(final("Бриг. выехала, течь устр. в 14:30")).map((i) => i.fragment)).toEqual(["Бриг.", "устр."]);
     expect(commentIssues(final("Прибыла п/б, а/м потушен")).map((i) => i.fragment)).toEqual(["п/б"]);
+    expect(commentIssues({ status: "REJECTED", text: "Передано в УК, бр. выехала", final: true }).map((i) => i.fragment)).toEqual(["бр."]);
     expect(kinds(final("ул. Лесная, д. 5, кв. 12: течь устранена"))).toEqual([]);
   });
 
