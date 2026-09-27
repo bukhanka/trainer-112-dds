@@ -9,6 +9,7 @@
 import type { Call, CallKind, Prisma, ServiceStatus } from "@prisma/client";
 import { chat, type ChatMessage } from "@/lib/ai/provider";
 import { db } from "@/lib/db";
+import { sayable } from "@/lib/speech/sayable";
 import type { CallerPersona, IncidentAddress, IncidentCaller } from "@/lib/incident/types";
 import type { LessonSettings } from "@/lib/lessons/settings";
 import { CREW_PACE_SEC, crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
@@ -454,7 +455,7 @@ async function startCall(seat: DdsSeat, kind: CallKind, incidentId: string | nul
         kind,
         status: "ACTIVE",
         counterpart: counterpart as Prisma.InputJsonValue,
-        messages: [{ role: "counterpart", text: greeting, at: now.toISOString() }],
+        messages: [{ role: "counterpart", text: sayable(greeting), at: now.toISOString() }],
         startedAt: now,
         answeredAt: now,
       },
@@ -502,7 +503,7 @@ async function answerCall(seat: DdsSeat, callId: string, now: Date): Promise<Cal
         status: "ACTIVE",
         answeredAt: now,
         counterpart: { ...c, reports } as Prisma.InputJsonValue,
-        messages: [...msgs(call), { role: "counterpart", text, at: now.toISOString() }],
+        messages: [...msgs(call), { role: "counterpart", text: sayable(text), at: now.toISOString() }],
       },
     });
     return moved.count ? null : "Звонок уже завершён";
@@ -575,7 +576,8 @@ async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): 
   const answerText = await speakAs(prompt, history, line, fallback);
   const said: CallMessage[] = [
     { role: "trainee", text: line, at: now.toISOString() },
-    { role: "counterpart", text: answerText, at: new Date().toISOString() },
+    // The counterpart's words as they sound: no «ул.», «д.», «03» in speech (src/lib/speech/sayable.ts).
+    { role: "counterpart", text: sayable(answerText), at: new Date().toISOString() },
   ];
   // The model may take seconds: append to the call as it is now, and only while it is still going.
   const before = cp(call);
@@ -677,7 +679,7 @@ async function resumeCall(seat: DdsSeat, callId: string, now: Date): Promise<Cal
       data: {
         status: "ACTIVE",
         holds: endHold(readHolds(call.holds), now) as Prisma.InputJsonValue,
-        messages: [...msgs(call), { role: "counterpart", text: resumeLine(cp(call).kind), at: now.toISOString() }] as Prisma.InputJsonValue,
+        messages: [...msgs(call), { role: "counterpart", text: sayable(resumeLine(cp(call).kind)), at: now.toISOString() }] as Prisma.InputJsonValue,
       },
     });
     return null;

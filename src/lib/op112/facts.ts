@@ -4,6 +4,7 @@
  * Ticket facts are free text («Дом 14 этажей, газифицирован»): one line may hold several facts.
  */
 import type { CallerPersona, CallerStatus } from "@/lib/incident/types";
+import { sayable } from "@/lib/speech/sayable";
 import { CALLER_STATUSES } from "@/lib/incident/types";
 import type { FactCard, FactExpectation, FactTopic, RequiredQuestion } from "./types";
 
@@ -166,17 +167,9 @@ export function isAddressNote(text: string): boolean {
   return /^\s*(точный адрес|при уточнении|адрес при уточнении)/i.test(text);
 }
 
-/**
- * The ticket's shorthand said as a person says it: «03 не требуется» → «скорая не нужна», «а/м» → «машина»,
- * «д/р» → «дата рождения».
- */
+/** The ticket's shorthand said as a person says it («03 не требуется» → «скорая не нужна», «ул.» → «улица»). */
 export function speech(text: string): string {
-  const b = "(^|[^а-яёa-z0-9])";
-  return text
-    .replace(new RegExp(`${b}0?3 не требуется`, "gi"), "$1скорая не нужна")
-    .replace(new RegExp(`${b}в а/м(?![а-яё])`, "gi"), "$1в машине")
-    .replace(new RegExp(`${b}а/м(?![а-яё])`, "gi"), "$1машина")
-    .replace(new RegExp(`${b}д/р(?![а-яё])`, "gi"), "$1дата рождения");
+  return sayable(text);
 }
 
 /** What the caller says out loud: the ticket's notes for the trainer are cut off, its shorthand is spelt out. */

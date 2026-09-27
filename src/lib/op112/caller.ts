@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { CallerPersona } from "@/lib/incident/types";
 import { chat, chatJson, type ChatMessage } from "@/lib/ai/provider";
 import { countUsage } from "@/lib/admin/usage";
+import { sayable } from "@/lib/speech/sayable";
 import { askedTopics, bestFactByWords, evidenced, expandRevealed, factCards, low, speech } from "./facts";
 import type { CallLine, FactCard, FactTopic } from "./types";
 
@@ -60,7 +61,7 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
       seen.add(id);
       return true;
     })
-    .map((c) => `- [${c.group ?? c.key}] ${c.text}`)
+    .map((c) => `- [${c.group ?? c.key}] ${sayable(c.text)}`)
     .join("\n");
   return [
     "Это учебный тренажёр службы 112. Ты играешь заявителя — человека, который сам позвонил на 112. На линии обучающийся оператор, он заполняет карточку происшествия по твоим словам.",
@@ -70,9 +71,9 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
     addressLine(p, gender),
     "",
     `[situation] Что случилось, твоими словами: ${speech(p.situation)}`,
-    `[address] Место ты называешь так: «${p.visibleAddress}».`,
+    `[address] Место ты называешь так: «${sayable(p.visibleAddress)}».`,
     p.hiddenAddress
-      ? `[addressExact] Точное место ты знаешь: «${p.hiddenAddress}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
+      ? `[addressExact] Точное место ты знаешь: «${sayable(p.hiddenAddress)}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
       : "",
     `[name] Твоё имя — называй, если спросят, как тебя зовут.`,
     `[status] Кем ты приходишься происшествию: ${p.role}.`,
@@ -141,7 +142,7 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
     if (err instanceof Error && /invalid JSON/i.test(err.message)) {
       try {
         const text = await withTimeout(chat(messages, { temperature: 0.6, maxTokens: 200 }), REPLY_TIMEOUT_MS);
-        if (text.trim()) return { text: text.trim(), revealed: guessRevealed(text, cards) };
+        if (text.trim()) return { text: sayable(text), revealed: guessRevealed(text, cards) };
       } catch {
         /* fall through to the rules */
       }
@@ -185,7 +186,7 @@ export function noiseLines(turn: Exclude<LineTurn, { kind: "talk" }>, at: string
     return turn.hangup ? [silence, { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" }] : [silence];
   }
   return [
-    ...(turn.words ? [{ role: "counterpart" as const, text: turn.words, at, revealed: [] }] : []),
+    ...(turn.words ? [{ role: "counterpart" as const, text: sayable(turn.words), at, revealed: [] }] : []),
     { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" },
   ];
 }
@@ -195,7 +196,7 @@ export async function callerOpening(p: Persona, gender: Gender = null): Promise<
   if (p.line === "silent") return { text: NOISE_TEXT.silence, revealed: [], noise: "silence" };
   const cards = factCards(p);
   // A written opening (a call that breaks mid-sentence) is said as is, with or without a model.
-  if (p.opening?.trim()) return { text: p.opening.trim(), revealed: guessRevealed(p.opening, cards) };
+  if (p.opening?.trim()) return { text: sayable(p.opening), revealed: guessRevealed(p.opening, cards) };
   const line = await modelLine(
     [
       { role: "system", content: systemPrompt(p, cards, gender) },
@@ -220,7 +221,8 @@ export async function callerReply(p: Persona, history: CallLine[], operatorText:
 
 function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {
   const keys = new Set(cards.map((c) => c.key));
-  const text = out.reply.replace(/^\s*["«]|["»]\s*$/g, "").trim();
+  // Said aloud, so no written shorthand: a model still writes «ул.» and «д.» now and then.
+  const text = sayable(out.reply.replace(/^\s*["«]|["»]\s*$/g, ""));
   // A model that ignored the «revealed» field gets its disclosures guessed from the words it used.
   if (!out.revealed) return { text, revealed: guessRevealed(text, cards) };
   const groups = new Set(cards.map((c) => c.group).filter(Boolean));
@@ -343,7 +345,7 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string,
   const revealed: string[] = [];
   const say = (card: FactCard | undefined, text?: string) => {
     if (!card) return;
-    const line = text ?? card.text;
+    const line = sayable(text ?? card.text);
     if (!parts.includes(line)) parts.push(line);
     revealed.push(card.key);
   };

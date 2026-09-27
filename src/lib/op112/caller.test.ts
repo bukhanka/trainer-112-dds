@@ -51,7 +51,7 @@ describe("rule-based caller", () => {
   });
 
   it("does not leak the exact house through a fact line", () => {
-    expect(spokenFact("Номер дома не знает, в доме библиотека № 193; при уточнении — дом 11")).toBe("Номер дома не знаю, в доме библиотека № 193");
+    expect(spokenFact("Номер дома не знает, в доме библиотека № 193; при уточнении — дом 11")).toBe("Номер дома не знаю, в доме библиотека номер 193");
   });
 
   it("answers several questions of one line", () => {
