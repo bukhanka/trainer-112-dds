@@ -14,6 +14,7 @@ import { computeScore, type CriterionResult, type Weights, WEIGHT_GROUPS } from 
 import { getActiveWeights, lockScores } from "@/lib/scoring/weights";
 import type { Counterpart } from "./calls";
 import { abbreviationsIn, judgedComments } from "./clarity";
+import { endHold, readHolds } from "./hold";
 import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarityAi } from "./clarity-ai";
 import { dispatchOf } from "./crew";
 import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
@@ -218,7 +219,11 @@ export async function runClarityCheck(attemptId: string, basis: string): Promise
 export async function closeLessonCalls(lessonId: string, now = new Date()): Promise<void> {
   const dds = { lessonId, seat: { role: "DDS" as const } };
   await db.call.updateMany({ where: { ...dds, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
-  await db.call.updateMany({ where: { ...dds, status: { in: ["ACTIVE", "HELD"] } }, data: { status: "ENDED", endedAt: now } });
+  await db.call.updateMany({ where: { ...dds, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
+  // A call left on hold ends with its hold period, so the journal shows how long the counterpart waited.
+  for (const call of await db.call.findMany({ where: { ...dds, status: "HELD" }, select: { id: true, holds: true } })) {
+    await db.call.updateMany({ where: { id: call.id, status: "HELD" }, data: { status: "ENDED", endedAt: now, holds: endHold(readHolds(call.holds), now) as Prisma.InputJsonValue } });
+  }
 }
 
 /**
