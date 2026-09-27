@@ -226,7 +226,14 @@ export function normalizeTruth(raw: unknown, catalog: ServiceLite[] = []): Scena
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const yesNo = (v: boolean | undefined) => (v ? "да" : "нет");
-const quote = (s: string, max = 140) => `«${s.length > max ? `${s.slice(0, max - 1)}…` : s}»`;
+/** A long text cut at a word boundary with «…», never in the middle of a word. */
+function cutWords(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.5 ? cut.slice(0, space) : cut).replace(/[\s,.;:—–-]+$/, "")}…`;
+}
+const quote = (s: string, max = 140) => `«${cutWords(s, max)}»`;
 const digits = (s: string | undefined) => (s ?? "").replace(/\D/g, "").slice(-10);
 const same = (a: string | undefined, b: string | undefined) => low(a ?? "").trim() === low(b ?? "").trim();
 const mmss = (sec: number) => `${Math.floor(sec / 60)}:${sec % 60 < 10 ? "0" : ""}${sec % 60}`;
@@ -331,8 +338,13 @@ function tagInDescription(description: string, row: string, value: string): stri
   if (!stem) return null;
   for (const m of d.matchAll(new RegExp(`(^|\\D)(${value})(?=\\D|$)`, "g"))) {
     const at = (m.index ?? 0) + m[1].length;
-    const near = description.slice(Math.max(0, at - 25), at + value.length + 25);
-    if (low(near).includes(stem)) return near.trim();
+    // Widen the window to whole words: the quote starts and ends with a word, «…» where the text goes on.
+    let from = Math.max(0, at - 25);
+    let to = Math.min(description.length, at + value.length + 25);
+    while (from > 0 && /\S/.test(description[from - 1])) from--;
+    while (to < description.length && /\S/.test(description[to])) to++;
+    const near = description.slice(from, to).trim();
+    if (low(near).includes(stem)) return `${from > 0 ? "…" : ""}${near}${to < description.length ? "…" : ""}`;
   }
   return null;
 }
@@ -709,8 +721,9 @@ function cardSummary(card: EvalCard): string {
 export type Op112Guidance = { ctx: CorrectionContext; said: GuidanceRow[]; description: GuidanceRow[] };
 
 /** The prompt of the model checks; pure, so it is tested without calling a model. */
-export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): ChatMessage[] {
+export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance, rules: CriterionResult[] = []): ChatMessage[] {
   const transcript = input.messages.map((m) => `${m.role === "trainee" ? "Оператор" : "Заявитель"}: ${m.text}`).join("\n");
+  const judged = ruleJudgedTitles(rules);
   const said = guidance ? guidanceText(guidance.ctx, guidance.said) : "";
   const description = guidance ? guidanceText(guidance.ctx, guidance.description) : "";
   return [
@@ -721,6 +734,8 @@ export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): Cha
         "Даны расшифровка разговора с заявителем и карточка происшествия, которую оператор заполнил.",
         "1) Найди расхождения «сказал ↔ заполнил»: заявитель ясно сообщил сведение (адрес, пострадавшие, газ, этажность, доступ, угроза, имя, телефон, что произошло), а в карточке его нет или записано иначе. Сведения, которых заявитель не говорил, не считай. Пересказ своими словами — не ошибка.",
         "Поле карточки называется «Фамилия и имя заявителя»: отчество в нём не нужно, фамилия и имя без отчества — не расхождение.",
+        "Адрес не оценивай: его сверяют правила с эталонным адресом задания, а заявитель мог оговориться.",
+        ...(judged.length ? [`Это уже сверено правилами с эталоном задания — не оценивай и не повторяй: ${judged.map((t) => `«${t}»`).join("; ")}.`] : []),
         "2) Оцени описание со слов заявителя: поймёт ли следующий диспетчер, что случилось, где и есть ли пострадавшие.",
         'Верни JSON: {"discrepancies":[{"field":"поле карточки","said":"точная цитата заявителя","filled":"что в карточке"}],"descriptionClear":true|false,"descriptionComment":"одно предложение"}',
         ...(said ? ["", "К пункту 1 (расхождения «сказал ↔ заполнил»):", said] : []),
@@ -729,6 +744,42 @@ export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): Cha
     },
     { role: "user", content: `Разговор:\n${transcript || "(пусто)"}\n\nКарточка:\n${cardSummary(input.card)}` },
   ];
+}
+
+/** Fields of the card the rules compare with the scenario's reference, and the checks that do it. */
+const RULE_FIELDS: { field: RegExp; code: RegExp }[] = [
+  {
+    field: /адрес|улиц|(^|[^а-я])дом(а|у|е|ом)?(?![а-я])|корпус|строени|владени|квартир|подъезд|этаж(?!н)|домофон|(^|[^а-я])код(?![а-я])|район|округ|город|населен/,
+    code: /^op112\.address\./,
+  },
+  { field: /фио|(^|[^а-я])имя|фамил|заявител/, code: /^op112\.(said\.name|field\.fullName)$/ },
+  { field: /телефон/, code: /^op112\.(said\.phone|field\.phone)$/ },
+  { field: /статус/, code: /^op112\.(said\.status|field\.status)$/ },
+  { field: /(^|[^а-я])тип|класс|что случилось/, code: /^op112\.(type|class)$/ },
+  { field: /служб/, code: /^op112\.services\./ },
+];
+
+const stems = (s: string) => (low(s).match(/[а-я]{5,}/g) ?? []).map((w) => w.slice(0, 5));
+
+/**
+ * Is this field already judged by a rule against the reference? Then the model must not judge it again: the
+ * AI caller may slip («корпус 1, 2» for «корпус 1»), and the check by the scenario is the one that counts.
+ * A fact the rules compare («Сказал ↔ заполнил: пострадавшие», a flag of the reference) counts by the same stem.
+ */
+export function judgedByRules(field: string, rules: CriterionResult[]): boolean {
+  const f = low(field);
+  const applied = rules.filter((c) => c.source === "rule" && c.ok !== null);
+  if (RULE_FIELDS.some((t) => t.field.test(f) && applied.some((c) => t.code.test(c.code)))) return true;
+  const words = stems(field);
+  return applied.some(
+    (c) => /^op112\.(said|flag)\./.test(c.code) && stems(c.title.replace(/^Сказал ↔ заполнил:\s*/, "").replace(/^Флаг\s*/, "")).some((w) => words.includes(w)),
+  );
+}
+
+/** Titles of the rule checks that already compared the card with the reference, for the model to leave alone. */
+function ruleJudgedTitles(rules: CriterionResult[]): string[] {
+  const judged = rules.filter((c) => c.source === "rule" && c.ok !== null && /^op112\.(address|said|flag|type|class|services|field)\b/.test(c.code));
+  return [...new Set(judged.map((c) => c.title))].slice(0, 25);
 }
 
 /** «Соколова Вера Ивановна» said, «Соколова Вера» written: the card asks for the surname and the name only. */
@@ -745,8 +796,10 @@ export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance
   if (!aiEnabled()) return aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`);
   if (input.card.empty) return [];
   try {
-    const res = await chatJson(op112AiMessages(input, guidance), aiSchema, { temperature: 0, maxTokens: 700 });
-    const list = res.discrepancies.filter((d) => !nameWithoutPatronymic(d)).slice(0, 6);
+    // The rules have already compared the card with the reference; the model looks only at what they cannot see.
+    const rules = evaluateOp112Rules(input);
+    const res = await chatJson(op112AiMessages(input, guidance, rules), aiSchema, { temperature: 0, maxTokens: 700 });
+    const list = res.discrepancies.filter((d) => !nameWithoutPatronymic(d) && !judgedByRules(d.field, rules)).slice(0, 6);
     return [
       {
         code: "op112.ai.said",
