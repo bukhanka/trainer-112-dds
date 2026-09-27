@@ -129,6 +129,21 @@ export async function startSelfTraining(user: SessionUser, sessionId: string): P
   });
 }
 
+/**
+ * «Завершить тренировку»: the student's own practice ends — only between calls (a card still open is finished
+ * first), a call still ringing is marked missed.
+ */
+export async function finishSelfTraining(user: SessionUser, seat: Op112Seat): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (seat.studentId !== user.id || !isSelfTraining(seat.lesson.settings)) return { ok: false, error: "not_practice" };
+  const open = await db.incident.count({ where: { createdBySeatId: seat.id, status: { in: ["draft", "registered"] } } });
+  if (open) return { ok: false, error: "card_open" };
+  const now = new Date();
+  const done = await db.lesson.updateMany({ where: { id: seat.lessonId, status: "RUNNING" }, data: { status: "FINISHED", finishedAt: now } });
+  if (!done.count) return { ok: false, error: "not_practice" };
+  await db.call.updateMany({ where: { seatId: seat.id, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
+  return { ok: true };
+}
+
 const USABLE: Prisma.ScenarioWhereInput = {
   OR: [{ status: "APPROVED" }, { approvedSections: { has: "caller" } }],
   NOT: { status: "ARCHIVED" },

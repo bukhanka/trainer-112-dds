@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Op112State } from "@/lib/op112/state";
 import { ApiError, send, type StateWithClock } from "./client";
@@ -86,6 +87,20 @@ export function WaitingScreen(p: {
       setAnswering(false);
     }
   };
+  // «Завершить тренировку»: no more calls; the place shows the start screen again.
+  const [finishing, setFinishing] = useState(false);
+  const finish = async () => {
+    if (!window.confirm("Завершить тренировку? Новые вызовы приходить не будут, журнал и разборы останутся в кабинете.")) return;
+    setFinishing(true);
+    try {
+      p.apply(await send<Op112State>("/api/op112/training/finish"));
+    } catch (e) {
+      p.notify(e instanceof ApiError && e.code === "card_open" ? "Сначала закончите открытую карточку" : "Не удалось завершить тренировку");
+    } finally {
+      setFinishing(false);
+    }
+  };
+
   const decline = async () => {
     if (!ringing) return;
     await send(`/api/op112/calls/${ringing.id}/decline`).catch(() => undefined);
@@ -153,6 +168,22 @@ export function WaitingScreen(p: {
               {lesson?.title}
               {lesson?.selfTraining ? " · вызовы идут по одобренным учебным сценариям" : ""} · норматив набора карточки {mmss(lesson?.typingSec ?? 65)}
             </div>
+          </div>
+          {/* The way out, as at the ДДС place: end the practice, go to the cabinet, sign out. */}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {lesson?.selfTraining && (
+              <button type="button" className="arm-mini-btn !px-2.5 !py-1.5 !text-[12.5px]" disabled={finishing} onClick={finish}>
+                {finishing ? "Завершаем…" : "Завершить тренировку"}
+              </button>
+            )}
+            <Link href="/" className="arm-mini-btn !px-2.5 !py-1.5 !text-[12.5px]" title="Выйти с рабочего места в кабинет">
+              В кабинет
+            </Link>
+            <form action="/logout" method="post">
+              <button type="submit" className="arm-mini-btn !px-2.5 !py-1.5 !text-[12.5px]">
+                Выйти
+              </button>
+            </form>
           </div>
         </div>
         <section className="flex min-h-0 flex-1 flex-col bg-white">

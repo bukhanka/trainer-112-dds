@@ -152,6 +152,11 @@ function NoSeat({ state, starting, onStart }: { state: StateWithClock; starting:
           <Link href="/" className="px-3 py-3 text-[14px] text-arm-desc underline underline-offset-2">
             В кабинет
           </Link>
+          <form action="/logout" method="post">
+            <button type="submit" className="px-3 py-3 text-[14px] text-arm-desc underline underline-offset-2">
+              Выйти
+            </button>
+          </form>
         </div>
         <p className="mt-6 text-[12.5px] text-arm-desc">
           Подсказка: зажмите Alt, чтобы увидеть горячие клавиши. Если преподаватель посадит вас на место 112 в занятии, вызовы пойдут по его заданиям.
