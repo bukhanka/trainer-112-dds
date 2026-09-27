@@ -1,0 +1,17 @@
+/**
+ * System settings the administrator edits on the «Настройки» page (norms, journal, backups, integrity check).
+ * The access policy has its own fields in src/lib/auth/policy.ts. The labels also name settings in the journal.
+ */
+export type Field = { key: string; label: string; kind: "number" | "time"; min?: number; max?: number; hint?: string; fallback?: string | number };
+
+export const SETTING_FIELDS: Field[] = [
+  { key: "norm.ackSec", label: "Норматив ответа ДДС «Принята / Не принята», с", kind: "number", min: 5, max: 600, hint: "памятка: 30 с" },
+  { key: "norm.workSec", label: "Норматив отработки карточки на месте ДДС, с", kind: "number", min: 30, max: 3600, hint: "памятка ДДС: 3 мин" },
+  { key: "norm.typingSec", label: "Таймер набора карточки 112 краснеет после, с", kind: "number", min: 20, max: 600, hint: "как в АРМ-112: 65 с" },
+  { key: "norm.finishHours", label: "«Не завершено», если нет «Работы завершены» дольше, ч", kind: "number", min: 1, max: 240 },
+  { key: "audit.retentionDays", label: "Срок хранения журнала аудита, дн.", kind: "number", min: 183, max: 3650, hint: "не меньше 6 месяцев" },
+  { key: "backup.dailyAt", label: "Время ежедневной резервной копии", kind: "time" },
+  { key: "backup.keepDays", label: "Сколько дней хранить копии", kind: "number", min: 1, max: 365 },
+  { key: "integrity.dailyAt", label: "Время ежедневной проверки целостности", kind: "time", hint: "после резервной копии", fallback: "05:00" },
+  { key: "integrity.minFreeGb", label: "Проверка целостности: свободного места на диске не меньше, ГБ", kind: "number", min: 1, max: 1000, fallback: 2 },
+];

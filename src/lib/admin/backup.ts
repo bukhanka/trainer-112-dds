@@ -24,7 +24,7 @@ export async function runBackup(kind: "manual" | "scheduled", actor?: { id: stri
     });
     const { size } = await stat(/*turbopackIgnore: true*/ path.join(BACKUP_DIR, fileName));
     await db.backup.update({ where: { id: row.id }, data: { status: "ok", sizeBytes: BigInt(size) } });
-    await audit({ action: `backup.${kind}`, actorId: actor?.id, actor: actor?.login ?? "system", entity: "Backup", entityId: row.id });
+    await audit({ action: kind === "manual" ? "backup.manual" : "backup.scheduled", actorId: actor?.id, actor: actor?.login ?? "system", entity: "Backup", entityId: row.id });
   } catch (err) {
     const message = err instanceof Error ? err.message.slice(0, 500) : String(err);
     await db.backup.update({ where: { id: row.id }, data: { status: "failed", error: message } });
