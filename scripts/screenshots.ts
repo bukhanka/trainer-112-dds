@@ -120,6 +120,8 @@ async function main() {
     const admin = await signedIn(browser, "admin", "Admin2026");
     await shot(admin.page, "13-admin-health", "/admin", 2000);
     await shot(admin.page, "14-admin-audit", "/admin/audit");
+    await shot(admin.page, "19-admin-stats", "/admin/stats", 2000);
+    await shot(teacher.page, "20-teacher-groups", "/teacher/groups");
     const student = await signedIn(browser, "student3", "Student2026");
     await shot(student.page, "15-student-results", "/student/results");
   } finally {
