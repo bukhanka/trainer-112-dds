@@ -5,7 +5,7 @@ const body = z.object({ login: z.string().min(1).max(64), password: z.string().m
 
 /**
  * JSON login for integrations and load tests; sets the same session cookie as the login form.
- * Public by design: brute force is limited per account (lockout after MAX_FAILED_LOGINS) and every attempt is audited.
+ * Public by design: brute force is limited per account (lockout by the access policy, src/lib/auth/policy.ts) and every attempt is audited.
  */
 export async function POST(request: Request) {
   const parsed = body.safeParse(await request.json().catch(() => null));

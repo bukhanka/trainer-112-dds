@@ -7,7 +7,7 @@ const input = "h-9 border border-arm-plate-gray bg-white px-2 text-sm outline-no
 
 export type GroupChoice = { id: string; name: string; teacher: string | null };
 
-export function CreateUserForm({ groups = [] }: { groups?: GroupChoice[] }) {
+export function CreateUserForm({ groups = [], minPasswordLength = 8 }: { groups?: GroupChoice[]; minPasswordLength?: number }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(createUser, {});
   const [role, setRole] = useState("STUDENT");
   return (
@@ -43,8 +43,8 @@ export function CreateUserForm({ groups = [] }: { groups?: GroupChoice[] }) {
         </label>
       )}
       <label className="flex flex-col text-xs text-arm-desc">
-        Пароль
-        <input name="password" type="password" required className={input} />
+        Пароль · от {minPasswordLength} символов, буквы и цифры
+        <input name="password" type="password" required minLength={minPasswordLength} className={input} />
       </label>
       <button disabled={pending} className="h-9 bg-arm-blue px-4 text-sm text-white disabled:opacity-60">
         Создать
