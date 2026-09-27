@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth/session";
 
 const NAV = [
   { href: "/admin", label: "Состояние" },
+  { href: "/admin/stats", label: "Статистика" },
   { href: "/admin/users", label: "Пользователи" },
   { href: "/admin/groups", label: "Группы" },
   { href: "/admin/audit", label: "Журнал аудита" },
