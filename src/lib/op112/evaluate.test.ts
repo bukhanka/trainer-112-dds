@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeScore, type Weights } from "@/lib/scoring/score";
 import type { Persona } from "./caller";
 import { resolveCard } from "./card";
-import { evaluateOp112Ai, evaluateOp112Rules, nameWithoutPatronymic, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, type EvalInput } from "./evaluate";
+import { evaluateOp112Ai, evaluateOp112Rules, judgedByRules, nameWithoutPatronymic, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, type EvalInput } from "./evaluate";
 import { factCards } from "./facts";
 import type { ServiceLite } from "./routing";
 import type { CallLine, CardAnswers } from "./types";
@@ -276,11 +276,42 @@ describe("«сказал ↔ заполнил»: the verdict and its evidence ag
     expect(c.evidence).toContain("«Этажность здания»: не заполнено, в описании нет");
   });
 
+  it("quotes the description by whole words", () => {
+    const c = check("Задымление в подъезде на седьмом этаже, дом 17 этажей, дым идёт из клапана мусоропровода, пострадавших нет.");
+    expect(c.ok).toBe(true);
+    expect(c.evidence).toContain("→ в описании: «…подъезде на седьмом этаже, дом 17 этажей, дым идёт из клапана…»");
+  });
+
   it("says «в описании» when the value is written there", () => {
     const c = check("Задымление мусоропровода, дом 17 этажей, пострадавших нет.");
     expect(c.ok).toBe(true);
     expect(c.evidence).toContain("→ в описании: «");
     expect(c.evidence).not.toContain("не заполнено");
+  });
+});
+
+describe("the model does not judge what the rules compare with the reference", () => {
+  const rules = evaluateOp112Rules(input());
+
+  it("leaves the address to the rules: the AI caller's slip is not held against the student", () => {
+    // The caller said «корпус 1, 2», the card has «к. 1»; the address rule by the reference is the one that counts.
+    expect(judgedByRules("Адрес", rules)).toBe(true);
+    expect(judgedByRules("Номер дома", rules)).toBe(true);
+    // Without a reference address there is no rule, and the model may look at it.
+    expect(judgedByRules("Адрес", rules.filter((c) => !c.code.startsWith("op112.address.")))).toBe(false);
+  });
+
+  it("leaves the caller's name and the facts the rules compare, keeps the rest for the model", () => {
+    expect(judgedByRules("Заявитель", rules)).toBe(true);
+    expect(judgedByRules("Пострадавшие", rules)).toBe(true);
+    expect(judgedByRules("Домашнее животное", rules)).toBe(false);
+  });
+
+  it("tells the model what the rules have already compared", () => {
+    const [system] = op112AiMessages(input(), undefined, rules);
+    expect(system.content).toContain("Адрес не оценивай");
+    expect(system.content).toContain("Это уже сверено правилами с эталоном задания");
+    expect(system.content).toContain("«Улица совпадает с местом происшествия»");
   });
 });
 
