@@ -32,10 +32,11 @@ export function ResultsPanel() {
   return (
     <section className="mt-3 bg-arm-dark/70 text-[13px]">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-3 px-3 py-2 text-left">
-        <b className="text-[15px]">Разбор</b>
+        <b className="text-[15px]">{state.seat.practice && state.seat.mine ? "Самопроверка" : "Разбор"}</b>
         <span className="text-white/80">
           {rows.length ? `карточек: ${rows.length}` : "карточек ещё нет"}
           {data?.average != null ? ` · средний балл ${data.average}` : ""}
+          {state.seat.practice && state.seat.mine ? " · это не оценка: оценку ставит преподаватель на занятии" : ""}
         </span>
         <span className="ml-auto">{open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>
       </button>
