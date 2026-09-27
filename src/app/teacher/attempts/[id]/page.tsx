@@ -46,7 +46,12 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
     db.attempt.findMany({ where: { lessonId: attempt.lessonId, reviewStatus: "PENDING" }, orderBy: { createdAt: "asc" }, select: { id: true, createdAt: true } }),
     getActiveWeights(),
     attempt.kind === "OP112" && attempt.incidentId
-      ? db.call.findMany({ where: { incidentId: attempt.incidentId }, orderBy: { startedAt: "asc" }, select: { kind: true, messages: true, startedAt: true, counterpart: true } })
+      ? // The calls of this 112 place only: the caller and its calls to phone-only services, not the crews of the ДДС places.
+        db.call.findMany({
+          where: { incidentId: attempt.incidentId, seatId: attempt.seatId, kind: { in: ["CALLER_IN", "SERVICE_OUT"] } },
+          orderBy: { startedAt: "asc" },
+          select: { kind: true, messages: true, startedAt: true, counterpart: true },
+        })
       : Promise.resolve([]),
   ]);
   // Teacher corrections the model checks of this attempt were shown (учёт правок).
