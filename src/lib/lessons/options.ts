@@ -9,7 +9,16 @@ export const DEFAULT_DDS_SERVICE = "Поселение Вороновское";
 
 export type FormGroup = { id: string; name: string; members: { id: string; fullName: string }[] };
 export type FormService = { id: number; shortName: string; fullName: string | null; kind: string };
-export type FormScenario = { id: string; title: string; category: string; difficulty: number; okrug: string | null; district: string | null };
+export type FormScenario = {
+  id: string;
+  title: string;
+  category: string;
+  difficulty: number;
+  okrug: string | null;
+  district: string | null;
+  /** no ДДС card (a silent line, a repeat call): a task for the 112 place only */
+  only112?: boolean;
+};
 
 export type LessonFormOptions = {
   groups: FormGroup[];
@@ -55,7 +64,7 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
     db.scenario.findMany({
       where: { status: "APPROVED" },
       orderBy: [{ category: "asc" }, { difficulty: "asc" }, { title: "asc" }],
-      select: { id: true, title: true, category: true, difficulty: true },
+      select: { id: true, title: true, category: true, difficulty: true, ddsCard: true },
     }),
     db.scenario.findMany({ where: { status: { not: "ARCHIVED" } }, distinct: ["category"], select: { category: true } }),
     dealableScenarios(),
@@ -78,7 +87,12 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
         .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru")),
     })),
     services,
-    scenarios: scenarios.map((s) => ({ ...s, okrug: placeOf.get(s.id)?.okrug ?? null, district: placeOf.get(s.id)?.district ?? null })),
+    scenarios: scenarios.map(({ ddsCard, ...s }) => ({
+      ...s,
+      okrug: placeOf.get(s.id)?.okrug ?? null,
+      district: placeOf.get(s.id)?.district ?? null,
+      ...(ddsCard === null ? { only112: true } : {}),
+    })),
     categories: categoryRows.map((c) => c.category).sort((a, b) => a.localeCompare(b, "ru")),
     defaultServiceId: defaultService?.id ?? null,
     coverage,

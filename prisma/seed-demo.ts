@@ -843,8 +843,11 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const teacher = await db.user.findUnique({ where: { login: "teacher" } });
   const group = await db.group.findFirst({ where: { name: "Учебная группа № 1" } });
   const serviceRows = await db.service.findMany({ select: { id: true, shortName: true, delivery: true } });
-  // The listed tickets plus every other approved ticket scenario: the adaptive lesson draws from all of them.
-  const scenarioRows = await db.scenario.findMany({ where: { OR: [{ ticketRef: { in: TICKETS } }, { status: "APPROVED", ticketRef: { not: null } }] } });
+  // The listed tickets plus every other approved ticket scenario: the adaptive lesson draws from all of them. The tasks
+  // written from the operator's instruction (a silent line, a repeat call) have no ДДС card and stay out of the demo.
+  const scenarioRows = await db.scenario.findMany({
+    where: { OR: [{ ticketRef: { in: TICKETS } }, { status: "APPROVED", source: "ticket", ticketRef: { not: null } }] },
+  });
   if (!teacher || !group || !serviceRows.some((s) => s.id === VORONOVSKOE) || !TICKETS.every((t) => scenarioRows.some((s) => s.ticketRef === t))) {
     throw new Error("Сначала загрузите учётки и справочники: pnpm db:seed");
   }

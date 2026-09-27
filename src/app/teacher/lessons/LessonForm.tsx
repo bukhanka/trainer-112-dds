@@ -289,6 +289,7 @@ export function LessonForm({
                 <span className="inline-flex h-6 min-w-6 items-center justify-center rounded bg-arm-dark px-1 text-xs font-semibold text-white">{i + 1}</span>
                 <span>
                   {t.title} <span className="text-xs text-arm-desc">· {t.category} · сложность {t.difficulty}</span>
+                  {t.only112 && <span className="ml-1 rounded border border-arm-gray px-1 text-xs text-arm-desc">только место 112</span>}
                 </span>
               </li>
             ))}
@@ -407,14 +408,17 @@ export function LessonForm({
                         <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Задания места">
                           {tasks.map((t) => {
                             const on = s.scenarioIds.includes(t.id);
+                            // A task without a ДДС card (a silent line, a repeat call) is not dealt to a ДДС place.
+                            const unfit = s.role === "DDS" && t.only112 && !on;
                             return (
                               <button
                                 key={t.id}
                                 type="button"
-                                title={t.title}
+                                title={unfit ? `${t.title} — только для места 112` : t.title}
                                 aria-pressed={on}
+                                disabled={unfit}
                                 onClick={() => patchSeat(m.id, { scenarioIds: on ? s.scenarioIds.filter((x) => x !== t.id) : [...s.scenarioIds, t.id] })}
-                                className={`h-8 min-w-8 rounded border px-1 text-sm tabular-nums ${on ? "border-arm-blue bg-arm-blue text-white" : "border-arm-gray bg-white hover:border-arm-blue"}`}
+                                className={`h-8 min-w-8 rounded border px-1 text-sm tabular-nums disabled:opacity-35 ${on ? "border-arm-blue bg-arm-blue text-white" : "border-arm-gray bg-white hover:border-arm-blue"}`}
                               >
                                 {taskNo.get(t.id)}
                               </button>
