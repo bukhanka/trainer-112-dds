@@ -153,7 +153,7 @@ export function AttemptReview(p: AttemptReviewProps) {
         <section className="rounded border border-arm-gray/70 bg-white p-4">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <h2 className="text-base font-semibold">{p.draft?.source === "ai" ? "Черновик ИИ" : "Черновик оценки"}</h2>
-            <Badge tone={p.draft?.source === "ai" ? "blue" : "neutral"}>{p.draft?.source === "ai" ? `модель ${p.draft.model ?? ""}` : "по правилам"}</Badge>
+            <Badge tone={p.draft?.source === "ai" ? "blue" : "neutral"}>{p.draft?.source === "ai" ? "черновик подготовил ИИ" : "по правилам"}</Badge>
             <Button size="sm" variant="ghost" className="ml-auto" disabled={busy} onClick={makeDraft}>
               {p.draft ? "Обновить черновик" : "Подготовить черновик"}
             </Button>

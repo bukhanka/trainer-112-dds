@@ -14,6 +14,14 @@ import { readWorkLog } from "@/lib/op112/workoffs";
 import { attemptScope } from "@/lib/teacher/access";
 import { AttemptReview, type LearnedView } from "./AttemptReview";
 
+/** Which model wrote the draft is kept in the audit journal for the administrator, not shown in the cabinet. */
+function withoutModel<T extends { model?: string }>(draft: T | null): T | null {
+  if (!draft) return null;
+  const rest = { ...draft };
+  delete rest.model;
+  return rest;
+}
+
 type Message = { role?: string; text?: string; at?: string };
 
 export default async function AttemptPage(props: PageProps<"/teacher/attempts/[id]">) {
@@ -102,7 +110,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
         id={attempt.id}
         criteria={criteria}
         override={readOverrides(attempt.override)}
-        draft={readDraft(attempt.aiDraft)}
+        draft={withoutModel(readDraft(attempt.aiDraft))}
         reviewStatus={attempt.reviewStatus}
         teacherComment={attempt.teacherComment}
         reviewedBy={attempt.reviewedBy?.fullName ?? null}
