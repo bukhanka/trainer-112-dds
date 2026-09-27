@@ -16,7 +16,7 @@ import { ddsCardOf, hasOwnReference, platesForPlace, reachesPlace } from "@/lib/
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
-import { inPlayAt112, preferNotInPlay } from "@/lib/lessons/in-play";
+import { inPlayAt112, latestScenario, notRightAfter, preferNotInPlay } from "@/lib/lessons/in-play";
 import { inLessonLocation } from "@/lib/scenarios/place";
 
 type Tx = Prisma.TransactionClient;
@@ -118,10 +118,13 @@ export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings,
   const withCard = (await tx.scenario.findMany({ where, select: scenarioSelect })).filter((s) => s.ddsCard !== null);
   const found = inLessonLocation(withCard, seat, settings);
   if (!found.length) return null;
-  // A place drawing by itself skips what the 112 places of the lesson are working on right now (lessons/in-play.ts)
-  // and takes first the situations that would reach its ДДС in real work.
-  const pool = seat.scenarioIds.length ? found : await preferReaching(tx, seat, preferNotInPlay(found, await inPlayAt112(tx, seat.lessonId)));
   const feed = await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true, createdAt: true } });
+  // A place drawing by itself skips what the 112 places of the lesson are working on right now (lessons/in-play.ts)
+  // and takes first the situations that would reach its ДДС in real work. A narrow choice never deals the same
+  // situation twice in a row while there is another: the preferences give way first.
+  const free = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAt112(tx, seat.lessonId));
+  const wanted = seat.scenarioIds.length ? found : await preferReaching(tx, seat, free);
+  const pool = notRightAfter([wanted, free, found], latestScenario(feed));
   if (!seat.scenarioIds.length && adaptive) {
     const lastUsed = new Map<string, number>();
     for (const i of feed) if (i.scenarioId) lastUsed.set(i.scenarioId, Math.max(lastUsed.get(i.scenarioId) ?? 0, i.createdAt.getTime()));

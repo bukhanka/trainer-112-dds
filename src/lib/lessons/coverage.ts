@@ -9,7 +9,14 @@
 import { inLocation, placeLabel, type LocationFilter } from "@/lib/scenarios/location";
 
 /** A scenario a lesson may deal. approved = false: only the caller is approved — it plays at 112 places only. */
-export type CoverageScenario = { id: string; category: string; okrug: string | null; district: string | null; approved: boolean };
+/**
+ * approved — the scenario is approved (counted in the form as in «Сгенерировать по категории»);
+ * dds — a ДДС place can deal it (approved and has a card for the ДДС place; tasks «только для места 112» have none).
+ * Not approved: only the caller is approved — it plays at 112 places only.
+ */
+export type CoverageScenario = { id: string; category: string; okrug: string | null; district: string | null; approved: boolean; dds?: boolean };
+
+const forDds = (s: CoverageScenario) => s.dds ?? s.approved;
 
 export type CoverageSettings = {
   categories: string[];
@@ -32,6 +39,10 @@ export type Coverage = {
   drawing: boolean;
   /** Why the lesson cannot start; null when every place gets cards. */
   blocked: string | null;
+  /** The smallest choice a place without tasks draws from (ДДС: approved, 112: also approved callers); null — none draws. */
+  few: number | null;
+  /** Empty categories that have tasks, but only for the 112 place. */
+  only112: string[];
 };
 
 const quoted = (list: string[]) => list.map((c) => `«${c}»`).join(", ");
@@ -47,33 +58,52 @@ export function lessonCoverage(scenarios: CoverageScenario[], settings: Coverage
     return { name, approved: approved.length, here: approved.filter((s) => inLocation(s, location)).length };
   });
   const usable = scenarios.filter((s) => inCategories(s) && inLocation(s, location));
-  const pool = { dds: usable.filter((s) => s.approved).length, op112: usable.length };
+  const pool = { dds: usable.filter(forDds).length, op112: usable.length };
 
   const drawingSeats = seats.filter((s) => !s.scenarioIds.length);
   const ddsDraw = settings.cardSource !== "students" && drawingSeats.some((s) => s.role === "DDS");
   const opDraw = drawingSeats.some((s) => s.role === "OP112");
   const drawing = ddsDraw || opDraw;
 
-  // A category is empty for the places that draw: ДДС places need approved scenarios, 112 places
-  // also play drafts whose caller is approved.
-  const gives = (c: string) => usable.some((s) => s.category === c && (s.approved || !ddsDraw));
+  // A category is empty for the places that draw: ДДС places need approved scenarios with a ДДС card,
+  // 112 places also play tasks for the 112 place only and drafts whose caller is approved.
+  const gives = (c: string) => usable.some((s) => s.category === c && (!ddsDraw || forDds(s)));
   const empty = chosen.filter((c) => !gives(c));
+  // Of those, the categories that do have tasks — only for the 112 place.
+  const only112 = empty.filter((c) => usable.some((s) => s.category === c && s.approved));
 
   let blocked: string | null = null;
   if ((ddsDraw && !pool.dds) || (opDraw && !pool.op112)) {
     const where = [chosen.length ? `в ${chosen.length === 1 ? "категории" : "категориях"} ${quoted(chosen)}` : "", location ? `в локации «${placeLabel(location)}»` : ""]
       .filter(Boolean)
       .join(" ");
+    const why = ddsDraw && !pool.dds && usable.some((s) => s.approved) ? "только задания для места 112, для мест ДДС сценариев нет" : "нет утверждённых сценариев";
     blocked =
-      `Местам без заданий нечего раздать: ${where || "в библиотеке"} нет утверждённых сценариев. ` +
+      `Местам без заданий нечего раздать: ${where || "в библиотеке"} ${why}. ` +
       "Утвердите сценарии в разделе «Сценарии», выберите другие категории или локацию либо отметьте задания местам вручную.";
   }
-  return { counts, empty, pool, drawing, blocked };
+  const sizes = [...(ddsDraw ? [pool.dds] : []), ...(opDraw ? [pool.op112] : [])];
+  return { counts, empty, only112, pool, drawing, blocked, few: sizes.length ? Math.min(...sizes) : null };
 }
+
+/** Fewer scenarios than this for the places without tasks — the cards will come round again and again. */
+export const FEW_SCENARIOS = 5;
 
 /** Warnings for the teacher before the start: a chosen category that gives nothing only narrows the choice. */
 export function coverageWarnings(c: Coverage, settings: CoverageSettings): string[] {
   if (!c.drawing || c.blocked) return [];
   const where = settings.location ? ` в локации «${placeLabel(settings.location)}»` : "";
-  return c.empty.map((name) => `В категории «${name}» нет утверждённых сценариев${where} — места получат карточки только из других категорий.`);
+  const out = c.empty.map((name) =>
+    c.only112.includes(name)
+      ? `В категории «${name}» только задания для места 112${where} — места ДДС получат карточки только из других категорий.`
+      : `В категории «${name}» нет утверждённых сценариев${where} — места получат карточки только из других категорий.`,
+  );
+  const few = c.few;
+  if (few !== null && few < FEW_SCENARIOS) {
+    out.push(
+      `Карточки будут повторяться: местам без заданий доступно ${few} ${few === 1 ? "сценарий" : few < 5 ? "сценария" : "сценариев"}. ` +
+        "Добавьте категории, снимите ограничение локации или утвердите ещё сценарии.",
+    );
+  }
+  return out;
 }

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { scenarioLockedBy } from "@/lib/scenarios/lock";
+import { settleTruth } from "@/lib/scenarios/generate";
 import { regenerateSection } from "@/lib/scenarios/regenerate";
 import { nextApprovals, presentSections, sectionKeySchema, SECTIONS, statusFor } from "@/lib/scenarios/sections";
 import { auditBy, jsonError, readJson, teacherApi } from "@/lib/teacher/access";
@@ -36,11 +37,17 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/sce
   // The model may think for up to a minute: re-check the lock and write only over the version we read.
   const lockedNow = await scenarioLockedBy(scenario);
   if (lockedNow) return jsonError(`Пока ИИ работал, началось занятие «${lockedNow}» — сценарий не изменён.`, 409);
-  const approvedSections = nextApprovals(scenario.approvedSections, [section], false);
-  const status = statusFor(approvedSections, presentSections({ ...scenario, [section]: result.value }), scenario.status);
+  // A new reference card brings its type into the classifier and rebuilds what follows from it:
+  // services, the card at the ДДС place and the ДДС reference (generate.ts, settleTruth).
+  const settled = section === "truth" ? await settleTruth(scenario, result.value, comment) : null;
+  const written: Record<string, unknown> = settled
+    ? { truth: settled.truth, ...(settled.changed.includes("ddsCard") ? { ddsCard: settled.ddsCard } : {}), ...(settled.changed.includes("ddsReference") ? { ddsReference: settled.ddsReference } : {}) }
+    : { [section]: result.value };
+  const approvedSections = nextApprovals(scenario.approvedSections, [section, ...(settled?.changed ?? [])], false);
+  const status = statusFor(approvedSections, presentSections({ ...scenario, ...written }), scenario.status);
   const res = await db.scenario.updateMany({
     where: { id, updatedAt: scenario.updatedAt },
-    data: { [section]: result.value as Prisma.InputJsonValue, approvedSections, status, teacherNote, approvedById: status === "APPROVED" ? scenario.approvedById : null },
+    data: { ...(written as Prisma.ScenarioUpdateManyMutationInput), approvedSections, status, teacherNote, approvedById: status === "APPROVED" ? scenario.approvedById : null },
   });
   if (!res.count) return jsonError("Сценарий изменили, пока ИИ работал. Обновите страницу и повторите.", 409);
   await auditBy(user, request, {
@@ -48,7 +55,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/sce
     entity: "Scenario",
     entityId: id,
     before: { [section]: (scenario[section] ?? null) as Prisma.InputJsonValue, status: scenario.status },
-    after: { [section]: result.value as Prisma.InputJsonValue, status, comment, model: result.model },
+    after: { ...(written as Record<string, Prisma.InputJsonValue>), status, comment, model: result.model },
   });
   return Response.json({ ok: true, status, approvedSections });
 }

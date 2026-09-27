@@ -37,7 +37,9 @@ export function placeOfStreet(street: string | null | undefined): { okrug: strin
   if (!found.length) return null;
   const okrugs = [...new Set(found.map((p) => p.okrug).filter(Boolean))];
   const districts = [...new Set(found.map((p) => p.district).filter(Boolean))];
-  return { okrug: okrugs.length === 1 ? okrugs[0]! : null, district: districts.length === 1 && okrugs.length === 1 ? districts[0]! : null };
+  // A street listed without a district runs through several (Ленинский проспект): the district stays open.
+  const spans = found.some((p) => !p.district);
+  return { okrug: okrugs.length === 1 ? okrugs[0]! : null, district: districts.length === 1 && okrugs.length === 1 && !spans ? districts[0]! : null };
 }
 
 /** Okrug of a district the gazetteer knows. */
@@ -79,4 +81,36 @@ export function inLessonLocation<T extends { truth: unknown }>(
   const location = settings.location;
   if (seat.scenarioIds.length || !location) return pool;
   return pool.filter((s) => inLocation(scenarioPlace(s.truth), location));
+}
+
+const KIND: Record<string, RegExp> = {
+  улица: /улиц|(^|[^а-я])ул\./,
+  проспект: /проспект|пр-т|просп\./,
+  переулок: /переул|(^|[^а-я])пер\./,
+  шоссе: /шоссе|(^|[^а-я])ш\./,
+  бульвар: /бульвар|б-р/,
+  набережная: /набережн|(^|[^а-я])наб\./,
+  проезд: /проезд|пр-д/,
+  площадь: /площад|(^|[^а-я])пл\./,
+};
+
+/**
+ * A street named in free text in any case form — «по Ленинскому проспекту», «на Кутузовском проспекте»:
+ * the gazetteer street whose kind and every name word (without its ending) appear in the text.
+ */
+export function streetInText(text: string): string | null {
+  const t = ` ${text.toLowerCase().replace(/ё/g, "е")} `;
+  let best: { street: string; len: number } | null = null;
+  for (const p of places()) {
+    const { type, name } = parseStreet(p.street);
+    if (!type || !name || !KIND[type]?.test(t)) continue;
+    const stems = name.split(" ").map((w) => (w.length > 5 ? w.slice(0, -2) : w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    if (stems.every((s) => new RegExp(`(^|[^а-я0-9])${s}`).test(t)) && (!best || name.length > best.len)) best = { street: p.street, len: name.length };
+  }
+  return best?.street ?? null;
+}
+
+/** «у дома 3», «д. 12а», «дом № 7/2» — the house number exactly as said. */
+export function houseInText(text: string): string | undefined {
+  return text.match(/(?:^|[^а-яё])(?:дом[ау]?|д\.)\s*№?\s*(\d+[а-яё]?(?:\/\d+)?)(?![\d])/i)?.[1];
 }

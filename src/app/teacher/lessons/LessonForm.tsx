@@ -9,6 +9,7 @@ import type { FormScenario, LessonFormOptions } from "@/lib/lessons/options";
 import { inLocation } from "@/lib/scenarios/location";
 import { PassCriteriaFields } from "./PassCriteriaFields";
 import { CoverageNotice, LocationField } from "./ScenarioCoverage";
+import { ServicePicker } from "./ServicePicker";
 
 type Role = "OP112" | "DDS";
 type SeatDraft = { included: boolean; role: Role; serviceId: number | null; scenarioIds: string[]; label: string };
@@ -54,6 +55,7 @@ export function LessonForm({
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [serviceQuery, setServiceQuery] = useState("");
 
   const group = options.groups.find((g) => g.id === groupId);
   const members = group?.members ?? [];
@@ -142,13 +144,6 @@ export function LessonForm({
   }
 
   const noServices = options.services.length === 0;
-  // 200+ services: grouped by kind, territorial ДДС first — they are the usual places of a lesson.
-  const serviceGroups = Object.entries(
-    options.services.reduce<Record<string, typeof options.services>>((acc, svc) => {
-      (acc[svc.kind] ??= []).push(svc);
-      return acc;
-    }, {}),
-  ).sort(([a], [b]) => Number(b.startsWith("территориал")) - Number(a.startsWith("территориал")));
 
   return (
     <div className="flex flex-col gap-4">
@@ -322,6 +317,18 @@ export function LessonForm({
           </p>
         )}
 
+        {!noServices && included.some((m) => seats[m.id]?.role === "DDS") && (
+          <label className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+            Найти службу ДДС
+            <input
+              className={`${fieldClass} h-8 w-full sm:w-64`}
+              placeholder="Например: Щукино или 103"
+              value={serviceQuery}
+              onChange={(e) => setServiceQuery(e.target.value)}
+            />
+            <span className="text-xs text-arm-desc">Списки служб у мест ниже покажут только подходящие</span>
+          </label>
+        )}
         <div className="mb-2 flex flex-wrap gap-2">
           <Button size="sm" onClick={quick.allDds} disabled={noServices}>
             Всем ДДС
@@ -384,23 +391,7 @@ export function LessonForm({
                         ))}
                       </div>
                       {s.role === "DDS" ? (
-                        <select
-                          aria-label="Служба ДДС"
-                          className={`${fieldClass} h-8 w-full sm:w-56`}
-                          value={s.serviceId ?? ""}
-                          onChange={(e) => patchSeat(m.id, { serviceId: e.target.value ? Number(e.target.value) : null })}
-                        >
-                          <option value="">— служба —</option>
-                          {serviceGroups.map(([kind, list]) => (
-                            <optgroup key={kind} label={kind}>
-                              {list.map((svc) => (
-                                <option key={svc.id} value={svc.id} title={svc.fullName ?? undefined}>
-                                  {svc.shortName}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
+                        <ServicePicker services={options.services} value={s.serviceId} query={serviceQuery} onChange={(id) => patchSeat(m.id, { serviceId: id })} />
                       ) : (
                         <span className="w-56 text-xs text-arm-desc">Принимает вызовы ИИ-заявителя</span>
                       )}

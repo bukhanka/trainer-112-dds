@@ -26,6 +26,13 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/teacher/sc
   const parsed = scenarioPatchSchema.safeParse(await readJson(request));
   if (!parsed.success) return jsonError(parsed.error.issues[0]?.message ?? "Неверные данные");
   const patch = parsed.data;
+  // The reference card may name only real leaves of the classifier.
+  const codes = [patch.truth?.typeCodes, patch.truth?.acceptableTypeCodes].flatMap((v) => (Array.isArray(v) ? v.map(Number) : []));
+  if (codes.length) {
+    const found = new Set((await db.incidentType.findMany({ where: { code: { in: codes.filter(Number.isInteger) } }, select: { code: true } })).map((t) => t.code));
+    const unknown = [...new Set(codes)].filter((c) => !found.has(c));
+    if (unknown.length) return jsonError(`Кода типа ${unknown.join(", ")} нет в классификаторе — выберите тип из классификатора.`);
+  }
   const data: Prisma.ScenarioUpdateInput = {};
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};

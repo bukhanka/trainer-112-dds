@@ -16,7 +16,7 @@ import { statusOfRole } from "../op112/facts";
 import { lookupAddress } from "../routing/address";
 import { selectServicesFromDb, type SelectedService } from "../routing/engine";
 import { categoryOfType } from "./categories";
-import { placeOfStreet } from "./place";
+import { houseInText, placeOfStreet, streetInText } from "./place";
 
 export type Extracted = {
   title: string;
@@ -102,14 +102,15 @@ export function readByRules(text: string): Extracted {
   const streetMatch = t.match(
     /((?:ул\.?|улица|пр-т|проспект|пер\.?|переулок|ш\.?|шоссе|б-р|бульвар|наб\.?|набережная|пр-д|проезд|пл\.?|площадь)\s+[А-ЯЁ][^,.;\d]*|[А-ЯЁ][а-яё-]+(?:\s[А-ЯЁ]?[а-яё-]+)?\s(?:улица|проспект|переулок|шоссе|бульвар|набережная|проезд))(?:,?\s*(?:д\.?|дом)?\s*(\d+[а-яё]?(?:\/\d+)?))?(?=[,.;\s]|$)/i,
   );
-  const street = streetMatch?.[1]?.trim();
-  const house = streetMatch?.[2];
+  // «по Ленинскому проспекту», «у дома 3»: forms the pattern above misses are found by the gazetteer.
+  const street = streetMatch?.[1]?.trim() ?? streetInText(t) ?? undefined;
+  const house = streetMatch?.[2] ?? houseInText(t);
 
   const flags: IncidentFlags = {};
   if (has(t, /пострадав|ранен|травм|без сознания|кров|ожог|задыха|не дышит|плохо|разбит[аы]? (голов|лиц|нос)/)) flags.victims = true;
   if (has(t, /угроз|остал(ся|ась|ись)|заперт|кричат|зовут на помощь|дет(и|ей)|ребён|ребен|люди внутри/)) flags.threat = true;
   if (has(t, /газ(?!ета)/)) flags.gas = true;
-  if (has(t, /нет доступа|заперт|заблокир|не открыва/)) flags.noAccess = true;
+  if (has(t, /нет доступа|заперт|заблокир|не открыва|заж(ат|ало|али|ата)|не мо(жет|гут) выйти/)) flags.noAccess = true;
   if (has(t, /драк|дерут|дерет|дерёт|напал|угон|краж|избил|избива|угрожа|ограб|хулиган/)) flags.offense = true;
   if (has(t, /скор(ая|ую)|медицин|без сознания|плохо|рожает/)) flags.med = true;
   if (has(t, /эвакуац/)) flags.evac = true;
@@ -142,8 +143,12 @@ export function readByRules(text: string): Extracted {
   let typeHint = t;
   if (has(t, /сигнализац/)) typeHint = "пожарная сигнализация (жилой дом)";
   else if (has(t, /подозрит|тика|бесхоз|взрывн/)) typeHint = "подозрительный предмет";
-  else if (has(t, /дтп|авари|столкн|сбил|наезд|врезал/))
-    typeHint = `ДТП ${flags.victims ? "с пострадавшими" : "без пострадавших"}${has(t, /бензин|топлив|разли|теч(е|ё)т/) ? " разлитие горючих жидкостей" : ""}`;
+  else if (has(t, /дтп|авари|столкн|сбил|наезд|врезал/) && !has(t, /залива|затоп|прорыв|лифт/))
+    typeHint = flags.noAccess
+      ? "ДТП с заблокированными"
+      : `ДТП ${flags.victims ? "с пострадавшими" : "без пострадавших"}${has(t, /бензин|топлив|разли|теч(е|ё)т/) ? " разлитие горючих жидкостей" : ""}`;
+  else if (has(t, /залива|затоп|протек|прорыв|прорвал|хлещет|вода (с потолка|льется|льётся)/)) typeHint = "течь прорыв трубы в квартире";
+  else if (has(t, /лифт/) && has(t, /застрял|застряли|застрев/)) typeHint = "застревание в лифте";
   else if (fire) typeHint = `пожар: ${object ?? ""}`;
   else if (smoke) typeHint = `задымление: ${object ?? ""}`;
   else if (flags.gas) typeHint = `запах бытового газа ${object === "кухне" ? "в кухне" : object === "частный дом" ? "в частном доме" : "в многоквартирном доме"}`;
@@ -176,6 +181,16 @@ export function readByRules(text: string): Extracted {
   };
 }
 
+const houseKey = (h: string | null | undefined) => (h ?? "").toLowerCase().replace(/\s+/g, "").replace(/^(д|дом|вл)\.?/, "");
+
+/** The model's address against the text: the house it did not read there is dropped, the text's house wins. */
+export function saidAddress(text: string, a: Extracted["address"]): Extracted["address"] {
+  const rules = readByRules(text).address;
+  const digits = a.house?.replace(/\D/g, "");
+  const house = rules.house ?? (digits && new RegExp(`(^|\\D)${digits}(\\D|$)`).test(text) ? a.house : undefined);
+  return { ...a, street: a.street ?? rules.street, house };
+}
+
 // ─── classifier matching ─────────────────────────────────────────────────────
 
 const STOP = new Set(["без", "для", "при", "над", "под", "это", "что", "как", "или", "его", "она", "они", "все", "уже", "еще", "там", "тут", "так", "нет", "есть", "мне", "нас", "вас", "где"]);
@@ -200,16 +215,58 @@ const negated = (s: string) => /(^|[^а-яё])без([^а-яё]|$)/i.test(s);
 
 type TypeRow = Pick<IncidentType, "code" | "groupId" | "finalType" | "sign1" | "sign2" | "sign3" | "questions" | "hiddenFromOperator">;
 
-/** Best classifier leaf for a type hint plus the situation text: token overlap, the hint weighs more. */
+/** How people say it → the classifier's own words: «заливает» is a «течь», «зажало» — «заблокированные». */
+const CONCEPTS: [RegExp, string][] = [
+  [/залива|залил|затоп|протек|протеч|теч(ь|ет|ёт)|прорвал|прорыв|капает|хлещет|вода (с потолка|льется|льётся)/, "течь прорыв"],
+  [/искрит|искрен|замыкан|коротит/, "искрят"],
+  [/заж(ат|ало|али|ата)|заблокир|не мо(жет|гут) выйти|не выбраться/, "заблокированными"],
+  [/драк|дерут|дерет|дерёт|избива/, "драка"],
+  [/застрял|застряли|застрев/, "застревание"],
+  [/задыха|не дышит/, "задыхается"],
+  [/без сознания|не отвечает|не реагирует/, "сознания"],
+  [/во дворе|на улице|у подъезда|на остановке|у магазина/, "улице"],
+];
+
+/** Leaves that need their own word in the text: a railway accident is never guessed from «авария» alone. */
+const GATES: [RegExp, RegExp][] = [
+  [/(^|[^а-я])жд([^а-я]|$)|ж\/д|железнодорож|электрич|поезд|вагон|рельс|вокзал|платформ|переезд/, /(^|[^а-я])жд([^а-я]|$)|ж\/д|железн|электрич|поезд|вагон|рельс|вокзал|платформ|перрон|переезд/],
+  [/метро/, /метро|подземк/],
+  [/(^|[^а-я])мцк/, /мцк|кольц/],
+  [/аэропорт|воздушн|самол|вертол/, /аэропорт|самол|вертол|воздушн/],
+  [/водн[а-я]* транспорт|судн|катер|теплоход|причал|(^|[^а-я])порт([^а-я]|$)/, /судн|катер|теплоход|лодк|причал|(^|[^а-я])порт([^а-я]|$)/],
+  [/бпла|беспилот|дрон/, /бпла|беспилот|дрон|коптер/],
+  [/(^|[^а-я])лес([^а-я]|у|ной|ном)?([^а-я]|$)/, /(^|[^а-я])лес/],
+];
+
+/** Words that point to a group of the classifier: its leaves get a head start. */
+const GROUP_CUES: Record<number, RegExp> = {
+  1: /пожар|гор(ит|ят|ел)|пламя|огонь|(^|[^а-я])дым|задымл|гарь/,
+  2: /дтп|столкнул|сбил[аи]?|наезд|врезал/,
+  13: /(^|[^а-я])газ(?!он|ет)/,
+  14: /залива|затоп|течь|теч(ет|ёт)|прорыв|трубу|лифт|искрит|провод|электрощит|канализ|отоплен|батаре|нет света/,
+  15: /драк|дерут|избива|напал|угрожа|краж|украл|ограб|угон|хулиган|скандал|шумят/,
+  17: /лежит|кричит|крики|тонет|упал с|суицид|прыгн/,
+  22: /плохо|боль|болит|сердц|давлени|без сознания|судорог|задыха|рожает|температур|отравил|кровотеч|травм/,
+};
+
+/**
+ * Best classifier leaf for a type hint plus the situation text: token overlap, the hint weighs more,
+ * everyday words mapped to the classifier's (CONCEPTS), leaves of the group the text points to first
+ * (GROUP_CUES), railway, metro, air and water leaves only when the text names them (GATES).
+ */
 export function matchType(types: TypeRow[], typeHint: string, text: string): TypeRow | null {
-  const hint = words(typeHint);
+  const all = `${typeHint} ${text}`.toLowerCase().replace(/ё/g, "е");
+  const hint = [...new Set([...words(typeHint), ...CONCEPTS.filter(([re]) => re.test(all)).flatMap(([, w]) => words(w))])];
   const body = typeHint === text ? [] : words(text);
+  const cued = new Set(Object.entries(GROUP_CUES).flatMap(([g, re]) => (re.test(all) ? [Number(g)] : [])));
   let best: { row: TypeRow; score: number } | null = null;
   for (const row of types) {
     if (row.hiddenFromOperator) continue;
+    const leaf = `${row.finalType} ${row.sign1 ?? ""} ${row.sign2 ?? ""} ${row.sign3 ?? ""}`.toLowerCase().replace(/ё/g, "е");
+    if (GATES.some(([own, need]) => own.test(leaf) && !need.test(all))) continue;
     const final = words(row.finalType);
     const signs = words([row.sign1, row.sign2, row.sign3].filter(Boolean).join(" "));
-    let score = 0;
+    let score = cued.has(row.groupId) ? 1.5 : 0;
     for (const w of hint) score += Math.max(3 * wordMatch(w, final), 1.5 * wordMatch(w, signs));
     for (const w of body) score += Math.max(0.25 * wordMatch(w, final), 0.1 * wordMatch(w, signs));
     // Words of the name that the hint does not mention make the leaf more specific than asked.
@@ -296,6 +353,7 @@ export async function generateScenarioDraft(
         { temperature: 0.3, maxTokens: 900 },
       );
       extracted = { ...parsed, caller: { ...parsed.caller, hiddenAddress: parsed.caller.hiddenAddress ?? undefined } };
+      extracted.address = saidAddress(text, extracted.address);
       usedModel = true;
     } catch {
       extracted = readByRules(text);
@@ -311,9 +369,12 @@ export async function generateScenarioDraft(
   const type = (hints.typeCode ? types.find((t) => t.code === hints.typeCode) : undefined) ?? matchType(types, extracted.typeHint, text);
   const group = type ? await db.incidentGroup.findUnique({ where: { id: type.groupId } }) : null;
 
-  const known = extracted.address.street ? lookupAddress(extracted.address.street, extracted.address.house) : null;
-  // A street the tickets do not have may still be in the gazetteer: its district brings the territorial services.
-  const byStreet = known || hints.address ? null : placeOfStreet(extracted.address.street);
+  // The address is exactly what was said. A ticket address counts only for the same house; otherwise the
+  // street gives the district (none when the street runs through several) and the house stays as said.
+  const said = extracted.address.house;
+  const known = extracted.address.street ? lookupAddress(extracted.address.street, said) : null;
+  const exact = known && said && houseKey(known.house) === houseKey(said) ? known : null;
+  const byStreet = exact || hints.address ? null : placeOfStreet(known?.street ?? extracted.address.street);
   const address: IncidentAddress = hints.address
     ? { country: "Россия", subject: "Москва", city: "Москва", ...hints.address }
     : {
@@ -321,9 +382,11 @@ export async function generateScenarioDraft(
         subject: "Москва",
         city: extracted.address.city ?? "Москва",
         street: known?.street ?? extracted.address.street,
-        house: known?.house ?? extracted.address.house,
-        district: known?.district ?? byStreet?.district ?? undefined,
-        okrug: known?.okrug ?? byStreet?.okrug ?? undefined,
+        house: said,
+        building: exact?.building ?? undefined,
+        structure: exact?.structure ?? undefined,
+        district: exact?.district ?? byStreet?.district ?? undefined,
+        okrug: exact?.okrug ?? byStreet?.okrug ?? undefined,
         descriptive: extracted.address.descriptive,
       };
   const services = type
@@ -386,4 +449,77 @@ export async function generateScenarioDraft(
     },
   });
   return { id: scenario.id, usedModel, finalType, services: named.length };
+}
+
+// ─── «Исправь» of the reference card ─────────────────────────────────────────
+
+type Section = Record<string, unknown>;
+
+function lineOf(a: IncidentAddress): string {
+  return ["Москва", a.street, a.house && `д. ${a.house}`, a.building && `корп. ${a.building}`, a.structure && `стр. ${a.structure}`].filter(Boolean).join(", ");
+}
+
+/**
+ * After the model rewrote the reference 112 card: its incident type must be a real leaf of the
+ * classifier (otherwise the nearest leaf by words, otherwise the old one), and everything that follows
+ * from the type — the services, the card at the ДДС place, the ДДС reference — is rebuilt by the rules.
+ * Returns the sections to write and which dependent sections changed (their approval is withdrawn).
+ */
+export async function settleTruth(
+  scenario: { truth: unknown; ddsCard: unknown; ddsReference: unknown },
+  next: Section,
+  remark: string,
+): Promise<{ truth: Section; ddsCard: Section; ddsReference: Section | null; changed: ("ddsCard" | "ddsReference")[] }> {
+  const types = await db.incidentType.findMany({
+    select: { code: true, groupId: true, finalType: true, sign1: true, sign2: true, sign3: true, questions: true, hiddenFromOperator: true },
+  });
+  const byCode = new Map(types.map((t) => [t.code, t]));
+  const real = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter((c) => byCode.has(c)) : []);
+  const old = (scenario.truth ?? {}) as { typeCodes?: number[] };
+  const asked = real(next.typeCodes);
+  const guess = asked.length ? null : matchType(types, String(next.finalType ?? ""), `${String(next.finalType ?? "")} ${remark}`);
+  const codes = asked.length ? asked : guess ? [guess.code] : real(old.typeCodes);
+  const type = codes.length ? byCode.get(codes[0])! : null;
+
+  const flags = Object.fromEntries(Object.entries((next.flags as Section) ?? {}).filter(([, v]) => typeof v === "boolean")) as IncidentFlags;
+  const given = (next.address && typeof next.address === "object" ? next.address : {}) as IncidentAddress;
+  const street = given.district ? null : placeOfStreet(given.street);
+  const address: IncidentAddress = { ...given, district: given.district ?? street?.district ?? undefined, okrug: given.okrug ?? street?.okrug ?? undefined };
+  const services = type ? await selectServicesFromDb({ typeCodes: codes, flags, district: address.district ?? null, okrug: address.okrug ?? null }) : [];
+  const names = new Map(
+    (await db.service.findMany({ where: { id: { in: services.map((s) => s.serviceId) } }, select: { id: true, shortName: true } })).map((s) => [s.id, s.shortName]),
+  );
+  const named = services.map((s) => ({ ...s, shortName: names.get(s.serviceId) ?? String(s.serviceId) }));
+  const addressLine = address.street ? lineOf(address) : String(next.addressLine ?? "");
+  const finalType = type?.finalType ?? null;
+  const tags = type ? [type.sign1, type.sign2, type.sign3].filter(Boolean) : [];
+
+  const truth: Section = {
+    ...next,
+    typeCodes: codes,
+    acceptableTypeCodes: [...new Set([...codes, ...real(next.acceptableTypeCodes)])],
+    finalType,
+    tags,
+    flags,
+    address,
+    addressLine,
+    services: named.map((s) => ({ serviceId: s.serviceId, shortName: s.shortName, isMain: s.isMain, reason: s.reason })),
+  };
+  const prevCard = (scenario.ddsCard && typeof scenario.ddsCard === "object" ? scenario.ddsCard : {}) as Section;
+  const ddsCard: Section = {
+    ...prevCard,
+    classLabel: finalType,
+    tagsLine: tags.join(" · "),
+    flags: { victims: !!flags.victims, refusedAmbulance: !!flags.refusedAmbulance, blocked: !!flags.noAccess },
+    address: addressLine,
+    services: named.map((s) => s.shortName),
+  };
+  // The ДДС reference names decisions per service: kept only while the type and its services stay.
+  const prevRef = (scenario.ddsReference && typeof scenario.ddsReference === "object" ? scenario.ddsReference : null) as { services?: { serviceId?: number }[] } | null;
+  const keep = prevRef && codes[0] === old.typeCodes?.[0] && (prevRef.services ?? []).every((s) => named.some((n) => n.serviceId === s.serviceId));
+  const ddsReference = keep ? (prevRef as Section) : (ddsReferenceFor(named, finalType ?? "происшествие") as unknown as Section);
+  const changed: ("ddsCard" | "ddsReference")[] = [];
+  if (JSON.stringify(ddsCard) !== JSON.stringify(prevCard)) changed.push("ddsCard");
+  if (!keep) changed.push("ddsReference");
+  return { truth, ddsCard, ddsReference, changed };
 }
