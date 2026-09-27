@@ -1,12 +1,12 @@
 /** Grading a saved 112 card: rule checks at once, model checks afterwards, one Attempt per card. */
 import type { Prisma } from "@prisma/client";
+import { aiOffNote } from "@/lib/ai/provider";
 import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
 import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
-import { aiOffNote } from "@/lib/ai/provider";
 import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, type EvalInput } from "./evaluate";
 import { regionOf, treesFor, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
