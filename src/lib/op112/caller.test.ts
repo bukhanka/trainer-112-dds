@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { callerOpening, lineTurn, mockOpening, mockReply, NOISE_TEXT, noiseLines, type Persona } from "./caller";
-import { askedTopics, expectationOfFact, factCards, findAsked, spokenFact, statusOfRole, topicsOfFact } from "./facts";
+import { callerOpening, genderOfName, lineTurn, mockOpening, mockReply, NOISE_TEXT, noiseLines, type Persona } from "./caller";
+import { askedTopics, expectationOfFact, factCards, findAsked, speech, spokenFact, statusOfRole, topicsOfFact } from "./facts";
 import type { CallLine } from "./types";
 
 // A caller in the reference data format (data/scenarios.json, Б4-1).
@@ -72,7 +72,7 @@ describe("rule-based caller", () => {
   it("thanks the operator when help is on the way and speaks in the persona's manner", () => {
     expect(mockReply(persona, [], "Помощь выезжает, ожидайте").text).toMatch(/спасибо/i);
     expect(mockOpening({ ...persona, temper: "panic" }).text).toMatch(/Быстрее/);
-    expect(mockOpening({ ...persona, temper: "elderly" }).text).toMatch(/Сынок/);
+    expect(mockOpening({ ...persona, temper: "elderly" }, "male").text).toMatch(/Сынок/);
   });
 });
 
@@ -192,5 +192,50 @@ describe("a silent line and a call that breaks off («нет контакта»,
 
   it("an ordinary caller always talks", () => {
     expect(lineTurn(persona, [op("Назовите адрес"), said("ул. Грина", ["address"])], "Уточните адрес")).toEqual({ kind: "talk" });
+  });
+});
+
+describe("the caller without a model speaks like a person", () => {
+  const op = (text: string): CallLine => ({ role: "trainee", text, at });
+  const reply = (text: string): CallLine => ({ role: "counterpart", text, at, revealed: [] });
+
+  it("«сынок» / «дочка» and «дядя» / «тётя» only by the operator's gender, none when it is unknown", () => {
+    const elderly: Persona = { ...persona, temper: "elderly", voice: "male" };
+    expect(mockOpening(elderly, "male").text).toContain("Сынок");
+    expect(mockOpening(elderly, "female").text).toContain("Дочка");
+    expect(mockOpening(elderly).text).not.toMatch(/Сынок|Дочка/);
+    const child: Persona = { ...persona, temper: "child" };
+    expect(mockOpening(child, "male").text).toContain("Дядя");
+    expect(mockOpening(child, "female").text).toContain("Тётя");
+    expect(mockOpening(child).text).not.toMatch(/Дядя|Тётя/);
+    expect(genderOfName("Морозов Павел Николаевич")).toBe("male");
+    expect(genderOfName("Иванова Анна Сергеевна")).toBe("female");
+    expect(genderOfName("Ким")).toBeNull();
+  });
+
+  it("«Ой…» and «Быстрее!» come now and then, not before every line", () => {
+    const elderly: Persona = { ...persona, temper: "elderly" };
+    const first = mockReply(elderly, [reply("Алло…")], "Назовите адрес");
+    expect(first.text.startsWith("Ой…")).toBe(true);
+    const second = mockReply(elderly, [reply("Алло…"), op("Назовите адрес"), reply(first.text)], "Как вас зовут?");
+    expect(second.text.startsWith("Ой…")).toBe(false);
+    const panic: Persona = { ...persona, temper: "panic" };
+    const a = mockReply(panic, [reply("Алло!")], "Назовите адрес");
+    const b = mockReply(panic, [reply("Алло!"), op("Назовите адрес"), reply(a.text)], "Как вас зовут?");
+    expect(a.text).toMatch(/Быстрее!$/);
+    expect(b.text).not.toMatch(/Быстрее!/);
+  });
+
+  it("the ticket's shorthand is spelt out: «03 не требуется», «а/м», «д/р»", () => {
+    expect(speech("Пострадавших нет, 03 не требуется")).toBe("Пострадавших нет, скорая не нужна");
+    expect(speech("Горит а/м «Фольксваген»")).toBe("Горит машина «Фольксваген»");
+    expect(speech("едут в а/м «Фольксваген» синий")).toBe("едут в машине «Фольксваген» синий");
+    expect(speech("Соколова Ирина, д/р 20.05.1979")).toBe("Соколова Ирина, дата рождения 20.05.1979");
+    expect(spokenFact("Пострадавших нет, 03 не требуется")).toBe("Пострадавших нет, скорая не нужна");
+    const p: Persona = { ...persona, situation: "Свист от газовой трубы в квартире, на кухне. 03 не требуется", facts: [] };
+    const opening = mockOpening(p);
+    const what = mockReply(p, [{ role: "counterpart", text: opening.text, at, revealed: opening.revealed }], "Что случилось?");
+    expect(what.text).not.toContain("03");
+    expect(what.text).toContain("скорая не нужна");
   });
 });

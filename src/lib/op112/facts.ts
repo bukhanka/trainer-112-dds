@@ -166,15 +166,30 @@ export function isAddressNote(text: string): boolean {
   return /^\s*(точный адрес|при уточнении|адрес при уточнении)/i.test(text);
 }
 
-/** What the caller says out loud: the ticket's notes for the trainer are cut off. */
-export function spokenFact(text: string): string {
+/**
+ * The ticket's shorthand said as a person says it: «03 не требуется» → «скорая не нужна», «а/м» → «машина»,
+ * «д/р» → «дата рождения».
+ */
+export function speech(text: string): string {
+  const b = "(^|[^а-яёa-z0-9])";
   return text
-    .replace(/\s*\([^)]*(вопрос|сообща|уточн|только|знает)[^)]*\)/gi, "")
-    .replace(/[;,.]?\s*при уточнении\s*[—:-].*$/i, "")
-    .replace(/^(точный адрес знает только если спросить|при уточнении)\s*[:—-]\s*/i, "")
-    .replace(/не знает/gi, "не знаю")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(new RegExp(`${b}0?3 не требуется`, "gi"), "$1скорая не нужна")
+    .replace(new RegExp(`${b}в а/м(?![а-яё])`, "gi"), "$1в машине")
+    .replace(new RegExp(`${b}а/м(?![а-яё])`, "gi"), "$1машина")
+    .replace(new RegExp(`${b}д/р(?![а-яё])`, "gi"), "$1дата рождения");
+}
+
+/** What the caller says out loud: the ticket's notes for the trainer are cut off, its shorthand is spelt out. */
+export function spokenFact(text: string): string {
+  return speech(
+    text
+      .replace(/\s*\([^)]*(вопрос|сообща|уточн|только|знает)[^)]*\)/gi, "")
+      .replace(/[;,.]?\s*при уточнении\s*[—:-].*$/i, "")
+      .replace(/^(точный адрес знает только если спросить|при уточнении)\s*[:—-]\s*/i, "")
+      .replace(/не знает/gi, "не знаю")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
 }
 
 /** How the card must reflect a fact of this topic once the caller has said it. */

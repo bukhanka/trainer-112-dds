@@ -11,25 +11,46 @@ import { z } from "zod";
 import type { CallerPersona } from "@/lib/incident/types";
 import { chat, chatJson, type ChatMessage } from "@/lib/ai/provider";
 import { countUsage } from "@/lib/admin/usage";
-import { askedTopics, bestFactByWords, evidenced, expandRevealed, factCards, low } from "./facts";
+import { askedTopics, bestFactByWords, evidenced, expandRevealed, factCards, low, speech } from "./facts";
 import type { CallLine, FactCard, FactTopic } from "./types";
 
 export type Persona = CallerPersona & { factCards?: FactCard[] };
 export type CallerReply = { text: string; revealed: string[] };
+/** Who is on the operator's chair, as far as the caller can tell: an elderly caller says «сынок» only to a man. */
+export type Gender = "male" | "female" | null;
+
+/** Gender by the full name: the patronymic, else the surname ending; null when the name does not tell. */
+export function genderOfName(fullName: string | null | undefined): Gender {
+  const words = (fullName ?? "").trim().toLowerCase().split(/\s+/);
+  const patronymic = words[2] ?? "";
+  if (/(вич|ич|оглы)$/.test(patronymic)) return "male";
+  if (/(вна|чна|кызы)$/.test(patronymic)) return "female";
+  const surname = words[0] ?? "";
+  if (/(ова|ева|ёва|ина|ая)$/.test(surname)) return "female";
+  if (/(ов|ев|ёв|ин|ий|ой)$/.test(surname)) return "male";
+  return null;
+}
 
 const TEMPER: Record<NonNullable<CallerPersona["temper"]>, string> = {
   calm: "Говоришь спокойно и по делу, но сам разговор не ведёшь — ждёшь вопросов.",
   panic:
     "Ты напуган и торопишься: короткие фразы, повторяешь «быстрее», можешь сбиться. На прямой вопрос всё же отвечаешь, пусть и не с первого раза.",
-  elderly:
-    "Ты пожилой человек: говоришь медленно, иногда переспрашиваешь, обращаешься к оператору «сынок» или «дочка», путаешься в новых названиях.",
+  elderly: "Ты пожилой человек: говоришь медленно, иногда переспрашиваешь, путаешься в новых названиях.",
   child:
     "Тебе около десяти лет: говоришь просто, боишься, взрослых подробностей (номер дома, этажность, газ) можешь не знать — тогда так и скажи.",
   drunk: "Ты выпил: отвечаешь не сразу и не всегда по вопросу, но то, что знаешь, говоришь верно.",
   angry: "Ты раздражён, что тебя долго расспрашивают, но на вопросы отвечаешь.",
 };
 
-function systemPrompt(p: Persona, cards: FactCard[]): string {
+/** How the caller addresses the operator: an elderly «сынок» / «дочка» only when it is clear who answered. */
+function addressLine(p: Persona, gender: Gender): string {
+  if (p.temper !== "elderly") return "";
+  if (gender === "male") return "К оператору можешь обратиться «сынок».";
+  if (gender === "female") return "К оператору можешь обратиться «дочка».";
+  return "Кто на линии, ты не знаешь: обращайся на «вы», без «сынок» и «дочка».";
+}
+
+function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): string {
   const seen = new Set<string>();
   const facts = cards
     .filter((c) => !["situation", "address", "addressExact", "name", "status", "phone"].includes(c.key))
@@ -46,8 +67,9 @@ function systemPrompt(p: Persona, cards: FactCard[]): string {
     "",
     `Кто ты: ${p.fullName}, ${p.role}. Голос ${p.voice === "male" ? "мужской" : "женский"}.`,
     TEMPER[p.temper ?? "calm"],
+    addressLine(p, gender),
     "",
-    `[situation] Что случилось, твоими словами: ${p.situation}`,
+    `[situation] Что случилось, твоими словами: ${speech(p.situation)}`,
     `[address] Место ты называешь так: «${p.visibleAddress}».`,
     p.hiddenAddress
       ? `[addressExact] Точное место ты знаешь: «${p.hiddenAddress}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
@@ -168,32 +190,32 @@ export function noiseLines(turn: Exclude<LineTurn, { kind: "talk" }>, at: string
   ];
 }
 
-/** First words when the operator picks up. */
-export async function callerOpening(p: Persona): Promise<CallerReply & { noise?: "silence" }> {
+/** First words when the operator picks up; `gender` — of the operator, for «сынок» / «дочка». */
+export async function callerOpening(p: Persona, gender: Gender = null): Promise<CallerReply & { noise?: "silence" }> {
   if (p.line === "silent") return { text: NOISE_TEXT.silence, revealed: [], noise: "silence" };
   const cards = factCards(p);
   // A written opening (a call that breaks mid-sentence) is said as is, with or without a model.
   if (p.opening?.trim()) return { text: p.opening.trim(), revealed: guessRevealed(p.opening, cards) };
   const line = await modelLine(
     [
-      { role: "system", content: systemPrompt(p, cards) },
+      { role: "system", content: systemPrompt(p, cards, gender) },
       { role: "user", content: "(Оператор снял трубку: «Служба 112, здравствуйте».) Скажи первую фразу: кратко, что случилось." },
     ],
     cards,
-    () => asJson(mockOpening(p)),
+    () => asJson(mockOpening(p, gender)),
   );
-  return line ?? mockOpening(p);
+  return line ?? mockOpening(p, gender);
 }
 
-export async function callerReply(p: Persona, history: CallLine[], operatorText: string): Promise<CallerReply> {
+export async function callerReply(p: Persona, history: CallLine[], operatorText: string, gender: Gender = null): Promise<CallerReply> {
   const cards = factCards(p);
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(p, cards) },
+    { role: "system", content: systemPrompt(p, cards, gender) },
     ...toMessages(history),
     { role: "user", content: operatorText },
   ];
-  const line = await modelLine(messages, cards, () => asJson(mockReply(p, history, operatorText)));
-  return line ?? mockReply(p, history, operatorText);
+  const line = await modelLine(messages, cards, () => asJson(mockReply(p, history, operatorText, gender)));
+  return line ?? mockReply(p, history, operatorText, gender);
 }
 
 function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {
@@ -224,24 +246,40 @@ function guessRevealed(text: string, cards: FactCard[]): string[] {
 
 const firstSentence = (s: string) => (s.match(/^[^.!?]+[.!?]?/)?.[0] ?? s).trim();
 
-function styled(p: Persona, text: string, opening = false): string {
+/**
+ * The caller's manner by rules. `turn` — which reply this is (0 — the opening): the manner shows now and then, not
+ * in every line («Ой…» once, «Быстрее!» every other reply). «Сынок» / «Дочка», «Дядя» / «Тётя» only when the
+ * operator's gender is known.
+ */
+function styled(p: Persona, text: string, turn: number, gender: Gender): string {
+  const opening = turn === 0;
   switch (p.temper) {
     case "panic":
-      return opening ? `Алло! 112?! ${text} Быстрее, пожалуйста!` : `${text.replace(/\.$/, "")}${/[!?…]$/.test(text) ? "" : "!"} Быстрее!`;
-    case "elderly":
-      return opening ? `Алло… Это сто двенадцать? ${p.voice === "male" ? "Дочка" : "Сынок"}, тут такое… ${text}` : `Ой… ${text}`;
-    case "child":
-      return opening ? `Алло… Тётя, помогите… ${text}` : text;
+      return opening
+        ? `Алло! 112?! ${text} Быстрее, пожалуйста!`
+        : turn % 2 === 1
+          ? `${text.replace(/\.$/, "")}${/[!?…]$/.test(text) ? "" : "!"} Быстрее!`
+          : text;
+    case "elderly": {
+      if (!opening) return turn === 1 ? `Ой… ${text}` : text;
+      const who = gender === "male" ? "Сынок" : gender === "female" ? "Дочка" : "";
+      return `Алло… Это сто двенадцать? ${who ? `${who}, тут` : "Тут"} такое… ${text}`;
+    }
+    case "child": {
+      if (!opening) return text;
+      const who = gender === "male" ? "Дядя, помогите" : gender === "female" ? "Тётя, помогите" : "Помогите";
+      return `Алло… ${who}… ${text}`;
+    }
     case "angry":
-      return opening ? `Да, алло! ${text}` : `${text} Сколько можно спрашивать?`;
+      return opening ? `Да, алло! ${text}` : turn >= 3 && turn % 2 === 1 ? `${text} Сколько можно спрашивать?` : text;
     default:
       return opening ? `Здравствуйте. ${text}` : text;
   }
 }
 
-export function mockOpening(p: Persona): CallerReply {
-  const text = firstSentence(p.situation);
-  return { text: styled(p, text, true), revealed: ["situation", ...factsIn(text, factCards(p))] };
+export function mockOpening(p: Persona, gender: Gender = null): CallerReply {
+  const text = firstSentence(speech(p.situation));
+  return { text: styled(p, text, 0, gender), revealed: ["situation", ...factsIn(text, factCards(p))] };
 }
 
 /** Ticket facts the caller's own words already contain (the situation often names a few). */
@@ -285,8 +323,10 @@ const TOPIC_ORDER: FactTopic[] = [
   "object",
 ];
 
-export function mockReply(p: Persona, history: CallLine[], operatorText: string): CallerReply {
+export function mockReply(p: Persona, history: CallLine[], operatorText: string, gender: Gender = null): CallerReply {
   const cards = factCards(p);
+  // Which reply this is: the opening was the caller's first line.
+  const turn = Math.max(1, history.filter((m) => m.role === "counterpart" && !m.noise).length);
   const said = new Set(history.flatMap((m) => m.revealed ?? []));
   let topics = askedTopics(operatorText);
   const t = low(operatorText);
@@ -311,7 +351,7 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
 
   for (const topic of TOPIC_ORDER.filter((x) => topics.includes(x))) {
     if (topic === "what") {
-      const text = said.has("situation") ? p.situation : firstSentence(p.situation);
+      const text = said.has("situation") ? speech(p.situation) : firstSentence(speech(p.situation));
       say(byKey("situation"), text);
       revealed.push(...factsIn(text, cards));
     }
@@ -332,13 +372,13 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
     if (hit) say(hit);
   }
   // «Не знаю» only when nothing else was said: a caller does not mix it into a real answer.
-  if (!parts.length && unknown.length) return { text: styled(p, sentences(unknown)), revealed: [] };
+  if (!parts.length && unknown.length) return { text: styled(p, sentences(unknown), turn, gender), revealed: [] };
 
   if (!parts.length) {
     if (/выезжа|выехал|направ|высыла|передал|будут|едут|ожидайте|помощь (уже )?едет/.test(t)) {
       return { text: p.temper === "panic" ? "Спасибо! Только быстрее!" : "Спасибо, ждём.", revealed: [] };
     }
-    if (/112|слушаю|здравствуйте|алло/.test(t)) return { text: styled(p, firstSentence(p.situation)), revealed: ["situation"] };
+    if (/112|слушаю|здравствуйте|алло/.test(t)) return { text: styled(p, firstSentence(speech(p.situation)), turn, gender), revealed: ["situation"] };
     const filler: Record<string, string> = {
       panic: "Я не понимаю, что вы спрашиваете! Приезжайте!",
       elderly: "Что? Не расслышала, повторите, пожалуйста.",
@@ -348,7 +388,7 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string)
     };
     return { text: filler[p.temper ?? ""] ?? "Не поняла вопрос. Что мне сказать?", revealed: [] };
   }
-  return { text: styled(p, sentences(parts)), revealed: expandRevealed([...new Set(revealed)], cards) };
+  return { text: styled(p, sentences(parts), turn, gender), revealed: expandRevealed([...new Set(revealed)], cards) };
 }
 
 /** Separate facts into sentences: «пострадавших не видит» + «Дом 14 этажей» → «…не видит. Дом 14 этажей». */
