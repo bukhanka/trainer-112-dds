@@ -4,14 +4,22 @@
  * has already confirmed or corrected is never overwritten.
  */
 import type { Call, Prisma } from "@prisma/client";
+import { inBackground } from "@/lib/ai/background";
+import { llmConfigured } from "@/lib/ai/provider";
+import { formatAddress } from "@/lib/board/address";
 import { db } from "@/lib/db";
-import { type CriterionResult, type Weights, WEIGHT_GROUPS } from "@/lib/scoring/score";
+import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
+import { readCriteria, readOverrides } from "@/lib/review/draft";
+import { computeScore, type CriterionResult, type Weights, WEIGHT_GROUPS } from "@/lib/scoring/score";
+import { getActiveWeights, lockScores } from "@/lib/scoring/weights";
 import type { Counterpart } from "./calls";
+import { abbreviationsIn, judgedComments } from "./clarity";
+import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarityAi } from "./clarity-ai";
 import { dispatchOf } from "./crew";
 import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
 import { referenceFor } from "./scenario";
 import { seatFeedWhere, settingsOf } from "./scope";
-import { rulesFor } from "./status";
+import { awaitsAnswer, rulesFor } from "./status";
 
 export const DEFAULT_WEIGHTS: Weights = { timeliness: 3, statusOrder: 2, comments: 2, address: 3, services: 3, completeness: 1, literacy: 1 };
 
@@ -30,8 +38,39 @@ const cp = (call: Pick<Call, "counterpart">) => (call.counterpart ?? {}) as Coun
 
 /** Marks the reviews written here, so other tools' attempts (demo lessons) are never rewritten. */
 const PLACE_REVIEW = "dds-place";
-type Draft = { by?: string; final?: boolean } | null;
+/** aiCheck — the model's clarity check asked for this text and not answered yet. */
+type Draft = { by?: string; final?: boolean; aiCheck?: { basis: string; at: string } } | null;
 const madeByPlace = (draft: unknown) => (draft as Draft)?.by === PLACE_REVIEW;
+
+/** A check asked for less than this long ago is still on its way; after that it is asked again. */
+const AI_WAIT_MS = 120_000;
+
+/** Abbreviations printed on the service plates count as official in the clarity check; read once. */
+let plateWords: Promise<string[]> | null = null;
+function knownAbbreviations(): Promise<string[]> {
+  plateWords ??= db.service
+    .findMany({ select: { shortName: true, fullName: true } })
+    .then((rows) => abbreviationsIn(rows.flatMap((r) => [r.shortName, r.fullName ?? ""])))
+    .catch(() => {
+      plateWords = null;
+      return [];
+    });
+  return plateWords;
+}
+
+/**
+ * The model's clarity check for the judged text: kept while the text is the same, asked (in the background)
+ * when it changed. Without a model it is «не применимо» at once.
+ */
+function clarityPart(basis: string | null, existing: { criteria: unknown; aiDraft: unknown } | null) {
+  if (!basis) return { check: null, ask: null };
+  if (!llmConfigured()) return { check: clarityAiUnavailable("ИИ-проверка не выполнялась: модель не настроена", basis), ask: null };
+  const prev = existing ? readCriteria(existing.criteria).find((c) => c.code === CLARITY_AI_CODE && c.basis === basis && c.ok !== null) : undefined;
+  if (prev) return { check: prev, ask: null };
+  const asked = (existing?.aiDraft as Draft)?.aiCheck;
+  const waiting = asked?.basis === basis && Date.now() - Date.parse(asked.at) < AI_WAIT_MS;
+  return { check: null, ask: waiting ? { ...asked, fresh: false } : { basis, at: new Date().toISOString(), fresh: true } };
+}
 
 /**
  * Review one plate of a ДДС place and store it. Returns the score, or null when nothing was stored.
@@ -73,7 +112,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
   const incoming = calls.filter((c) => c.kind === "BRIGADE_IN" && c.status !== "RINGING");
 
   const end = lesson.status === "FINISHED" && lesson.finishedAt ? lesson.finishedAt : now;
-  const criteria: CriterionResult[] = evaluateDdsPlate({
+  const rules: CriterionResult[] = evaluateDdsPlate({
     addedAt: plate.addedAt,
     status: plate.status,
     events: plate.events.map((e) => ({ status: e.status, comment: e.comment, crewNumber: e.crewNumber, at: e.at, late: e.late })),
@@ -86,24 +125,29 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     crewCalls: { rang: incoming.length, missed: incoming.filter((c) => c.status === "MISSED").length },
     callbacks: calls.filter((c) => c.kind === "CALLER_OUT").map((c) => ({ at: c.startedAt, namedCardNumber: !!cp(c).namedCardNumber })),
     now: end,
+    knownAbbreviations: await knownAbbreviations(),
+    commentTemplate: settings.commentTemplate,
   });
-  const score = scoreOf(criteria, await activeWeights());
-  const data = {
-    criteria: criteria as unknown as Prisma.InputJsonValue,
-    score,
-    aiDraft: { summary: summarize(criteria, score), source: "rules", by: PLACE_REVIEW, final: !!opts.final } as Prisma.InputJsonValue,
-  };
+  const judged = judgedComments(plate.events.filter((e) => !awaitsAnswer(e.status)));
+  const basis = judged.length ? clarityBasis(judged) : null;
+  const weights = await activeWeights();
 
   // One review per plate and place even when the finish button and the poll race each other.
-  return db.$transaction(async (tx) => {
+  const saved = await db.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-review:${plate.id}`}))`;
     const existing = await tx.attempt.findFirst({ where: { incidentServiceId: plate.id, seatId, kind: "DDS" } });
-    if (existing && existing.reviewStatus !== "PENDING") return existing.score; // the teacher has checked it
-    if (existing && !madeByPlace(existing.aiDraft)) return existing.score; // someone else's review (demo lessons): leave it
+    if (existing && existing.reviewStatus !== "PENDING") return { score: existing.score, ask: null }; // the teacher has checked it
+    if (existing && !madeByPlace(existing.aiDraft)) return { score: existing.score, ask: null }; // someone else's review (demo lessons): leave it
+    const ai = clarityPart(basis, existing);
+    const criteria = ai.check ? [...rules, ai.check] : rules;
+    const score = scoreOf(criteria, weights);
+    const aiDraft = { summary: summarize(criteria, score), source: "rules", by: PLACE_REVIEW, final: !!opts.final, ...(ai.ask ? { aiCheck: { basis: ai.ask.basis, at: ai.ask.at } } : {}) };
+    const data = { criteria: criteria as unknown as Prisma.InputJsonValue, score, aiDraft: aiDraft as Prisma.InputJsonValue };
+    let attemptId = existing?.id;
     if (existing) {
       await tx.attempt.updateMany({ where: { id: existing.id, reviewStatus: "PENDING" }, data });
     } else {
-      await tx.attempt.create({
+      const created = await tx.attempt.create({
         data: {
           ...data,
           lessonId: lesson.id,
@@ -115,8 +159,57 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
           scenarioId: incident.scenarioId,
         },
       });
+      attemptId = created.id;
     }
-    return score;
+    return { score, ask: ai.ask?.fresh && attemptId ? { attemptId, basis: ai.ask.basis } : null };
+  });
+  if (saved.ask) {
+    const { attemptId, basis: text } = saved.ask;
+    inBackground("dds clarity", () => runClarityCheck(attemptId, text));
+  }
+  return saved.score;
+}
+
+/**
+ * The model's clarity check of a stored review, run in the background. It is written only if the review is
+ * still waiting for the teacher and still wants this very text judged; the score is recomputed with it.
+ */
+export async function runClarityCheck(attemptId: string, basis: string): Promise<void> {
+  const a = await db.attempt.findUnique({
+    where: { id: attemptId },
+    select: {
+      reviewStatus: true,
+      aiDraft: true,
+      incident: { select: { address: true, description: true } },
+      incidentService: { select: { id: true, service: { select: { shortName: true } }, events: { orderBy: { at: "asc" }, select: { status: true, comment: true } } } },
+    },
+  });
+  const plate = a?.incidentService;
+  if (!a || !plate || a.reviewStatus !== "PENDING" || !madeByPlace(a.aiDraft)) return;
+  const judged = judgedComments(plate.events.filter((e) => !awaitsAnswer(e.status)));
+  if (!judged.length || clarityBasis(judged) !== basis) return; // the text changed: the newer review asks again
+
+  const situation = await attemptSituation(db, attemptId);
+  const ctx = situation ?? { scenarioId: null, typeCode: null, typeGroupId: null, category: null };
+  const guidance = await loadGuidance(CLARITY_AI_CODE, ctx);
+  const card = [situation?.typeName, formatAddress(a.incident?.address), a.incident?.description].filter(Boolean).join(" · ").slice(0, 400);
+  const check = await evaluateDdsClarityAi({ service: plate.service.shortName, card, comments: judged }, ctx, guidance);
+
+  await db.$transaction(async (tx) => {
+    await lockScores(tx);
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-review:${plate.id}`}))`;
+    const cur = await tx.attempt.findUnique({ where: { id: attemptId }, select: { criteria: true, override: true, aiDraft: true, reviewStatus: true } });
+    const draft = (cur?.aiDraft ?? null) as Draft;
+    if (!cur || cur.reviewStatus !== "PENDING" || draft?.aiCheck?.basis !== basis) return;
+    const criteria = [...readCriteria(cur.criteria).filter((c) => c.code !== CLARITY_AI_CODE), check];
+    const { weights } = await getActiveWeights(tx);
+    const score = computeScore(criteria, weights, readOverrides(cur.override));
+    const rest = { ...draft };
+    delete rest.aiCheck;
+    await tx.attempt.update({
+      where: { id: attemptId },
+      data: { criteria: criteria as unknown as Prisma.InputJsonValue, score, aiDraft: { ...rest, summary: summarize(criteria, score) } as Prisma.InputJsonValue },
+    });
   });
 }
 

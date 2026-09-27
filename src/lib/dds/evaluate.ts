@@ -8,10 +8,13 @@
  *                  the card closed with the right status
  *   services     — the decision matches the scenario's reference for this service
  *   completeness — callback to the applicant without the card number (#740)
- *   literacy     — clarity of the text: left to the teacher until a model is configured
+ *   literacy     — comments are clear to the next dispatcher: rules here (clarity.ts); with a model
+ *                  configured the review adds the model's own check (clarity-ai.ts)
  */
 import type { ServiceStatus } from "@prisma/client";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
+import { describeTemplates, matchTemplate, parseTemplates } from "@/lib/scoring/template";
+import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
 import { crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
 import { crewExpected, type DdsReferenceEntry } from "./scenario";
@@ -36,6 +39,17 @@ export type PlateFacts = {
   callbacks: { at: Date; namedCardNumber: boolean }[];
   /** Moment of the review: closing of the plate or the end of the lesson. */
   now: Date;
+  /** Abbreviations printed on the service plates (they count as official in the clarity check). */
+  knownAbbreviations?: string[];
+  /** The lesson's phrase templates for the final comment, one per line (empty — no such check). */
+  commentTemplate?: string;
+};
+
+const ISSUE_LABEL: Record<ClarityIssue["kind"], string> = {
+  short: "слишком коротко, не понять без звонка",
+  noResult: "не сказано, чем закончилось",
+  abbreviation: "сокращение, которое знает не каждый диспетчер",
+  layout: "набрано в английской раскладке",
 };
 
 const RANK: Record<ServiceStatus, number> = {
@@ -247,6 +261,22 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     });
   }
 
+  // The lesson's own phrase for the final comment («Наряд № {номер} направлен…»), if the teacher set one.
+  const templates = parseTemplates(f.commentTemplate);
+  if (endComment && templates.length && !noCrewClose) {
+    const hit = matchTemplate(endComment.comment ?? "", templates);
+    const hints = describeTemplates(templates);
+    out.push({
+      code: "dds.comment_template",
+      group: "comments",
+      title: "Итоговый комментарий по шаблону занятия",
+      ok: hit.ok,
+      evidence: `${STATUS_LABEL[endComment.status]}: ${quote(endComment.comment)} — ${hit.ok ? `совпадает с «${hit.template}»` : "по шаблону не написан"}`,
+      expected: `${templates.map((t) => `«${t}»`).join(" или ")}${hints ? ` (${hints})` : ""}`,
+      source: "rule",
+    });
+  }
+
   // ── statusOrder ──
   const { chain } = crewPlanFor(ref);
   const expectedProgress = chain.filter((s) => PROGRESS.includes(s));
@@ -356,17 +386,22 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     });
   }
 
-  // ── literacy ──
+  // ── literacy: the refusal and final comments read without a phone call (rules; the model adds its own check) ──
+  const judged = judgedComments(own);
+  const issues = clarityIssues(judged, new Set(f.knownAbbreviations ?? []), noCrewClose ? NO_CREW_COMMENT : undefined);
   out.push({
     code: "dds.literacy",
     group: "literacy",
     title: "Комментарии понятны следующему диспетчеру",
-    ok: null,
-    evidence: own
-      .filter((e) => e.comment)
-      .map((e) => `${STATUS_LABEL[e.status]}: ${quote(e.comment)}`)
-      .join("; ") || "Комментариев нет",
-    expected: "Оценивает преподаватель (или модель, если подключена)",
+    ok: judged.length ? issues.length === 0 : null,
+    evidence: !judged.length
+      ? "Комментария к отказу и итогового комментария ещё нет — проверять нечего"
+      : issues.length
+        ? issues.map((i) => `${STATUS_LABEL[i.status]}: ${i.fragment ? `«${i.fragment}»` : "без комментария"} — ${ISSUE_LABEL[i.kind]}`).join("; ")
+        : `Замечаний нет: ${judged.map((c) => `${STATUS_LABEL[c.status]}: ${quote(c.text)}`).join("; ")}`,
+    expected: issues.length
+      ? [...new Set(issues.map((i) => i.hint))].join(". ")
+      : "Полными фразами: что сделано, чем закончилось, кому передано; без своих сокращений",
     source: "rule",
   });
 

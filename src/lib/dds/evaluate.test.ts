@@ -86,7 +86,7 @@ describe("evaluateDdsPlate", () => {
     );
     const failed = list.filter((c) => c.ok === false);
     expect(failed).toEqual([]);
-    expect(byCode(list)["dds.literacy"].ok).toBeNull();
+    expect(byCode(list)["dds.literacy"].ok).toBe(true);
     expect(scoreOf(list, weights)).toBe(100);
     expect(summarize(list, 100)).toContain("Замечаний нет");
   });
@@ -268,5 +268,37 @@ describe("end of the lesson", () => {
     expect(list["dds.status_meaning"].ok).toBe(true);
     const refusal = byCode(evaluateDdsPlate(facts({ status: "ACCEPTED", events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Это не наша территория")] })));
     expect(refusal["dds.status_meaning"].ok).toBe(false);
+  });
+
+  it("checks that refusal and final comments read without a phone call", () => {
+    const refused = byCode(evaluateDdsPlate(facts({ reference: liftRef, status: "REJECTED", events: [ev("ADDED", 0), ev("REJECTED", 10, "Не наш, АБ в курсе")] })));
+    expect(refused["dds.literacy"]).toMatchObject({ ok: false, source: "rule" });
+    expect(refused["dds.literacy"].evidence).toContain("«АБ»");
+    expect(refused["dds.literacy"].expected).toContain("аварийная бригада");
+    const sloppy = byCode(evaluateDdsPlate(facts({ status: "FINISHED", events: [ev("ADDED", 0), ev("ACCEPTED", 10, "отпр бр", "23"), ev("FINISHED", 400, "Сделано")] })));
+    expect(sloppy["dds.literacy"].ok).toBe(false);
+    expect(sloppy["dds.literacy"].evidence).toContain("Работы завершены: «Сделано» — слишком коротко");
+    // Only «Принята» so far: nothing final to read yet.
+    const open = byCode(evaluateDdsPlate(facts({ status: "ACCEPTED", events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23")], now: at(100) })));
+    expect(open["dds.literacy"].ok).toBeNull();
+  });
+
+  it("checks the lesson's phrase template on the final comment", () => {
+    const run = (comment: string, commentTemplate?: string) =>
+      byCode(
+        evaluateDdsPlate(
+          facts({
+            status: "FINISHED",
+            events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, comment)],
+            dispatch: { crew: "23", at: at(10), via: "status" },
+            commentTemplate,
+          }),
+        ),
+      );
+    expect(run("Стояк перекрыт, течь устранена")["dds.comment_template"]).toBeUndefined();
+    const miss = run("Стояк перекрыт, течь устранена", "Наряд № {номер} прибыл…\nСообщение принято…")["dds.comment_template"];
+    expect(miss).toMatchObject({ ok: false, group: "comments" });
+    expect(miss.expected).toBe("«Наряд № {номер} прибыл…» или «Сообщение принято…» ({номер} — номер цифрами; «…» — дальше любой текст)");
+    expect(run("Наряд № 23 прибыл, стояк перекрыт, течь устранена", "Наряд № {номер} прибыл…")["dds.comment_template"].ok).toBe(true);
   });
 });
