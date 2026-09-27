@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeScore, type Weights } from "@/lib/scoring/score";
 import type { Persona } from "./caller";
 import { resolveCard } from "./card";
-import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, streetVerdict, type EvalInput } from "./evaluate";
+import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, op112AiMessages, streetVerdict, type EvalInput } from "./evaluate";
 import { factCards } from "./facts";
 import type { ServiceLite } from "./routing";
 import type { CallLine, CardAnswers } from "./types";
@@ -246,5 +246,32 @@ describe("evaluateOp112Ai", () => {
     const res = await evaluateOp112Ai(input());
     process.env.LLM_BASE_URL = prev;
     expect(res.map((c) => c.ok)).toEqual([null, null]);
+  });
+
+  it("shows the model the teachers' corrections of each check (prompt only, no model call)", () => {
+    const ctx = { scenarioId: "s1", typeCode: 1010101, typeGroupId: 1, category: "пожар" };
+    const row = (id: string, code: string, comment: string) => ({
+      ...ctx,
+      id,
+      code,
+      title: code,
+      source: "rule",
+      typeName: "пожар: мусор",
+      draftOk: false,
+      draftEvidence: "Заявитель: «газа нет» → в карточке: не отмечено",
+      teacherOk: true,
+      comment,
+      createdAt: new Date("2026-09-25T09:00:00Z"),
+    });
+    const [system, user] = op112AiMessages(input(), {
+      ctx,
+      said: [row("c1", "op112.said.gas", "Газ записан в описании — так можно")],
+      description: [row("c2", "op112.ai.description", "Короткое описание без подробностей допустимо")],
+    });
+    expect(system.content).toContain("К пункту 1 (расхождения «сказал ↔ заполнил»):");
+    expect(system.content).toContain("«Газ записан в описании — так можно»");
+    expect(system.content).toContain("К пункту 2 (описание):");
+    expect(user.content).toContain("Разговор:");
+    expect(op112AiMessages(input())[0].content).not.toContain("Правки преподавателей");
   });
 });

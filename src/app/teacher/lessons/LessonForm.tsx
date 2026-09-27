@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button, Section, fieldClass, inputClass } from "@/components/ui";
 import type { TeacherSettings } from "@/lib/lessons/form";
 import type { FormScenario, LessonFormOptions } from "@/lib/lessons/options";
+import { PassCriteriaFields } from "./PassCriteriaFields";
 
 type Role = "OP112" | "DDS";
 type SeatDraft = { included: boolean; role: Role; serviceId: number | null; scenarioIds: string[]; label: string };
@@ -243,6 +244,8 @@ export function LessonForm({
               </span>
             </label>
           </div>
+
+          <PassCriteriaFields value={settings} onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))} />
         </div>
       </Section>
 

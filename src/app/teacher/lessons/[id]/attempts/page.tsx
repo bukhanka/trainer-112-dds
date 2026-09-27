@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { PassBadge } from "@/components/pass";
 import { Badge, Empty, PageHeader, REVIEW_STATUS } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import { listLessonAttempts } from "@/lib/review/list";
+import { passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
 
 const STATUS_TABS = [
@@ -32,7 +34,7 @@ export default async function LessonAttemptsPage(props: PageProps<"/teacher/less
   const seat = one(sp.seat);
 
   const [attempts, counts, seatRow] = await Promise.all([
-    listLessonAttempts(id, { status, kind, seat }),
+    listLessonAttempts(id, { status, kind, seat }, passRulesOf(lesson.settings)),
     db.attempt.groupBy({ by: ["reviewStatus"], where: { lessonId: id }, _count: { _all: true } }),
     seat ? db.seat.findFirst({ where: { id: seat, lessonId: id }, select: { label: true, student: { select: { fullName: true } } } }) : null,
   ]);
@@ -110,6 +112,9 @@ export default async function LessonAttemptsPage(props: PageProps<"/teacher/less
                   </div>
                   <div className="tabular-nums">
                     {a.score == null ? "—" : a.reviewStatus === "PENDING" ? <span className="text-arm-desc">{a.score} (черновик)</span> : <b>{a.score}</b>}
+                    <span className="block">
+                      <PassBadge verdict={a.pass} draft={a.reviewStatus === "PENDING"} />
+                    </span>
                   </div>
                   <div>
                     <Badge tone={st.tone}>{st.label}</Badge>

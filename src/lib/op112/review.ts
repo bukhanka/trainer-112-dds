@@ -1,6 +1,7 @@
 /** Grading a saved 112 card: rule checks at once, model checks afterwards, one Attempt per card. */
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
 import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
@@ -144,7 +145,11 @@ export async function runAiReview(attemptId: string): Promise<void> {
     if (!attempt?.incidentId) return;
     const loaded = await loadEvalInput(attempt.incidentId);
     if (!loaded) return;
-    const ai = await evaluateOp112Ai(loaded.input);
+    // The teachers' corrections of these checks in similar situations (учёт правок, src/lib/review/corrections.ts).
+    const situation = await attemptSituation(db, attemptId);
+    const ctx = situation ?? { scenarioId: loaded.scenarioId, typeCode: null, typeGroupId: null, category: null };
+    const [said, description] = await Promise.all([loadGuidance("op112.ai.said", ctx), loadGuidance("op112.ai.description", ctx)]);
+    const ai = await evaluateOp112Ai(loaded.input, { ctx, said, description });
     const base = ((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
     const criteria = [...base, ...ai];
     const score = computeScore(criteria, await activeWeights(), attempt.override as Record<string, boolean | null> | null);

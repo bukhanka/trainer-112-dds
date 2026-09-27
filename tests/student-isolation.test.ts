@@ -60,6 +60,17 @@ describe("student cabinet: nobody sees someone else's results", () => {
     expect(detail.checks.find((c: { code: string }) => c.code === "street")).toMatchObject({ ok: true, changedByTeacher: true });
   });
 
+  it("shows «зачтено / не зачтено» only for confirmed attempts", async () => {
+    const data = await (await results()).json();
+    expect(data.attempts.find((a: { id: string }) => a.id === "a-petrova-1").pass).toEqual({ passed: true, reasons: [] });
+    expect(data.attempts.find((a: { id: string }) => a.id === "a-petrova-2").pass).toBeNull();
+    expect(data.summary).toMatchObject({ passed: 1, judged: 1 });
+    const detail = await (await attempt(new Request("http://x"), ctx("a-petrova-1"))).json();
+    expect(detail).toMatchObject({ pass: { passed: true }, passRules: "балл не ниже 70, без критичных ошибок" });
+    const pending = await (await attempt(new Request("http://x"), ctx("a-petrova-2"))).json();
+    expect(pending.pass).toBeUndefined();
+  });
+
   it("answers 404 for another student's attempt, the same as for a missing one", async () => {
     const foreign = await attempt(new Request("http://x"), ctx("a-ivanov"));
     const missing = await attempt(new Request("http://x"), ctx("no-such"));

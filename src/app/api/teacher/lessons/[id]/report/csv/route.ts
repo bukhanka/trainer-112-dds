@@ -2,6 +2,7 @@ import { formatDateTime } from "@/lib/format";
 import { attachment, toCsv, type Cell } from "@/lib/reports/csv";
 import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
+import { describePassRules, passLabel } from "@/lib/scoring/pass";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 
 const REVIEW = { PENDING: "на проверке", CONFIRMED: "подтверждено", OVERRIDDEN: "исправлено преподавателем" } as const;
@@ -39,6 +40,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/teacher/less
             "Средний балл",
             "Уровень готовности",
             "Частые ошибки",
+            "Зачтено попыток",
+            "Критерии зачёта",
           ],
           ...report.students.map((r) => [
             r.name,
@@ -59,10 +62,12 @@ export async function GET(request: Request, ctx: RouteContext<"/api/teacher/less
             r.avgScore,
             r.readiness?.label,
             r.topFailed.map((f) => `${f.title} (${f.count})`).join("; "),
+            r.passed,
+            describePassRules(report.pass),
           ]),
         ]
       : [
-          ["ФИО", "Место", "Роль", "Карточка", "Задание", "Время попытки", "Время, с", "Норматив, с", "Отличие, с", "Ошибок", "Какие ошибки", "Балл", "Проверка", "Комментарий преподавателя"],
+          ["ФИО", "Место", "Роль", "Карточка", "Задание", "Время попытки", "Время, с", "Норматив, с", "Отличие, с", "Ошибок", "Какие ошибки", "Балл", "Проверка", "Комментарий преподавателя", "Зачёт", "Почему не зачтено"],
           ...report.attempts.map((a) => [
             a.student,
             a.seat,
@@ -78,6 +83,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/teacher/less
             a.score,
             REVIEW[a.reviewStatus],
             a.teacherComment,
+            passLabel(a.pass),
+            a.pass?.reasons.join("; "),
           ]),
         ];
 

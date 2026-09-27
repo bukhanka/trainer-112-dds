@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { formatDateTime, formatDelta, formatDuration, shortName } from "@/lib/format";
 import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
+import { describePassRules } from "@/lib/scoring/pass";
 import { WEIGHT_GROUPS } from "@/lib/scoring/score";
 import { findLesson } from "@/lib/teacher/access";
 import { ForecastVsFact } from "./ForecastVsFact";
@@ -54,6 +55,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
             {group?.name ?? "без группы"} · {lesson.startedAt ? formatDateTime(lesson.startedAt) : "не проводилось"}
             {duration != null && <> · длительность {formatDuration(duration)}</>}
             {lesson.status === "RUNNING" && " · занятие ещё идёт"}
+            <> · зачёт: {describePassRules(report.pass)}</>
           </>
         }
         actions={
@@ -78,10 +80,11 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         </p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Stat label="Учеников на местах" value={s.students} />
         <Stat label="Подтверждённых попыток" value={s.reviewed} hint={s.pending ? `ещё ${s.pending} на проверке` : "все проверены"} />
         <Stat label="Средний балл (0–100)" value={s.avgScore ?? "—"} />
+        <Stat label="Зачтено попыток" value={s.judged ? `${s.passed} из ${s.judged}` : "—"} hint={describePassRules(report.pass)} />
         <Stat
           label="Согласие преподавателя с черновиком"
           value={s.agreement.rate == null ? "—" : `${s.agreement.rate} %`}
@@ -142,6 +145,9 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
                 <th className="py-1.5 pr-3 text-right font-medium">Ошибок</th>
                 <th className="py-1.5 pr-3 text-right font-medium">В тексте</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Балл</th>
+                <th className="py-1.5 pr-3 text-right font-medium" title={`Критерии занятия: ${describePassRules(report.pass)}`}>
+                  Зачтено
+                </th>
                 <th className="py-1.5 font-medium">Готовность</th>
               </tr>
             </thead>
@@ -168,6 +174,9 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
                   </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{r.textErrors}</td>
                   <td className="py-1.5 pr-3 text-right font-semibold tabular-nums">{r.avgScore ?? "—"}</td>
+                  <td className={`whitespace-nowrap py-1.5 pr-3 text-right tabular-nums ${r.judged && r.passed < r.judged ? "text-red-700" : ""}`}>
+                    {r.judged ? `${r.passed} из ${r.judged}` : "—"}
+                  </td>
                   <td className="py-1.5">{r.readiness ? <Badge tone={READY_TONE[r.readiness.tone]}>{r.readiness.label}</Badge> : <span className="text-xs text-arm-desc">нет данных</span>}</td>
                 </tr>
               ))}
@@ -176,6 +185,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         </div>
         <p className="mt-2 text-xs text-arm-desc">
           Время: у места 112 — набор карточки до сохранения, у места ДДС — от «Добавлена» до «Принята / Не принята». «В тексте» — ошибки понятности текста.
+          «Зачтено» — подтверждённые попытки, которые прошли критерии занятия: {describePassRules(report.pass)}.
         </p>
       </Section>
 

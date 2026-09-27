@@ -2,6 +2,7 @@ import type { Lesson } from "@prisma/client";
 import { db } from "@/lib/db";
 import { parseTeacherSettings } from "@/lib/lessons/form";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
+import { passRulesOf } from "@/lib/scoring/pass";
 import type { ReportInput } from "./lesson";
 
 const ANSWER = new Set(["ACCEPTED", "REJECTED"]);
@@ -28,6 +29,7 @@ export async function loadReportInput(lesson: Lesson): Promise<ReportInput> {
 
   return {
     norms: { ackSec: settings.ackSec, typingSec: settings.typingSec },
+    pass: passRulesOf(lesson.settings),
     seats: seats.map((s) => ({
       id: s.id,
       label: s.label ?? "Место",

@@ -460,6 +460,40 @@ model WeightProfile {
   updatedAt DateTime @updatedAt
 }
 
+/// A teacher's correction of a check verdict («ИИ неправ»): the methodology of the training centre, shared by
+/// its teachers. Model checks read the most relevant active corrections as guidance (src/lib/review/corrections.ts);
+/// rule checks never change. Rows are not deleted — the author or an administrator switches one off.
+model TeacherCorrection {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  attemptId     String? // where it came from; kept even when the attempt is gone
+  authorId      String?
+  authorName    String
+  role          SeatRole
+  code          String // check code, e.g. dds.ai.literacy
+  title         String
+  group         String // weight group of the check
+  source        String // rule | ai — who made the draft verdict
+  scenarioId    String?
+  scenarioTitle String?
+  category      String?
+  typeCode      Int? // classifier type of the situation
+  typeName      String?
+  typeGroupId   Int? // classifier group of that type
+  draftOk       Boolean? // what the draft said: true, false, null = не применимо
+  draftEvidence String?
+  teacherOk     Boolean? // what the teacher decided
+  comment       String
+  active        Boolean   @default(true)
+  offAt         DateTime?
+  offById       String?
+  offByName     String?
+  offReason     String? // off — switched off by hand; revised — the teacher changed the decision on the attempt
+
+  @@index([code, active, createdAt])
+  @@index([attemptId])
+}
+
 // ─── Administration ──────────────────────────────────────────────────────────
 
 model SystemSetting {

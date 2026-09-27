@@ -298,9 +298,9 @@ function simulateDds(fx: Fx, serviceId: number | null, serviceName: string, p: P
     source: "rule",
   });
   crits.push({
-    code: "dds.literacy",
+    code: "dds.ai.literacy",
     group: "literacy",
-    title: "Комментарии понятны следующему диспетчеру",
+    title: "ИИ: комментарии понятны следующему диспетчеру",
     ok: !sloppy,
     evidence: sloppy ? "«отпр бр», «выехали» — непонятно, кто и куда" : undefined,
     expected: "Полные фразы: кто направлен, номер наряда, что делают",
@@ -364,18 +364,18 @@ function simulate112(fx: Fx, p: Profile, ctx: Ctx) {
       source: "rule",
     },
     {
-      code: "op112.said_vs_filled",
+      code: "op112.ai.said",
       group: "completeness",
-      title: "Сказанное заявителем совпадает с карточкой",
+      title: "ИИ: всё сказанное заявителем попало в карточку",
       ok: !(missQuestion && chance(0.6)),
       evidence: `Заявитель: «${fx.caller.situation}»`,
       expected: "Все факты из разговора перенесены в описание и признаки",
       source: "ai",
     },
     {
-      code: "op112.description_clear",
+      code: "op112.ai.description",
       group: "literacy",
-      title: "Описание понятно службе",
+      title: "ИИ: описание понятно следующему диспетчеру",
       ok: !sloppy,
       evidence: sloppy ? `«${fx.description.toLowerCase().replace(/[.,]/g, "").split(" ").slice(0, 5).join(" ")} срочн»` : undefined,
       expected: "Коротко и полно: что случилось, где, есть ли угроза людям",
@@ -604,13 +604,13 @@ async function buildLesson(opts: {
     a.reviewStatus = review;
     a.reviewedById = ctx.teacherId;
     a.reviewedAt = at(finishedAt ?? opts.start, 600 + i * 45);
-    if (review === "OVERRIDDEN") {
-      const target = criteria.find((c) => c.source === "ai" && c.ok === false) ?? criteria.find((c) => c.source === "ai");
+    const target = review === "OVERRIDDEN" ? (criteria.find((c) => c.source === "ai" && c.ok === false) ?? criteria.find((c) => c.source === "ai")) : undefined;
+    // The teacher never takes «отпр бр» for a clear ДДС comment: such a draft is confirmed as it is.
+    if (target && target.code === "dds.ai.literacy" && target.ok === false) a.reviewStatus = "CONFIRMED";
+    if (a.reviewStatus === "OVERRIDDEN") {
       if (target) {
         a.override = { [target.code]: !target.ok };
-        a.teacherComment = target.ok
-          ? "ИИ не заметил: в тексте нет главного — есть ли угроза людям. Засчитываю как ошибку."
-          : "Сокращения понятны любому диспетчеру, смысл передан. Засчитываю.";
+        a.teacherComment = (DEMO_CORRECTION[target.code] ?? DEMO_CORRECTION["op112.ai.description"])[target.ok ? "fail" : "pass"];
       }
     } else if (criteria.some((c) => c.ok === false)) {
       a.teacherComment = "Разобрали на занятии. Обратите внимание на ошибки ниже.";
@@ -618,7 +618,66 @@ async function buildLesson(opts: {
     a.score = computeScore(criteria, ctx.weights, a.override as Record<string, boolean | null> | undefined);
   }
   await db.attempt.createMany({ data: attempts });
+  await seedCorrections(opts.id, ctx);
   return { attempts: attempts.length };
+}
+
+/** What the teacher wrote when correcting a model check of the demo: pass — the draft was too strict, fail — too lenient. */
+const DEMO_CORRECTION: Record<string, { pass: string; fail: string }> = {
+  "op112.ai.said": {
+    pass: "Сведение записано в описании, а не отдельным полем, — это не расхождение. Засчитываю.",
+    fail: "ИИ не заметил: часть сказанного заявителем в карточку не попала. Засчитываю как ошибку.",
+  },
+  "op112.ai.description": {
+    pass: "Коротко, но суть, адрес и пострадавшие есть — службе понятно. Засчитываю.",
+    fail: "ИИ не заметил: в тексте нет главного — есть ли угроза людям. Засчитываю как ошибку.",
+  },
+  "dds.ai.literacy": {
+    pass: "Понятно без звонка: кто выехал, что сделано, чем закончилось. Засчитываю.",
+    fail: "Не сказано, чем закончилось и кому передано — следующему диспетчеру придётся звонить. Засчитываю как ошибку.",
+  },
+};
+
+/** Every «ИИ неправ» of the demo becomes a teacher correction (src/lib/review/corrections.ts), as on the real review screen. */
+async function seedCorrections(lessonId: string, ctx: Ctx) {
+  const teacher = await db.user.findUniqueOrThrow({ where: { id: ctx.teacherId }, select: { id: true, fullName: true } });
+  const rows = await db.attempt.findMany({
+    where: { lessonId, reviewStatus: "OVERRIDDEN" },
+    select: { id: true, kind: true, criteria: true, override: true, teacherComment: true, reviewedAt: true, scenarioId: true, scenario: { select: { title: true, category: true, truth: true } } },
+  });
+  for (const a of rows) {
+    const truth = (a.scenario?.truth ?? {}) as { typeCodes?: number[] };
+    const typeCode = truth.typeCodes?.[0] ?? null;
+    const type = typeCode == null ? null : await db.incidentType.findUnique({ where: { code: typeCode }, select: { finalType: true, groupId: true } });
+    const checks = a.criteria as unknown as CriterionResult[];
+    for (const [code, teacherOk] of Object.entries((a.override ?? {}) as Record<string, boolean | null>)) {
+      const c = checks.find((x) => x.code === code);
+      if (!c || !a.teacherComment) continue;
+      await db.teacherCorrection.create({
+        data: {
+          createdAt: a.reviewedAt ?? undefined,
+          attemptId: a.id,
+          authorId: teacher.id,
+          authorName: teacher.fullName,
+          role: a.kind,
+          code,
+          title: c.title,
+          group: c.group,
+          source: c.source,
+          scenarioId: a.scenarioId,
+          scenarioTitle: a.scenario?.title ?? null,
+          category: a.scenario?.category ?? null,
+          typeCode,
+          typeName: type?.finalType ?? null,
+          typeGroupId: type?.groupId ?? null,
+          draftOk: c.ok,
+          draftEvidence: c.evidence ?? null,
+          teacherOk,
+          comment: a.teacherComment,
+        },
+      });
+    }
+  }
 }
 
 function ownEvents(plateId: string, events: Event[], addedAt: Date, seat: { id: string; studentId: string; fullName: string }, ctx: Ctx): Prisma.StatusEventCreateManyInput[] {
@@ -801,6 +860,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const weights = (profile?.weights ?? { timeliness: 3, statusOrder: 2, comments: 2, address: 3, services: 3, completeness: 1, literacy: 1 }) as Weights;
   const ctx: Ctx = { weights, teacherId: teacher.id, ackSec: 30, workSec: 180, typingSec: 65 };
 
+  const demoAttempts = await db.attempt.findMany({ where: { lessonId: { in: DEMO_IDS } }, select: { id: true } });
+  await db.teacherCorrection.deleteMany({ where: { attemptId: { in: demoAttempts.map((a) => a.id) } } });
   await db.lesson.deleteMany({ where: { id: { in: DEMO_IDS } } });
 
   const base = { categories: [], tempoSec: 90, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true };

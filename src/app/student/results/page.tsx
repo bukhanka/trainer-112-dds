@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BarChart } from "@/components/charts";
+import { PassBadge } from "@/components/pass";
 import { Badge, Empty, PageHeader, Section, Stat } from "@/components/ui";
 import { getStudentForecast } from "@/lib/adaptive/student";
 import { requireUser } from "@/lib/auth/session";
@@ -20,7 +21,11 @@ export default async function MyResultsPage() {
       <PageHeader title="Мои результаты" subtitle="Оценка появляется после проверки преподавателем. До этого попытка — «на проверке»." />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Проверено попыток" value={s.reviewed} hint={s.pending ? `ещё ${s.pending} на проверке` : undefined} />
+        <Stat
+          label="Проверено попыток"
+          value={s.reviewed}
+          hint={[s.judged ? `зачтено ${s.passed} из ${s.judged}` : "", s.pending ? `ещё ${s.pending} на проверке` : ""].filter(Boolean).join(", ") || undefined}
+        />
         <Stat label="Средний балл (0–100)" value={s.avgScore ?? "—"} />
         <Stat
           label="Последнее занятие"
@@ -96,7 +101,10 @@ export default async function MyResultsPage() {
                   ) : (
                     <>
                       <span className={a.failed ? "text-red-700" : "text-emerald-700"}>{a.failed ? `ошибок ${a.failed}` : "без ошибок"}</span>
-                      <span className="w-16 text-right text-lg font-semibold tabular-nums">{a.score ?? "—"}</span>
+                      <span className="flex w-24 flex-col items-end">
+                        <span className="text-lg font-semibold tabular-nums">{a.score ?? "—"}</span>
+                        <PassBadge verdict={a.pass} />
+                      </span>
                     </>
                   )}
                 </Link>

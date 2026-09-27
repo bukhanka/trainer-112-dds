@@ -30,6 +30,10 @@ export type CriterionResult = {
   evidence?: string; // quote or timing that proves the verdict
   expected?: string; // what the right action was
   source: "rule" | "ai";
+  /** Model checks: ids of the teacher corrections the model was shown (src/lib/review/corrections.ts). */
+  learned?: string[];
+  /** Model checks: fingerprint of the text the model judged, so the same text is not sent twice. */
+  basis?: string;
 };
 
 /** Teacher corrections: check code → new verdict. */

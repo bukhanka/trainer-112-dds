@@ -7,7 +7,8 @@
  * «не применимо» (ok = null) and do not affect the score.
  */
 import { z } from "zod";
-import { aiMode, chatJson } from "@/lib/ai/provider";
+import { aiMode, chatJson, type ChatMessage } from "@/lib/ai/provider";
+import { guidanceText, type CorrectionContext, type GuidanceRow } from "@/lib/review/corrections";
 import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller, type IncidentFlags } from "@/lib/incident/types";
 import { compareStreets as compareKnownStreets } from "@/lib/routing/address";
 import type { CriterionResult, WeightGroup } from "@/lib/scoring/score";
@@ -479,29 +480,37 @@ function cardSummary(card: EvalCard): string {
   ].join("\n");
 }
 
+/** Teacher corrections the two model checks are shown (src/lib/review/corrections.ts). */
+export type Op112Guidance = { ctx: CorrectionContext; said: GuidanceRow[]; description: GuidanceRow[] };
+
+/** The prompt of the model checks; pure, so it is tested without calling a model. */
+export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): ChatMessage[] {
+  const transcript = input.messages.map((m) => `${m.role === "trainee" ? "Оператор" : "Заявитель"}: ${m.text}`).join("\n");
+  const said = guidance ? guidanceText(guidance.ctx, guidance.said) : "";
+  const description = guidance ? guidanceText(guidance.ctx, guidance.description) : "";
+  return [
+    {
+      role: "system",
+      content: [
+        "Ты — наставник, который разбирает работу оператора службы 112 на учебном тренажёре.",
+        "Даны расшифровка разговора с заявителем и карточка происшествия, которую оператор заполнил.",
+        "1) Найди расхождения «сказал ↔ заполнил»: заявитель ясно сообщил сведение (адрес, пострадавшие, газ, этажность, доступ, угроза, имя, телефон, что произошло), а в карточке его нет или записано иначе. Сведения, которых заявитель не говорил, не считай. Пересказ своими словами — не ошибка.",
+        "2) Оцени описание со слов заявителя: поймёт ли следующий диспетчер, что случилось, где и есть ли пострадавшие.",
+        'Верни JSON: {"discrepancies":[{"field":"поле карточки","said":"точная цитата заявителя","filled":"что в карточке"}],"descriptionClear":true|false,"descriptionComment":"одно предложение"}',
+        ...(said ? ["", "К пункту 1 (расхождения «сказал ↔ заполнил»):", said] : []),
+        ...(description ? ["", "К пункту 2 (описание):", description] : []),
+      ].join("\n"),
+    },
+    { role: "user", content: `Разговор:\n${transcript || "(пусто)"}\n\nКарточка:\n${cardSummary(input.card)}` },
+  ];
+}
+
 /** Transcript vs card by the model. Returns «не применимо» when no model is configured or it fails. */
-export async function evaluateOp112Ai(input: EvalInput): Promise<CriterionResult[]> {
+export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance): Promise<CriterionResult[]> {
   if (!aiEnabled()) return aiUnavailable("ИИ-проверка не выполнялась: модель не настроена");
   if (input.card.empty) return [];
-  const transcript = input.messages.map((m) => `${m.role === "trainee" ? "Оператор" : "Заявитель"}: ${m.text}`).join("\n");
   try {
-    const res = await chatJson(
-      [
-        {
-          role: "system",
-          content: [
-            "Ты — наставник, который разбирает работу оператора службы 112 на учебном тренажёре.",
-            "Даны расшифровка разговора с заявителем и карточка происшествия, которую оператор заполнил.",
-            "1) Найди расхождения «сказал ↔ заполнил»: заявитель ясно сообщил сведение (адрес, пострадавшие, газ, этажность, доступ, угроза, имя, телефон, что произошло), а в карточке его нет или записано иначе. Сведения, которых заявитель не говорил, не считай. Пересказ своими словами — не ошибка.",
-            "2) Оцени описание со слов заявителя: поймёт ли следующий диспетчер, что случилось, где и есть ли пострадавшие.",
-            'Верни JSON: {"discrepancies":[{"field":"поле карточки","said":"точная цитата заявителя","filled":"что в карточке"}],"descriptionClear":true|false,"descriptionComment":"одно предложение"}',
-          ].join("\n"),
-        },
-        { role: "user", content: `Разговор:\n${transcript || "(пусто)"}\n\nКарточка:\n${cardSummary(input.card)}` },
-      ],
-      aiSchema,
-      { temperature: 0, maxTokens: 700 },
-    );
+    const res = await chatJson(op112AiMessages(input, guidance), aiSchema, { temperature: 0, maxTokens: 700 });
     const list = res.discrepancies.slice(0, 6);
     return [
       {
@@ -513,6 +522,7 @@ export async function evaluateOp112Ai(input: EvalInput): Promise<CriterionResult
           ? list.map((d) => `${d.field}: заявитель ${quote(d.said, 100)} → в карточке ${quote(d.filled || "пусто", 60)}`).join("; ")
           : "Расхождений не найдено",
         source: "ai",
+        learned: guidance?.said.map((g) => g.id) ?? [],
       },
       {
         code: "op112.ai.description",
@@ -521,6 +531,7 @@ export async function evaluateOp112Ai(input: EvalInput): Promise<CriterionResult
         ok: res.descriptionClear,
         evidence: res.descriptionComment || undefined,
         source: "ai",
+        learned: guidance?.description.map((g) => g.id) ?? [],
       },
     ];
   } catch (err) {

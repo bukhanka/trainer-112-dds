@@ -46,6 +46,8 @@ const criterionSchema = z.object({
   evidence: text,
   expected: text,
   source: z.enum(["rule", "ai"]).catch("rule"),
+  learned: z.array(z.string()).max(20).optional().catch(undefined),
+  basis: z.string().max(80).optional().catch(undefined),
 });
 
 /** Attempt.criteria is JSON written by the workstations; skip anything malformed instead of crashing a page. */

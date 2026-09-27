@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { DEFAULT_PASS, passVerdict, type PassRules, type PassVerdict } from "@/lib/scoring/pass";
 import { applyOverrides } from "@/lib/scoring/score";
 import { readCriteria, readOverrides } from "./draft";
 
@@ -19,6 +20,8 @@ export type AttemptListItem = {
   failed: number;
   total: number;
   critical: boolean;
+  /** «зачтено / не зачтено» by the lesson's criteria (a draft verdict while the attempt is on review). */
+  pass: PassVerdict | null;
 };
 
 export function attemptWhere(lessonId: string, f: AttemptFilters): Prisma.AttemptWhereInput {
@@ -30,7 +33,7 @@ export function attemptWhere(lessonId: string, f: AttemptFilters): Prisma.Attemp
 }
 
 /** Attempts of one lesson (the caller has already checked the lesson belongs to the teacher). */
-export async function listLessonAttempts(lessonId: string, f: AttemptFilters): Promise<AttemptListItem[]> {
+export async function listLessonAttempts(lessonId: string, f: AttemptFilters, rules: PassRules = DEFAULT_PASS): Promise<AttemptListItem[]> {
   const rows = await db.attempt.findMany({
     where: attemptWhere(lessonId, f),
     orderBy: [{ createdAt: "asc" }],
@@ -42,7 +45,9 @@ export async function listLessonAttempts(lessonId: string, f: AttemptFilters): P
     },
   });
   return rows.map((a) => {
-    const checks = applyOverrides(readCriteria(a.criteria), readOverrides(a.override));
+    const raw = readCriteria(a.criteria);
+    const overrides = readOverrides(a.override);
+    const checks = applyOverrides(raw, overrides);
     return {
       id: a.id,
       kind: a.kind,
@@ -57,6 +62,7 @@ export async function listLessonAttempts(lessonId: string, f: AttemptFilters): P
       failed: checks.filter((c) => c.ok === false).length,
       total: checks.filter((c) => c.ok !== null).length,
       critical: checks.some((c) => c.critical && c.ok === false),
+      pass: passVerdict(a.score, raw, overrides, rules),
     };
   });
 }

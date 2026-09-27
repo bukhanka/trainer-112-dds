@@ -9,6 +9,11 @@ export const lessonSettingsSchema = z.object({
   ackSec: z.number().int().min(5).max(600).default(30), // «Принята / Не принята» after «Добавлена»
   workSec: z.number().int().min(30).max(3600).default(180), // processing a card
   typingSec: z.number().int().min(20).max(600).default(65), // 112 card typing timer turns red
+  // Pass criteria (ТЗ п.99, src/lib/scoring/pass.ts): «зачтено» — score at least passScore and no more failed critical checks than maxCritical.
+  passScore: z.number().int().min(0).max(100).default(70),
+  maxCritical: z.number().int().min(0).max(10).default(0),
+  // Phrase the final comment of a ДДС place must contain, one template per line (src/lib/scoring/template.ts); empty — no such check.
+  commentTemplate: z.string().max(400).default(""),
   hints: z.boolean().default(false), // «режим чайника»: tips on fields and next steps
   brigadeReports: z.boolean().default(true), // brigade leaders call the ДДС with progress
   practice: z.boolean().default(false), // a student's own lesson started from the workstation («Тренировка без занятия»)

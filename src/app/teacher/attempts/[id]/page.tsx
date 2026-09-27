@@ -5,11 +5,13 @@ import { formatAddress } from "@/lib/board/address";
 import { PLATE_STATUS_LABEL } from "@/lib/board/state";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDuration, formatTime } from "@/lib/format";
+import { correctionsByIds } from "@/lib/review/corrections-db";
 import { readCriteria, readDraft, readOverrides } from "@/lib/review/draft";
 import { RUNNING_LOCK } from "@/lib/review/review";
+import { passRulesOf } from "@/lib/scoring/pass";
 import { getActiveWeights } from "@/lib/scoring/weights";
 import { attemptScope } from "@/lib/teacher/access";
-import { AttemptReview } from "./AttemptReview";
+import { AttemptReview, type LearnedView } from "./AttemptReview";
 
 type Message = { role?: string; text?: string; at?: string };
 
@@ -19,7 +21,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
   const attempt = await db.attempt.findFirst({
     where: { id, ...attemptScope(user) },
     include: {
-      lesson: { select: { id: true, title: true, status: true } },
+      lesson: { select: { id: true, title: true, status: true, settings: true } },
       seat: { select: { label: true, service: { select: { shortName: true } } } },
       student: { select: { fullName: true } },
       scenario: { select: { title: true, category: true, difficulty: true } },
@@ -46,6 +48,17 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
       ? db.call.findMany({ where: { incidentId: attempt.incidentId }, orderBy: { startedAt: "asc" }, select: { kind: true, messages: true, startedAt: true } })
       : Promise.resolve([]),
   ]);
+  // Teacher corrections the model checks of this attempt were shown (учёт правок).
+  const criteria = readCriteria(attempt.criteria);
+  const found = await correctionsByIds(criteria.flatMap((c) => c.learned ?? []));
+  const learned: Record<string, LearnedView[]> = {};
+  for (const c of criteria) {
+    const list = (c.learned ?? []).flatMap((cid) => {
+      const r = found.get(cid);
+      return r ? [{ id: cid, typeName: r.typeName, draftOk: r.draftOk, teacherOk: r.teacherOk, comment: r.comment, authorName: r.authorName, when: formatDateTime(r.createdAt), active: r.active }] : [];
+    });
+    if (list.length) learned[c.code] = list;
+  }
   const others = siblings.filter((s) => s.id !== attempt.id);
   const nextPending = others.find((s) => s.createdAt > attempt.createdAt) ?? others[0] ?? null;
 
@@ -81,7 +94,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
 
       <AttemptReview
         id={attempt.id}
-        criteria={readCriteria(attempt.criteria)}
+        criteria={criteria}
         override={readOverrides(attempt.override)}
         draft={readDraft(attempt.aiDraft)}
         reviewStatus={attempt.reviewStatus}
@@ -91,6 +104,8 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
         weights={weights.weights}
         locked={attempt.lesson.status === "RUNNING" ? RUNNING_LOCK : null}
         nextPendingId={nextPending?.id ?? null}
+        pass={passRulesOf(attempt.lesson.settings)}
+        learned={learned}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
