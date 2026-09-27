@@ -1,4 +1,5 @@
 import { accessPolicy } from "@/lib/auth/policy";
+import { isProtectedDemoLogin } from "@/lib/auth/demo";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime, shortName } from "@/lib/format";
@@ -7,7 +8,7 @@ import { CreateUserForm, UserRowActions } from "./UserForms";
 const ROLE = { ADMIN: "Администратор", TEACHER: "Преподаватель", STUDENT: "Обучающийся" } as const;
 
 export default async function UsersPage() {
-  await requireUser(["ADMIN"]);
+  const admin = await requireUser(["ADMIN"]);
   const [users, groups, policy] = await Promise.all([
     db.user.findMany({
       orderBy: [{ role: "asc" }, { login: "asc" }],
@@ -75,7 +76,7 @@ export default async function UsersPage() {
                   </td>
                   <td className="p-2 text-xs">{u.lastLoginAt ? formatDateTime(u.lastLoginAt, true) : "—"}</td>
                   <td className="p-2">
-                    <UserRowActions userId={u.id} blocked={u.isBlocked} />
+                    <UserRowActions userId={u.id} login={u.login} blocked={u.isBlocked} self={u.id === admin.id} demo={isProtectedDemoLogin(u.login)} />
                   </td>
                 </tr>
               );
