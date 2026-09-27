@@ -10,7 +10,7 @@ import type { CardView, PlateView } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
 import { useSoftphone } from "./softphone-context";
-import { Bolt, Car, Chat, Check, ChevronDown, ChevronUp, Close, CollapseV, Exclaim, ExpandV, HandsetDown, MapPinOff, Pencil, Phone, Stopwatch, Warning } from "./icons";
+import { Bolt, Chat, Check, ChevronDown, ChevronUp, Close, CollapseV, Exclaim, ExpandV, HandsetDown, Hourglass, MapPinOff, Pencil, Phone, Stopwatch, Warning } from "./icons";
 
 type OwnPlate = {
   plateId: string;
@@ -191,14 +191,14 @@ function TopStrip({ card, seatLabel, own }: { card: CardView; seatLabel: string;
 
 /**
  * The norms of the own plate in the style of the feed's timer: first the 30 seconds for «Принята / Не принята»
- * (counting up), then after «Принята» the time left to send the crew (counting down); red when late.
+ * (counting up), then after «Принята» the time left to work the card — send a crew or close it (counting down); red when late.
  */
 function OwnTimer({ own }: { own: OwnPlate }) {
   const { state, offset } = useDds();
   const now = useNow(offset);
   const { ackSec, workSec, lessonStatus } = state.seat;
   if (lessonStatus !== "RUNNING") return null;
-  let view: { icon: typeof Car; value: string; label: string; late: boolean; title: string } | null = null;
+  let view: { icon: typeof Hourglass; value: string; label: string; late: boolean; title: string } | null = null;
   if (!own.answeredAt && (own.status === "ADDED" || own.status === "RECEIVED")) {
     const sec = now ? (now - Date.parse(own.addedAt)) / 1000 : 0;
     const late = sec > ackSec;
@@ -213,11 +213,11 @@ function OwnTimer({ own }: { own: OwnPlate }) {
     const left = now ? crewSecondsLeft(own.crew, now) : workSec;
     const late = left < 0;
     view = {
-      icon: Car,
+      icon: Hourglass,
       value: late ? `+${fmtDuration(-left)}` : fmtDuration(left),
-      label: late ? "наряд опаздывает" : "до отправки наряда",
+      label: late ? "отработка просрочена" : "на отработку",
       late,
-      title: `Норматив ${fmtDuration(workSec)} от «Добавлена»: номер наряда в статусе или звонок наряду`,
+      title: `Норматив отработки ${fmtDuration(workSec)} от «Добавлена»: отправьте наряд (номер наряда в статусе или звонок наряду) или закройте карточку`,
     };
   }
   if (!view) return null;
