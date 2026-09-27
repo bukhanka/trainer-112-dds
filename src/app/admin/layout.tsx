@@ -7,6 +7,7 @@ const NAV = [
   { href: "/admin/users", label: "Пользователи" },
   { href: "/admin/groups", label: "Группы" },
   { href: "/admin/audit", label: "Журнал аудита" },
+  { href: "/admin/system-log", label: "Системный журнал" },
   { href: "/admin/backups", label: "Резервные копии" },
   { href: "/admin/settings", label: "Настройки" },
 ];

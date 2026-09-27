@@ -77,4 +77,16 @@ describe("administrator API", () => {
     expect((await integrity.POST()).status).toBe(200);
     expect(state.checks).toBe(1);
   });
+
+  it("exports the journals to CSV with formulas kept as text", async () => {
+    state.user = { id: "a1", login: "admin", fullName: "Админ", role: "ADMIN" };
+    const audit = await exportCsv(new Request("http://x/api/admin/audit/export"));
+    expect(audit.headers.get("Content-Disposition")).toContain("audit-");
+    const text = await audit.text();
+    expect(text).toContain(`'=HYPERLINK`); // an anonymous login attempt cannot plant a formula for the administrator's Excel
+    expect(text).not.toMatch(/(^|;)=HYPERLINK/m);
+    const system = await exportCsv(new Request("http://x/api/admin/audit/export?scope=system&kind=service"));
+    expect(system.headers.get("Content-Disposition")).toContain("system-log-");
+    expect(await system.text()).toContain("Модели ИИ — остановлено");
+  });
 });

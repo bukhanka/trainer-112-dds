@@ -6,7 +6,7 @@ import { audit } from "../audit";
 import { db } from "../db";
 import { getSetting } from "../settings";
 import { pruneBackups, runBackup } from "./backup";
-import { lastOccurrence, localDay } from "./days";
+import { lastOccurrence, localDay, moscowDay } from "./days";
 import { lastIntegrity, runIntegrityCheck } from "./integrity";
 import { HEARTBEAT_SETTING, serviceOn, startStoppedServices } from "./services";
 
@@ -84,13 +84,24 @@ async function tick() {
   }
 }
 
-/** Old backups, journal records past the retention, expired sessions. */
+/** Old backups, journal records past the retention, expired sessions, old usage counters. */
 async function housekeeping() {
-  await pruneBackups(await getSetting("backup.keepDays", 14));
+  const keepDays = await getSetting("backup.keepDays", 14);
+  const backups = await pruneBackups(keepDays);
   // Security journal is kept at least six months whatever the setting says.
   const retentionDays = Math.max(await getSetting("audit.retentionDays", 190), 183);
-  await db.auditLog.deleteMany({ where: { at: { lt: new Date(Date.now() - retentionDays * 86_400_000) } } });
-  await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
+  const journal = await db.auditLog.deleteMany({ where: { at: { lt: cutoff } } });
+  const sessions = await db.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+  const counters = await db.usageCounter.deleteMany({ where: { day: { lt: moscowDay(cutoff) } } });
+  // Expired sessions go every hour; the system journal gets a line only when something kept for long was removed.
+  if (backups.files || backups.rows || journal.count || counters.count) {
+    await audit({
+      action: "system.cleanup",
+      actor: "system",
+      after: { backupFiles: backups.files, backupRows: backups.rows, journal: journal.count, sessions: sessions.count, counters: counters.count, keepDays, retentionDays },
+    });
+  }
 }
 
 /**

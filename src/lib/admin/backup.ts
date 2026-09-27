@@ -33,14 +33,22 @@ export async function runBackup(kind: "manual" | "scheduled", actor?: { id: stri
   return db.backup.findUniqueOrThrow({ where: { id: row.id } });
 }
 
-/** Remove dump files and rows older than keepDays. */
-export async function pruneBackups(keepDays: number) {
+/** Remove dump files and rows older than keepDays; returns how many of each went. */
+export async function pruneBackups(keepDays: number): Promise<{ files: number; rows: number }> {
   const cutoff = Date.now() - keepDays * 86_400_000;
   const files = await readdir(/*turbopackIgnore: true*/ BACKUP_DIR).catch(() => [] as string[]);
+  let removed = 0;
   for (const file of files.filter((f) => f.endsWith(".dump"))) {
     const full = path.join(/*turbopackIgnore: true*/ BACKUP_DIR, file);
     const { mtimeMs } = await stat(/*turbopackIgnore: true*/ full);
-    if (mtimeMs < cutoff) await unlink(/*turbopackIgnore: true*/ full).catch(() => undefined);
+    if (mtimeMs < cutoff) {
+      const gone = await unlink(/*turbopackIgnore: true*/ full).then(
+        () => true,
+        () => false,
+      );
+      if (gone) removed++;
+    }
   }
-  await db.backup.deleteMany({ where: { createdAt: { lt: new Date(cutoff) } } });
+  const rows = await db.backup.deleteMany({ where: { createdAt: { lt: new Date(cutoff) } } });
+  return { files: removed, rows: rows.count };
 }
