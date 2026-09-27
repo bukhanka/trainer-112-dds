@@ -95,7 +95,7 @@ export default async function LessonAttemptsPage(props: PageProps<"/teacher/less
             const st = REVIEW_STATUS[a.reviewStatus];
             return (
               <li key={a.id}>
-                <Link href={`/teacher/attempts/${a.id}`} className="grid gap-x-4 gap-y-1 px-3 py-2.5 text-sm hover:bg-arm-panel/60 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_6rem_7rem_9rem] sm:items-center">
+                <Link href={`/teacher/attempts/${a.id}`} className="grid gap-x-4 gap-y-1 px-3 py-2.5 text-sm hover:bg-arm-panel/60 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_6rem_7rem_12.5rem] sm:items-center">
                   <div className="min-w-0">
                     <div className="truncate font-medium">{a.student}</div>
                     <div className="text-xs text-arm-desc">
