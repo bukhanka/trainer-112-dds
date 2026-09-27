@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { PassLine } from "@/components/pass";
 import { Badge, PageHeader, Section } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
@@ -39,6 +40,9 @@ export default async function MyAttemptPage(props: PageProps<"/student/results/[
           </div>
         }
       />
+      <Section>
+        <PassLine verdict={a.pass} rules={a.passRules} />
+      </Section>
       {a.teacherComment && (
         <Section title="Комментарий преподавателя">
           <p className="text-sm">{a.teacherComment}</p>

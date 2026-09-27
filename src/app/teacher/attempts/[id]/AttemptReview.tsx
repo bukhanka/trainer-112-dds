@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { PassLine } from "@/components/pass";
 import { Badge, Button, REVIEW_STATUS } from "@/components/ui";
 import type { AiDraft } from "@/lib/review/draft";
+import { describePassRules, passVerdict, type PassRules } from "@/lib/scoring/pass";
 import { applyOverrides, computeScore, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup, type Weights } from "@/lib/scoring/score";
 
 type Verdict = boolean | null;
@@ -21,6 +23,8 @@ export type AttemptReviewProps = {
   weights: Weights;
   locked: string | null;
   nextPendingId: string | null;
+  /** Pass criteria of the lesson: «зачтено / не зачтено». */
+  pass: PassRules;
 };
 
 const VERDICTS: { value: Verdict; label: string; cls: string }[] = [
@@ -203,6 +207,13 @@ export function AttemptReview(p: AttemptReviewProps) {
             </div>
           )}
           {!editing && p.override && savedScore !== draftScore && <div className="text-xs text-arm-desc">по черновику без исправлений: {draftScore ?? "—"}</div>}
+          <div className="mt-3 border-t border-arm-gray/50 pt-3">
+            <PassLine
+              verdict={passVerdict(editing ? editScore : savedScore, p.criteria, editing ? verdicts : p.override, p.pass)}
+              draft={editing || p.reviewStatus === "PENDING"}
+              rules={describePassRules(p.pass)}
+            />
+          </div>
           {p.reviewedBy && p.reviewStatus !== "PENDING" && (
             <div className="mt-2 text-xs text-arm-desc">
               {p.reviewedBy}, {p.reviewedAt}

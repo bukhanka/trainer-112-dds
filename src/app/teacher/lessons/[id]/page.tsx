@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { parseTeacherSettings } from "@/lib/lessons/form";
+import { describePassRules, passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
 import { LessonBoard } from "./LessonBoard";
 import { LessonControls } from "./LessonControls";
@@ -48,7 +49,8 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
         }
         subtitle={
           <>
-            {group?.name ?? "без группы"} · {seats.length} мест · карточки: {SOURCE_LABEL[settings.cardSource]}
+            {group?.name ?? "без группы"} · {seats.length} мест · карточки: {SOURCE_LABEL[settings.cardSource]} · зачёт: {describePassRules(passRulesOf(settings))}
+            {settings.commentTemplate.trim() && <> · шаблон итогового комментария ДДС задан</>}
             {lesson.startedAt && <> · начато {formatDateTime(lesson.startedAt)}</>}
             {lesson.finishedAt && <> · завершено {formatDateTime(lesson.finishedAt)}</>}
           </>

@@ -5,6 +5,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { GROUP_ADVICE, readCriteria, readOverrides } from "@/lib/review/draft";
+import { describePassRules, passRulesOf, passVerdict, type PassVerdict } from "@/lib/scoring/pass";
 import { applyOverrides, WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
 
 export function ownAttemptsWhere(studentId: string): Prisma.AttemptWhereInput {
@@ -38,10 +39,22 @@ export type StudentAttemptItem = {
   /** Only for confirmed attempts. */
   score: number | null;
   failed: number | null;
+  /** «зачтено / не зачтено» by the lesson's criteria; only for confirmed attempts. */
+  pass: PassVerdict | null;
 };
 
 export type StudentResults = {
-  summary: { total: number; reviewed: number; pending: number; avgScore: number | null; lastLesson: number | null; prevLesson: number | null };
+  summary: {
+    total: number;
+    reviewed: number;
+    pending: number;
+    avgScore: number | null;
+    lastLesson: number | null;
+    prevLesson: number | null;
+    /** Confirmed attempts «зачтено» out of those with a verdict. */
+    passed: number;
+    judged: number;
+  };
   progress: { lessonId: string; title: string; date: string; avgScore: number; attempts: number }[];
   recommendations: { group: WeightGroup; title: string; failed: number; advice: string; examples: string[] }[];
   attempts: StudentAttemptItem[];
@@ -53,6 +66,8 @@ const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b
 export function buildStudentResults(rows: Row[]): StudentResults {
   const reviewed = rows.filter((r) => r.reviewStatus !== "PENDING");
   const checks = (r: Row) => applyOverrides(readCriteria(r.criteria), readOverrides(r.override));
+  const verdictOf = (r: Row) => passVerdict(r.score, readCriteria(r.criteria), readOverrides(r.override), passRulesOf(r.lesson.settings));
+  const verdicts = reviewed.map(verdictOf);
 
   const byLesson = new Map<string, { title: string; date: Date; scores: number[] }>();
   for (const r of reviewed) {
@@ -91,6 +106,8 @@ export function buildStudentResults(rows: Row[]): StudentResults {
       avgScore: mean(scores),
       lastLesson: progress.at(-1)?.avgScore ?? null,
       prevLesson: progress.at(-2)?.avgScore ?? null,
+      passed: verdicts.filter((v) => v?.passed).length,
+      judged: verdicts.filter((v) => v).length,
     },
     progress,
     recommendations,
@@ -109,6 +126,7 @@ export function buildStudentResults(rows: Row[]): StudentResults {
           status: r.reviewStatus,
           score: done ? r.score : null,
           failed: done ? checks(r).filter((c) => c.ok === false).length : null,
+          pass: done ? verdictOf(r) : null,
         };
       }),
   };
@@ -144,6 +162,9 @@ export type StudentAttemptDetail =
       score: number | null;
       teacherComment: string | null;
       checks: { code: string; group: WeightGroup; title: string; ok: boolean | null; critical: boolean; evidence: string | null; expected: string | null; changedByTeacher: boolean }[];
+      pass: PassVerdict | null;
+      /** The lesson's criteria in plain words: «балл не ниже 70, без критичных ошибок». */
+      passRules: string;
     };
 
 /** One own attempt; another student's id resolves to null (404), exactly like a missing one. */
@@ -163,6 +184,8 @@ export async function getStudentAttempt(studentId: string, attemptId: string, vi
     incidentNumber: a.incident?.number ?? null,
     score: a.score,
     teacherComment: a.teacherComment,
+    pass: passVerdict(a.score, raw, overrides, passRulesOf(a.lesson.settings)),
+    passRules: describePassRules(passRulesOf(a.lesson.settings)),
     checks: applyOverrides(raw, overrides).map((c) => ({
       code: c.code,
       group: c.group,

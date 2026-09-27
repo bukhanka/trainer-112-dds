@@ -13,7 +13,7 @@
  */
 import type { ServiceStatus } from "@prisma/client";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
-import { describeTemplates, matchTemplate, parseTemplates } from "@/lib/scoring/template";
+import { describeTemplates, matchTemplate, parseTemplates, templateProblem } from "@/lib/scoring/template";
 import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
 import { crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
@@ -262,7 +262,7 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   }
 
   // The lesson's own phrase for the final comment («Наряд № {номер} направлен…»), if the teacher set one.
-  const templates = parseTemplates(f.commentTemplate);
+  const templates = parseTemplates(f.commentTemplate).filter((t) => !templateProblem(t)); // a broken line is shown in the form, not held against the student
   if (endComment && templates.length && !noCrewClose) {
     const hit = matchTemplate(endComment.comment ?? "", templates);
     const hints = describeTemplates(templates);

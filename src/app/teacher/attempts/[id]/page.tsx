@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { formatDateTime, formatDuration, formatTime } from "@/lib/format";
 import { readCriteria, readDraft, readOverrides } from "@/lib/review/draft";
 import { RUNNING_LOCK } from "@/lib/review/review";
+import { passRulesOf } from "@/lib/scoring/pass";
 import { getActiveWeights } from "@/lib/scoring/weights";
 import { attemptScope } from "@/lib/teacher/access";
 import { AttemptReview } from "./AttemptReview";
@@ -19,7 +20,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
   const attempt = await db.attempt.findFirst({
     where: { id, ...attemptScope(user) },
     include: {
-      lesson: { select: { id: true, title: true, status: true } },
+      lesson: { select: { id: true, title: true, status: true, settings: true } },
       seat: { select: { label: true, service: { select: { shortName: true } } } },
       student: { select: { fullName: true } },
       scenario: { select: { title: true, category: true, difficulty: true } },
@@ -91,6 +92,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
         weights={weights.weights}
         locked={attempt.lesson.status === "RUNNING" ? RUNNING_LOCK : null}
         nextPendingId={nextPending?.id ?? null}
+        pass={passRulesOf(attempt.lesson.settings)}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">

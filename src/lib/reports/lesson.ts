@@ -2,6 +2,7 @@
  * Lesson report: who, where, how fast against the norm, which checks failed, the score — only for
  * attempts the teacher has confirmed (a draft never reaches a report). Pure function over plain rows.
  */
+import { DEFAULT_PASS, passVerdict, type PassRules, type PassVerdict } from "@/lib/scoring/pass";
 import { applyOverrides, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup } from "@/lib/scoring/score";
 
 export type ReportAttempt = {
@@ -24,6 +25,8 @@ export type ReportAttempt = {
 
 export type ReportInput = {
   norms: { ackSec: number; typingSec: number };
+  /** Pass criteria of the lesson (defaults when absent). */
+  pass?: PassRules;
   seats: { id: string; label: string; role: "OP112" | "DDS"; studentId: string; studentName: string; serviceName: string | null }[];
   attempts: ReportAttempt[];
 };
@@ -51,6 +54,9 @@ export type StudentRow = {
   readiness: Readiness | null;
   topFailed: { title: string; count: number }[];
   cleanGroups: WeightGroup[];
+  /** Confirmed attempts «зачтено» out of those with a verdict. */
+  passed: number;
+  judged: number;
 };
 
 export type CheckStat = { code: string; title: string; group: WeightGroup; failed: number; applicable: number; rate: number };
@@ -64,14 +70,17 @@ export type LessonReport = {
     pending: number;
     avgScore: number | null;
     agreement: { checks: number; changed: number; rate: number | null; aiChecks: number; aiChanged: number };
+    passed: number;
+    judged: number;
   };
+  pass: PassRules;
   students: StudentRow[];
   leaders: { row: StudentRow; why: string }[];
   laggards: { row: StudentRow; why: string }[];
   typical: CheckStat[];
   insight: string;
   heat: { groups: WeightGroup[]; rows: { studentId: string; name: string; cells: HeatCell[] }[] };
-  attempts: (ReportAttempt & { student: string; seat: string; normSec: number; failedTitles: string[] })[];
+  attempts: (ReportAttempt & { student: string; seat: string; normSec: number; failedTitles: string[]; pass: PassVerdict | null })[];
 };
 
 export function readiness(score: number | null): Readiness | null {
@@ -88,6 +97,12 @@ const GROUPS = Object.keys(WEIGHT_GROUPS) as WeightGroup[];
 export function buildLessonReport(input: ReportInput): LessonReport {
   const reviewed = input.attempts.filter((a) => a.reviewStatus !== "PENDING");
   const checksOf = (a: ReportAttempt) => applyOverrides(a.criteria, a.override);
+  const rules = input.pass ?? DEFAULT_PASS;
+  const verdicts = new Map(reviewed.map((a) => [a.id, passVerdict(a.score, a.criteria, a.override, rules)]));
+  const passCount = (list: ReportAttempt[]) => ({
+    passed: list.filter((a) => verdicts.get(a.id)?.passed).length,
+    judged: list.filter((a) => verdicts.get(a.id)).length,
+  });
 
   const students: StudentRow[] = input.seats.map((seat) => {
     const mine = reviewed.filter((a) => a.seatId === seat.id);
@@ -121,6 +136,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
       readiness: readiness(avgScore),
       topFailed: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([title, count]) => ({ title, count })),
       cleanGroups: GROUPS.filter((g) => checks.some((c) => c.group === g && c.ok !== null) && !checks.some((c) => c.group === g && c.ok === false)),
+      ...passCount(mine),
     };
   });
 
@@ -179,7 +195,9 @@ export function buildLessonReport(input: ReportInput): LessonReport {
       pending: input.attempts.length - reviewed.length,
       avgScore: mean(reviewed.flatMap((a) => (a.score == null ? [] : [a.score]))),
       agreement: { checks, changed, rate: checks ? Math.round(((checks - changed) / checks) * 100) : null, aiChecks, aiChanged },
+      ...passCount(reviewed),
     },
+    pass: rules,
     students,
     leaders,
     laggards,
@@ -213,6 +231,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
         failedTitles: checksOf(a)
           .filter((c) => c.ok === false)
           .map((c) => c.title),
+        pass: verdicts.get(a.id) ?? null,
       };
     }),
   };
