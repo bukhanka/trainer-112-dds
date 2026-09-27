@@ -91,6 +91,16 @@ function phoneDispatches(calls: Pick<Call, "counterpart">[], incidentId: string)
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
 }
 
+/** Crews sent to cards by phone, per card: the dispatch the 3-minute timer and the review both count. */
+export function phoneDispatchesByIncident(calls: Pick<Call, "counterpart">[]): Map<string, { crew: string; at: Date }[]> {
+  const out = new Map<string, { crew: string; at: Date }[]>();
+  for (const c of calls.map(cp)) {
+    if (c.kind !== "crew" || !c.crew || !c.dispatch) continue;
+    out.set(c.dispatch.incidentId, [...(out.get(c.dispatch.incidentId) ?? []), { crew: c.crew, at: new Date(c.dispatch.at) }]);
+  }
+  return out;
+}
+
 type CrewState = { dispatch: Dispatch | null; stage: ServiceStatus | null; ctxFor: (member: CrewMember) => CrewContext };
 
 function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "counterpart">[], settings: LessonSettings, now: Date): CrewState {

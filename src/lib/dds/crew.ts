@@ -68,3 +68,25 @@ export function crewPlanFor(ref: DdsReferenceEntry | null): { chain: ServiceStat
   }
   return { chain: crewChain(ref), plan: ref?.crew ?? {} };
 }
+
+/**
+ * The 3-minute norm at the place, counted as the review counts it (check «Наряд направлен в пределах
+ * отработки», evaluate.ts): the crew goes out within workSec of «Добавлена». The seat shows it once the
+ * service has said «Принята» and until the plate is closed; null means there is nothing to count down.
+ */
+export type CrewTimer = { dueAt: string; sentAt: string | null };
+
+export function crewTimer(
+  plate: { status: ServiceStatus; addedAt: Date; events: { status: ServiceStatus; crewNumber: string | null; at: Date }[] },
+  phone: { crew: string; at: Date }[],
+  workSec: number,
+): CrewTimer | null {
+  if (!WORKING_STATES.includes(plate.status)) return null;
+  const dispatch = dispatchOf(plate.events, phone);
+  return { dueAt: new Date(plate.addedAt.getTime() + workSec * 1000).toISOString(), sentAt: dispatch?.at.toISOString() ?? null };
+}
+
+/** Seconds left to send the crew; negative when late. */
+export function crewSecondsLeft(timer: CrewTimer, nowMs: number): number {
+  return (Date.parse(timer.dueAt) - nowMs) / 1000;
+}

@@ -7,6 +7,8 @@ import type { SessionUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { seatFeedWhere, settingsOf, SYSTEM_ACTOR } from "@/lib/flow/dds-flow";
+import { phoneDispatchesByIncident } from "./calls";
+import { crewTimer, type CrewTimer } from "./crew";
 import { shortName } from "./format";
 import { evaluatePlate } from "./review";
 import type { DdsSeat } from "./seat";
@@ -106,4 +108,25 @@ export async function setOwnStatus(
     }
   }
   return { ok: true, plateId: plate.id, status: input.status, late };
+}
+
+type TimedPlate = { serviceId: number; status: ServiceStatus; addedAt: Date; events: { status: ServiceStatus; crewNumber: string | null; at: Date }[] };
+
+/** The 3-minute timers of the place's own plates on these cards (crewTimer), keyed by card id. */
+export async function crewTimersFor(seat: DdsSeat, incidents: { id: string; services: TimedPlate[] }[]): Promise<Map<string, CrewTimer | null>> {
+  const out = new Map<string, CrewTimer | null>();
+  if (!seat.serviceId) return out;
+  const own = incidents.flatMap((i) => {
+    const plate = i.services.find((p) => p.serviceId === seat.serviceId);
+    return plate ? [{ id: i.id, plate }] : [];
+  });
+  if (!own.length) return out;
+  const calls = await db.call.findMany({
+    where: { seatId: seat.id, incidentId: { in: own.map((o) => o.id) }, kind: { in: ["BRIGADE_IN", "BRIGADE_OUT"] } },
+    select: { counterpart: true },
+  });
+  const phone = phoneDispatchesByIncident(calls);
+  const workSec = settingsOf(seat.lesson.settings).workSec;
+  for (const o of own) out.set(o.id, crewTimer(o.plate, phone.get(o.id) ?? [], workSec));
+  return out;
 }

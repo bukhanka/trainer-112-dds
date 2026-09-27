@@ -4,12 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import type { ServiceStatus } from "@prisma/client";
-import { fmtDate, fmtDateTime, fmtHM, dateParts } from "@/lib/dds/format";
+import { crewSecondsLeft, type CrewTimer } from "@/lib/dds/crew";
+import { fmtDate, fmtDateTime, fmtDuration, fmtHM, dateParts } from "@/lib/dds/format";
 import type { CardView, PlateView } from "@/lib/dds/view";
-import { getJson, postJson, withSeat } from "./client";
+import { getJson, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
 import { useSoftphone } from "./softphone-context";
-import { Bolt, Chat, Check, ChevronDown, ChevronUp, Close, CollapseV, Exclaim, ExpandV, HandsetDown, MapPinOff, Pencil, Phone, Warning } from "./icons";
+import { Bolt, Car, Chat, Check, ChevronDown, ChevronUp, Close, CollapseV, Exclaim, ExpandV, HandsetDown, MapPinOff, Pencil, Phone, Stopwatch, Warning } from "./icons";
 
 type OwnPlate = {
   plateId: string;
@@ -18,6 +19,9 @@ type OwnPlate = {
   noReject: boolean;
   editable: boolean;
   options: { value: ServiceStatus; label: string }[];
+  addedAt: string;
+  answeredAt: string | null;
+  crew: CrewTimer | null;
 };
 type CardBody = { card: CardView; own: OwnPlate | null };
 
@@ -64,7 +68,7 @@ export function CardScreen({ number }: { number: number }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-arm-gray pb-[140px] text-[#1f2326]">
-      <TopStrip card={card} seatLabel={state.seat.serviceShort} />
+      <TopStrip card={card} seatLabel={state.seat.serviceShort} own={own} />
       {state.seat.readOnly ? (
         <div className="mx-2 mb-2 bg-arm-dark px-3 py-1 text-[12px] text-white">Только просмотр: {state.seat.lessonTitle}</div>
       ) : null}
@@ -150,7 +154,7 @@ export function CardScreen({ number }: { number: number }) {
   );
 }
 
-function TopStrip({ card, seatLabel }: { card: CardView; seatLabel: string }) {
+function TopStrip({ card, seatLabel, own }: { card: CardView; seatLabel: string; own: OwnPlate | null }) {
   const saved = dateParts(card.savedAt);
   return (
     <div className="flex flex-wrap gap-2 p-2 lg:flex-nowrap">
@@ -176,10 +180,59 @@ function TopStrip({ card, seatLabel }: { card: CardView; seatLabel: string }) {
           Опер. {card.operatorNo}, АРМ {card.armNo}, {seatLabel}
         </div>
       </div>
+      {own ? <OwnTimer own={own} /> : null}
       <div className="flex h-[64px] w-[96px] shrink-0 flex-col gap-1">
         <span className="grid flex-1 place-items-center bg-arm-blue text-[10px] text-white">просмотр</span>
         <span className="grid flex-1 place-items-center bg-arm-dark text-[10px] text-white">дополнение</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The norms of the own plate in the style of the feed's timer: first the 30 seconds for «Принята / Не принята»
+ * (counting up), then after «Принята» the time left to send the crew (counting down); red when late.
+ */
+function OwnTimer({ own }: { own: OwnPlate }) {
+  const { state, offset } = useDds();
+  const now = useNow(offset);
+  const { ackSec, workSec, lessonStatus } = state.seat;
+  if (lessonStatus !== "RUNNING") return null;
+  let view: { icon: typeof Car; value: string; label: string; late: boolean; title: string } | null = null;
+  if (!own.answeredAt && (own.status === "ADDED" || own.status === "RECEIVED")) {
+    const sec = now ? (now - Date.parse(own.addedAt)) / 1000 : 0;
+    const late = sec > ackSec;
+    view = {
+      icon: Stopwatch,
+      value: fmtDuration(sec),
+      label: late ? "ответ опаздывает" : `на ответ ${ackSec} с`,
+      late,
+      title: `С момента «Добавлена». Норматив ${ackSec} с на «Принята / Не принята»`,
+    };
+  } else if (own.crew && !own.crew.sentAt) {
+    const left = now ? crewSecondsLeft(own.crew, now) : workSec;
+    const late = left < 0;
+    view = {
+      icon: Car,
+      value: late ? `+${fmtDuration(-left)}` : fmtDuration(left),
+      label: late ? "наряд опаздывает" : "до отправки наряда",
+      late,
+      title: `Норматив ${fmtDuration(workSec)} от «Добавлена»: номер наряда в статусе или звонок наряду`,
+    };
+  }
+  if (!view) return null;
+  const Icon = view.icon;
+  return (
+    <div
+      role="timer"
+      title={view.title}
+      className={`flex h-[64px] w-[124px] shrink-0 flex-col items-center justify-center text-white ${view.late ? "bg-arm-late" : "bg-arm-dark"}`}
+    >
+      <span className="flex items-center gap-1 text-[24px] font-bold leading-none tabular-nums">
+        <Icon className="h-5 w-5" />
+        {view.value}
+      </span>
+      <span className="mt-1 text-[10px] font-semibold">{view.label}</span>
     </div>
   );
 }

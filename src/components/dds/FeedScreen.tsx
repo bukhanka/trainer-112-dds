@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useState } from "react";
 import useSWR from "swr";
+import { crewSecondsLeft } from "@/lib/dds/crew";
 import { dateParts, fmtDateShort, fmtDateTime, fmtDuration } from "@/lib/dds/format";
 import type { FeedRow } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
 import { ClockBlock } from "./ClockBlock";
 import { useDds } from "./DdsShell";
 import { ResultsPanel } from "./ResultsPanel";
-import { Bolt, Bookmark, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, MapPinOff, Search, Stopwatch } from "./icons";
+import { Bolt, Bookmark, Car, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, MapPinOff, Search, Stopwatch } from "./icons";
 
 type FeedBody = { rows: FeedRow[]; total: number; page: number; pages: number; size: number };
 
@@ -149,6 +150,8 @@ export function FeedScreen() {
                   row={r}
                   now={now}
                   ackSec={seat.ackSec}
+                  workSec={seat.workSec}
+                  live={seat.lessonStatus === "RUNNING"}
                   preview={!!previews[r.id]}
                   onPreview={() => setPreviews((p) => ({ ...p, [r.id]: !p[r.id] }))}
                   onOpen={() => open(r.number)}
@@ -215,7 +218,7 @@ function Cell({ className = "", children, title }: { className?: string; childre
   );
 }
 
-function TimerCell({ row, now, ackSec }: { row: FeedRow; now: number; ackSec: number }) {
+function TimerCell({ row, now, ackSec, workSec, live }: { row: FeedRow; now: number; ackSec: number; workSec: number; live: boolean }) {
   const added = Date.parse(row.ownAddedAt);
   if (!row.answeredAt) {
     const sec = now ? (now - added) / 1000 : 0;
@@ -230,6 +233,20 @@ function TimerCell({ row, now, ackSec }: { row: FeedRow; now: number; ackSec: nu
       </Cell>
     );
   }
+  if (live && row.crew && !row.crew.sentAt) {
+    // After «Принята»: time left to send the crew, counted from «Добавлена» like the 30 seconds.
+    const left = now ? crewSecondsLeft(row.crew, now) : workSec;
+    const late = left < 0;
+    return (
+      <Cell
+        className={late ? "bg-arm-late! font-bold text-white" : "text-white"}
+        title={late ? `Норматив ${fmtDuration(workSec)} на отправку наряда превышен` : `Осталось на отправку наряда: норматив ${fmtDuration(workSec)} от «Добавлена»`}
+      >
+        <Car className="mr-1 h-4 w-4 shrink-0" />
+        <span className="tabular-nums">{late ? `+${fmtDuration(-left)}` : fmtDuration(left)}</span>
+      </Cell>
+    );
+  }
   const sec = (Date.parse(row.answeredAt) - added) / 1000;
   return (
     <Cell className={row.answerLate ? "text-arm-late" : "text-white/55"} title={row.answerLate ? "Ответ с опозданием" : "Время ответа службы"}>
@@ -239,8 +256,8 @@ function TimerCell({ row, now, ackSec }: { row: FeedRow; now: number; ackSec: nu
   );
 }
 
-function FeedRecord(props: { row: FeedRow; now: number; ackSec: number; preview: boolean; onPreview: () => void; onOpen: () => void }) {
-  const { row, now, ackSec, preview } = props;
+function FeedRecord(props: { row: FeedRow; now: number; ackSec: number; workSec: number; live: boolean; preview: boolean; onPreview: () => void; onOpen: () => void }) {
+  const { row, now, ackSec, workSec, live, preview } = props;
   const t = dateParts(row.savedAt);
   const unopened = row.ownStatus === "ADDED";
   return (
@@ -271,7 +288,7 @@ function FeedRecord(props: { row: FeedRow; now: number; ackSec: number; preview:
         <Cell>
           <Bolt className={`h-4 w-4 ${row.important ? "text-yellow-300" : "text-white"}`} />
         </Cell>
-        <TimerCell row={row} now={now} ackSec={ackSec} />
+        <TimerCell row={row} now={now} ackSec={ackSec} workSec={workSec} live={live} />
         <Cell className={row.operatorNo === "0" ? "bg-arm-bordo!" : ""}>{row.operatorNo}</Cell>
         <Cell>{row.armNo}</Cell>
         <Cell className={unopened ? "font-bold" : ""}>{row.number}</Cell>
@@ -378,7 +395,7 @@ function SeatStrip() {
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 bg-arm-dark/60 px-3 py-2 text-[13px]">
       <span>
         {seat.practice ? "Самостоятельная тренировка" : seat.lessonTitle} · место «{seat.serviceShort}». Карточки приходят каждые {seat.tempoSec} с,
-        в очереди не больше {seat.maxQueue}. На «Принята / Не принята» — {seat.ackSec} с.
+        в очереди не больше {seat.maxQueue}. На «Принята / Не принята» — {seat.ackSec} с, на отправку наряда — {fmtDuration(seat.workSec)} от «Добавлена».
       </span>
       <span className="text-white/80">
         {flow?.noScenarios
