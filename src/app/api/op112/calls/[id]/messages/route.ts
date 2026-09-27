@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { jsonError, op112User, ownCall, personaOfCall, readJson } from "@/lib/op112/access";
-import { callerReply, lineTurn, noiseLines, type LineTurn } from "@/lib/op112/caller";
+import { callerReply, genderOfName, lineTurn, noiseLines, type LineTurn } from "@/lib/op112/caller";
 import type { CallLine } from "@/lib/op112/types";
 
 const bodySchema = z.object({ text: z.string().trim().min(1).max(1000) });
@@ -26,7 +26,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/calls/[id
   let answers: CallLine[];
   if (turn.kind === "talk") {
     const reply = persona
-      ? await callerReply(persona, history, body.data.text)
+      ? await callerReply(persona, history, body.data.text, genderOfName(user.fullName))
       : { text: "Алло? Вас плохо слышно…", revealed: [] as string[] };
     answers = [{ role: "counterpart", text: reply.text, at: new Date().toISOString(), revealed: reply.revealed }];
   } else answers = noiseLines(turn, new Date().toISOString());

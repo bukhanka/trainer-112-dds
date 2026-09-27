@@ -60,6 +60,7 @@ export function systemDetails(row: Row): string {
         a.backupFiles || a.backupRows ? `копий старше ${String(a.keepDays)} дн.: ${String(a.backupFiles ?? 0)} файлов` : "",
         a.counters ? `счётчиков статистики: ${String(a.counters)}` : "",
         a.sessions ? `истёкших сессий: ${String(a.sessions)}` : "",
+        a.practice ? `брошенных тренировок завершено: ${String(a.practice)}` : "",
       ]
         .filter(Boolean)
         .join(", ");

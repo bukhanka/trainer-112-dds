@@ -116,6 +116,40 @@ export function Workstation() {
           {toast}
         </div>
       )}
+      <NarrowNotice />
+    </div>
+  );
+}
+
+/**
+ * The place copies the 112 workstation: card, conversation and services on one wide screen. On a phone or a narrow
+ * window (below 1024 px) it says so instead of showing overlapping blocks; «Всё равно открыть» hides the notice.
+ */
+function NarrowNotice() {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-arm-dark p-6 text-white lg:hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Рабочее место рассчитано на экран компьютера"
+    >
+      <div className="max-w-[440px] text-center">
+        <div className="text-[20px] font-bold leading-snug">Рабочее место рассчитано на экран компьютера</div>
+        <p className="mt-3 text-[15px] leading-relaxed text-white/85">
+          Место оператора 112 повторяет АРМ службы 112: карточка, разговор с заявителем и службы — на одном экране шириной от 1280 пикселей.
+          Откройте его на компьютере. Результаты и памятка открываются и с телефона — в кабинете.
+        </p>
+        <div className="mt-5 flex flex-wrap justify-center gap-3">
+          <Link href="/" className="bg-white px-5 py-2.5 text-[15px] font-semibold text-arm-dark">
+            В кабинет
+          </Link>
+          <button type="button" onClick={() => setDismissed(true)} className="border border-white/60 px-5 py-2.5 text-[15px] hover:bg-white/10">
+            Всё равно открыть
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -152,6 +186,11 @@ function NoSeat({ state, starting, onStart }: { state: StateWithClock; starting:
           <Link href="/" className="px-3 py-3 text-[14px] text-arm-desc underline underline-offset-2">
             В кабинет
           </Link>
+          <form action="/logout" method="post">
+            <button type="submit" className="px-3 py-3 text-[14px] text-arm-desc underline underline-offset-2">
+              Выйти
+            </button>
+          </form>
         </div>
         <p className="mt-6 text-[12.5px] text-arm-desc">
           Подсказка: зажмите Alt, чтобы увидеть горячие клавиши. Если преподаватель посадит вас на место 112 в занятии, вызовы пойдут по его заданиям.

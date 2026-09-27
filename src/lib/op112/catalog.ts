@@ -40,17 +40,45 @@ export const FREQUENT: string[] = INCIDENT_KINDS.frequent.default;
 /** «Значимые типы происшествий» — the list the 112 management approves. */
 export const SIGNIFICANT = ["101", "102", "103", "Взрыв"];
 
-// Words people say instead of the official names (the workstation also finds 101 by «пожар»).
+// Words people say instead of the official names (the workstation also finds 101 by «пожар»). The whole
+// classifier is searched as well, on the server (searchKindsByLeaves): «судороги» finds 103 through its leaf.
 const SYNONYMS: Record<string, string[]> = {
-  "101": ["пожар", "горит", "возгорание", "дым", "задымление", "пламя", "огонь", "гарь"],
-  "102": ["полиция", "драка", "кража", "угон", "грабеж", "нападение", "хулиганство", "шум"],
-  "103": ["скорая", "вызов 03", "плохо", "травма", "без сознания", "давление", "отравление", "роды"],
-  "104": ["газ", "запах газа", "утечка газа"],
-  ДТП: ["авария", "столкновение", "наезд", "сбили"],
+  "101": ["пожар", "горит", "возгорание", "дым", "задымление", "пламя", "огонь", "гарь", "мусоропровод", "тлеет", "пожарная сигнализация"],
+  "102": ["полиция", "драка", "кража", "угон", "грабеж", "нападение", "хулиганство", "шум", "избили", "ограбление", "мошенники", "нож", "оружие", "стрельба"],
+  "103": [
+    "скорая",
+    "вызов 03",
+    "медицина",
+    "медицинская помощь",
+    "плохо",
+    "травма",
+    "без сознания",
+    "обморок",
+    "давление",
+    "отравление",
+    "роды",
+    "судороги",
+    "приступ",
+    "эпилепсия",
+    "инсульт",
+    "инфаркт",
+    "сердце",
+    "задыхается",
+    "кровотечение",
+    "температура",
+    "аллергия",
+    "ожог",
+    "перелом",
+  ],
+  "104": ["газ", "запах газа", "утечка газа", "газовый баллон"],
+  ДТП: ["авария", "столкновение", "наезд", "сбили", "пешеход"],
   Взрыв: ["взорвалось", "хлопок"],
-  "Человек в опасности": ["застрял", "на льдине", "на крыше", "тонет"],
-  "Аварии и происшествия в городском хозяйстве": ["прорыв трубы", "нет света", "лифт", "затопление"],
+  "Человек в опасности": ["застрял", "на льдине", "на крыше", "тонет", "не открывает дверь", "суицид"],
+  "Ребенок в опасности": ["ребенок", "потерялся"],
+  "Смертельный исход": ["умер", "скончался", "смерть", "труп"],
+  "Аварии и происшествия в городском хозяйстве": ["прорыв трубы", "нет света", "лифт", "затопление", "течь", "залив"],
   "Угроза взрыва/террористического акта": ["теракт", "бомба", "заминировано", "подозрительный предмет"],
+  "Угроза обрушения": ["трещина", "крепление", "табло"],
   "Разбитый градусник": ["ртуть"],
 };
 
@@ -62,9 +90,21 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+/**
+ * The words of a search as the workstation takes them: any order, and a word ending may differ («судорогами»,
+ * «медицина» → «медицинской»): a long word is matched by its stem — nine letters and more without the last three,
+ * eight without two, six or seven without one («приступ» still does not match «пристроить»).
+ */
+export function searchWords(query: string): string[] {
+  return norm(query)
+    .split(" ")
+    .filter(Boolean)
+    .map((w) => w.slice(0, w.length - (w.length >= 9 ? 3 : w.length === 8 ? 2 : w.length >= 6 ? 1 : 0)));
+}
+
 /** Search like the workstation: every word is a substring of the name or a synonym, any order. */
 export function searchKinds(query: string, limit = 60): IncidentKind[] {
-  const words = norm(query).split(" ").filter(Boolean);
+  const words = searchWords(query);
   if (!words.length) return KINDS.slice(0, limit);
   const scored: { k: IncidentKind; score: number }[] = [];
   for (const k of KINDS) {
@@ -77,6 +117,52 @@ export function searchKinds(query: string, limit = 60): IncidentKind[] {
     .sort((a, b) => a.score - b.score)
     .slice(0, limit)
     .map((s) => s.k);
+}
+
+/** The kind a classifier leaf is chosen under: the kind of its group, or of its subgroup when there is one. */
+export function kindOfLeaf(leaf: Pick<LeafType, "groupId" | "subgroup">): IncidentKind | undefined {
+  const same = KINDS.filter((k) => k.groupId === leaf.groupId);
+  return same.find((k) => k.subgroup && norm(k.subgroup) === norm(leaf.subgroup ?? "")) ?? same.find((k) => !k.subgroup) ?? same[0];
+}
+
+export type LeafHit = { name: string; match: string };
+
+/**
+ * Search through the whole classifier: a leaf (its type and signs) or its group name holding every word leads to
+ * the kind the leaf is chosen under — «судороги» → 103 («Судороги»), «мусоропровод» → 101. The hint is the most
+ * specific text that matched (the type, a sign, the group). Kinds are ranked by that and by how many of their
+ * leaves matched: «медицинской» is first of all 103, though a lift with «требуется медицинская помощь» matches too.
+ */
+export function searchKindsByLeaves(query: string, leaves: LeafType[], groups: { id: number; name: string }[], limit = 8): LeafHit[] {
+  const words = searchWords(query);
+  if (!words.length) return [];
+  const groupName = new Map(groups.map((g) => [g.id, g.name]));
+  const holds = (text: string | null | undefined) => Boolean(text) && words.every((w) => norm(text!).includes(w));
+  const hits = new Map<string, { match: string; score: number; count: number }>();
+  for (const leaf of leaves) {
+    if (leaf.hiddenFromOperator) continue;
+    const texts: [string | null | undefined, number][] = [
+      [leaf.finalType, 3],
+      [leaf.sign3, 2],
+      [leaf.sign2, 2],
+      [leaf.sign1, 2],
+      [leaf.subgroup, 2],
+      [groupName.get(leaf.groupId), 1],
+    ];
+    const found = texts.find(([t]) => holds(t));
+    if (!found) continue;
+    const kind = kindOfLeaf(leaf);
+    if (!kind) continue;
+    const score = found[1] + (norm(leaf.finalType).startsWith(words[0]) ? 1 : 0);
+    const h = hits.get(kind.name) ?? { match: "", score: -1, count: 0 };
+    h.count++;
+    if (score > h.score) Object.assign(h, { score, match: found[0]! });
+    hits.set(kind.name, h);
+  }
+  return [...hits.entries()]
+    .sort((a, b) => b[1].score - a[1].score || b[1].count - a[1].count)
+    .slice(0, limit)
+    .map(([name, h]) => ({ name, match: h.match }));
 }
 
 // ─── Panels ──────────────────────────────────────────────────────────────────

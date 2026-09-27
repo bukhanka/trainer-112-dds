@@ -129,6 +129,21 @@ export async function startSelfTraining(user: SessionUser, sessionId: string): P
   });
 }
 
+/**
+ * «Завершить тренировку»: the student's own practice ends — only between calls (a card still open is finished
+ * first), a call still ringing is marked missed.
+ */
+export async function finishSelfTraining(user: SessionUser, seat: Op112Seat): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (seat.studentId !== user.id || !isSelfTraining(seat.lesson.settings)) return { ok: false, error: "not_practice" };
+  const open = await db.incident.count({ where: { createdBySeatId: seat.id, status: { in: ["draft", "registered"] } } });
+  if (open) return { ok: false, error: "card_open" };
+  const now = new Date();
+  const done = await db.lesson.updateMany({ where: { id: seat.lessonId, status: "RUNNING" }, data: { status: "FINISHED", finishedAt: now } });
+  if (!done.count) return { ok: false, error: "not_practice" };
+  await db.call.updateMany({ where: { seatId: seat.id, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
+  return { ok: true };
+}
+
 const USABLE: Prisma.ScenarioWhereInput = {
   OR: [{ status: "APPROVED" }, { approvedSections: { has: "caller" } }],
   NOT: { status: "ARCHIVED" },
@@ -178,14 +193,14 @@ export function repeatOf(truth: unknown): string | undefined {
 }
 
 /**
- * A repeat call rings only once the lesson has a saved card of the incident it repeats (at any place of the
- * lesson): otherwise there is nothing to link it to.
+ * A repeat call rings only once a 112 place of the lesson has saved a card of the incident it repeats: otherwise
+ * there is nothing to link it to (a card the system dealt to a ДДС place does not count).
  */
-async function withoutEarlyRepeats<T extends { truth: unknown }>(pool: T[], lessonId: string): Promise<T[]> {
+export async function withoutEarlyRepeats<T extends { truth: unknown }>(pool: T[], lessonId: string): Promise<T[]> {
   const refs = [...new Set(pool.map((s) => repeatOf(s.truth)).filter((r): r is string => Boolean(r)))];
   if (!refs.length) return pool;
   const cards = await db.incident.findMany({
-    where: { lessonId, status: { in: ["registered", "worked"] }, scenario: { ticketRef: { in: refs } } },
+    where: { lessonId, source: "op112", status: { in: ["registered", "worked"] }, scenario: { ticketRef: { in: refs } } },
     select: { scenario: { select: { ticketRef: true } } },
   });
   const played = new Set(cards.map((c) => c.scenario?.ticketRef));
