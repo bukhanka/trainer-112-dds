@@ -232,6 +232,7 @@ const FLAG_TITLE: Record<string, string> = {
   med: "Медицинская помощь",
   evac: "Требуется эвакуация",
   traffic: "Перекрытие движения",
+  tunnel: "Тоннель",
 };
 
 /**

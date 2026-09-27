@@ -226,4 +226,16 @@ describe("scenarios from the tickets", () => {
     // The main leaf keeps the scenario's own list.
     expect(referenceLeaves(s.truth, [s.truth.typeCodes[0], night]).alternative).toBe(false);
   });
+
+  it("reviewed tickets: the railway prefecture refuses like the district, no loose alternatives, the police on site accept", () => {
+    const byRef = (r: string) => approved.find((x) => x.ticketRef === r)!;
+    for (const r of ["Б27-2", "Б28-3"]) expect(byRef(r).truth.acceptableTypeCodes, r).toEqual(byRef(r).truth.typeCodes);
+    for (const r of ["Б1-1", "Б28-3"]) {
+      const territorial = byRef(r).ddsReference!.services.filter((d) => d.service.startsWith("Поселение"));
+      expect(territorial.map((d) => d.decision), r).toEqual(["REJECTED", "REJECTED"]);
+    }
+    const police = byRef("Б10-3").ddsReference!.services.find((d) => d.service === "Служба 102");
+    expect(police?.decision).toBe("ACCEPTED");
+    expect(police?.chain).toEqual(["ACCEPTED", "ARRIVED", "FINISHED"]);
+  });
 });

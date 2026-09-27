@@ -236,6 +236,11 @@ describe("reference answer", () => {
     expect(referenceLeaves(t, [])).toEqual({ codes: [10], alternative: false });
   });
 
+  it("calls the tunnel flag by its name on the card", () => {
+    const res = evaluateOp112Rules({ ...input(), truth: { ...truth, flags: { tunnel: true } } });
+    expect(byCode(res, "op112.flag.tunnel")?.title).toBe("Флаг «Тоннель»");
+  });
+
   it("names the accepted leaf the reference plates follow", () => {
     const res = evaluateOp112Rules({ ...input(), expectedServicesBy: "задымление: мусор" });
     expect(byCode(res, "op112.services.missing")?.expected).toContain("по выбранному допустимому листу «задымление: мусор»");
