@@ -293,3 +293,91 @@ describe("evaluateOp112Ai", () => {
     expect(op112AiMessages(input())[0].content).not.toContain("Правки преподавателей");
   });
 });
+
+describe("a silent line and a call that breaks off («нет контакта», «срыв звонка»)", () => {
+  const silentPersona: Persona = {
+    fullName: "Абонент не ответил",
+    role: "не установлен",
+    visibleAddress: "адрес не назван",
+    situation: "В трубке тишина.",
+    facts: ["На вызов никто не отвечает"],
+    line: "silent",
+    dropAfter: 4,
+  };
+  const emptyTruth = (emptyCall: "noContact" | "dropped") =>
+    normalizeTruth({ typeCodes: [], acceptableTypeCodes: [], flags: {}, address: {}, services: [], requiredQuestions: [], traps: [], emptyCall }, CATALOG)!;
+  const silence = line("counterpart", "…тишина, в трубке только шум…");
+  silence.noise = "silence";
+  const hangup: CallLine = { role: "counterpart", text: "…короткие гудки: связь прервалась…", at, revealed: [], noise: "hangup" };
+
+  function emptyInput(over: { pressed?: "noContact" | "dropped"; expected?: "noContact" | "dropped"; messages?: CallLine[]; sec?: number; persona?: Persona }): EvalInput {
+    const base = input();
+    const opened = new Date(at);
+    return {
+      ...base,
+      card: { ...base.card, empty: over.pressed, savedAt: new Date(opened.getTime() + (over.sec ?? 20) * 1000) },
+      persona: over.persona ?? silentPersona,
+      truth: emptyTruth(over.expected ?? "noContact"),
+      expectedServices: [],
+      messages: over.messages ?? [silence, line("trainee", "Служба 112, говорите, вас не слышно"), silence],
+    };
+  }
+
+  it("a silent line closed with «нет контакта» after hailing the caller, in time: nothing to fix", () => {
+    const res = evaluateOp112Rules(emptyInput({ pressed: "noContact" }));
+    expect(res.map((c) => c.code)).toEqual(["op112.empty.button", "op112.empty.hail", "op112.typing_time"]);
+    expect(res.filter((c) => c.ok === false)).toEqual([]);
+    expect(byCode(res, "op112.empty.button")?.evidence).toContain("тишина");
+    expect(computeScore(res, WEIGHTS)).toBe(100);
+  });
+
+  it("the other button is a plain mistake; no word into the handset and a slow decision are caught", () => {
+    const wrong = byCode(evaluateOp112Rules(emptyInput({ pressed: "dropped" })), "op112.empty.button");
+    expect(wrong).toMatchObject({ ok: false });
+    expect(wrong?.critical).toBeFalsy();
+    expect(wrong?.expected).toContain("нет контакта");
+    const mute = evaluateOp112Rules(emptyInput({ pressed: "noContact", messages: [silence] }));
+    expect(byCode(mute, "op112.empty.hail")?.ok).toBe(false);
+    expect(byCode(evaluateOp112Rules(emptyInput({ pressed: "noContact", sec: 90 })), "op112.typing_time")?.ok).toBe(false);
+  });
+
+  it("a card with services for a silent line is critical: the services would go to a call nobody made", () => {
+    const res = evaluateOp112Rules(emptyInput({}));
+    expect(res).toHaveLength(1);
+    expect(res[0]).toMatchObject({ code: "op112.empty.card", ok: false, critical: true });
+    expect(res[0].evidence).toContain("ушла в службы (5)");
+    expect(computeScore(res, WEIGHTS)).toBeLessThanOrEqual(40);
+  });
+
+  it("a break on the first words: «срыв звонка» is right, the break is quoted", () => {
+    const early: Persona = { ...silentPersona, line: "drops", dropAfter: 1, opening: "Алло! Алло, это сто двенадцать? Тут у нас…" };
+    const messages = [line("counterpart", early.opening!), line("trainee", "Служба 112, что случилось?"), hangup];
+    const res = evaluateOp112Rules(emptyInput({ pressed: "dropped", expected: "dropped", persona: early, messages }));
+    expect(byCode(res, "op112.empty.button")).toMatchObject({ ok: true });
+    expect(byCode(res, "op112.empty.button")?.evidence).toContain("связь прервалась");
+    expect(byCode(res, "op112.empty.hail")).toBeUndefined();
+  });
+
+  it("a call that broke off after the caller said what and where needs a card, not an empty one", () => {
+    const drops: Persona = { ...persona, hiddenAddress: undefined, line: "drops", dropAfter: 3 };
+    const messages = [
+      line("counterpart", "Алло, тут мусорный контейнер горит, у депо возле Киевского вокзала.", ["situation"]),
+      line("trainee", "Назовите адрес"),
+      line("counterpart", "МЖД Киевская 1 км, стр. 2", ["address"]),
+      line("trainee", "Уточните адрес"),
+      hangup,
+    ];
+    const pressed = evaluateOp112Rules({ ...input({ empty: "noContact" }), persona: drops, messages });
+    expect(pressed).toHaveLength(1);
+    expect(pressed[0]).toMatchObject({ code: "op112.empty", ok: false, critical: true });
+    expect(pressed[0].evidence).toContain("что случилось");
+    expect(pressed[0].evidence).toContain("связь прервалась");
+
+    const base = input({ messages });
+    const saved = evaluateOp112Rules({ ...base, persona: drops, card: { ...base.card, caller: { ...base.card.caller, fullName: "", provided: "" } } });
+    expect(byCode(saved, "op112.dropped.card")).toMatchObject({ ok: true });
+    // The caller never got to his name or number: those fields are «не применимо», not mistakes.
+    expect(byCode(saved, "op112.field.fullName")).toMatchObject({ ok: null });
+    expect(byCode(saved, "op112.field.phone")).toMatchObject({ ok: null });
+  });
+});

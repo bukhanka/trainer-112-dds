@@ -18,6 +18,8 @@ import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./g
 import type { Persona } from "./caller";
 import type { ServiceLite } from "./routing";
 import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
+import { linkCheck } from "./links";
+import { phoneCheck, type PhoneNotice } from "./workoffs";
 
 export type EvalCard = {
   caller: IncidentCaller;
@@ -48,6 +50,11 @@ export type EvalInput = {
   typeNames: Record<number, string>;
   /** flags the chosen panels can set at all (top buttons included); absent — any flag */
   settableFlags?: string[];
+  /** calls to the services working by phone and the work-off rows — known once the card is «отработана» */
+  phoneNotices?: PhoneNotice[] | null;
+  /** the main card this one is linked to («Совпадение»), and the lesson's cards of the incident a repeat call repeats */
+  link?: { id: string; number: number } | null;
+  repeatCards?: { id: string; number: number; place: string }[];
 };
 
 // ─── Reference answer ────────────────────────────────────────────────────────
@@ -70,6 +77,7 @@ const truthSchema = z.object({
   descriptionKeywords: z.array(z.string()).optional().catch(undefined),
   traps: z.array(z.string()).catch([]),
   emptyCall: z.enum(["noContact", "dropped"]).optional().catch(undefined),
+  repeatOf: z.string().optional().catch(undefined),
 });
 
 // What the gist of a kind sounds like in the first 100 characters of the description.
@@ -211,6 +219,7 @@ export function normalizeTruth(raw: unknown, catalog: ServiceLite[] = []): Scena
     descriptionKeywords: keywords,
     traps: t.traps,
     emptyCall: t.emptyCall,
+    repeatOf: t.repeatOf,
   };
 }
 
@@ -221,6 +230,35 @@ const quote = (s: string, max = 140) => `«${s.length > max ? `${s.slice(0, max 
 const digits = (s: string | undefined) => (s ?? "").replace(/\D/g, "").slice(-10);
 const same = (a: string | undefined, b: string | undefined) => low(a ?? "").trim() === low(b ?? "").trim();
 const mmss = (sec: number) => `${Math.floor(sec / 60)}:${sec % 60 < 10 ? "0" : ""}${sec % 60}`;
+
+const EMPTY_BUTTON = { noContact: "нет контакта", dropped: "срыв звонка" } as const;
+const EMPTY_EXPECTED = {
+  noContact: "«нет контакта»: контакта с заявителем не было",
+  dropped: "«срыв звонка»: звонок сорвался, заявитель ничего не успел сообщить",
+} as const;
+
+/** What happened on the line, for the review: silence, a break, what the caller managed to say. */
+export function lineStory(messages: CallLine[], facts: FactCard[]): { story: string; said: string[]; cutOff: boolean } {
+  const words = messages.filter((m) => m.role === "counterpart" && !m.noise);
+  const cutOff = messages.some((m) => m.noise === "hangup");
+  const keys = new Set(words.flatMap((m) => m.revealed ?? []));
+  // A model does not always mark the address it said: a distinctive word of it in the caller's lines counts too.
+  const heard = low(words.map((m) => m.text).join(" "));
+  const named = (f: FactCard) =>
+    f.expect?.kind === "address" && low(f.text).split(/[^а-яa-z0-9]+/).some((w) => w.length >= 6 && heard.includes(w.slice(0, 5)));
+  // «прочее» names nothing: such a line still tells what happened.
+  const said = [
+    ...new Set(
+      facts.filter((f) => keys.has(f.key) || named(f)).map((f) => (f.topic === "other" || f.key === "situation" ? "что случилось" : f.label)),
+    ),
+  ];
+  const story = words.length
+    ? `Заявитель сказал: ${quote(words.map((m) => m.text).join(" "), 120)}${cutOff ? ", затем связь прервалась" : ""}`
+    : cutOff
+      ? "В трубке была тишина, потом короткие гудки"
+      : "В трубке была тишина: заявитель не сказал ни слова";
+  return { story, said, cutOff };
+}
 
 const FLAG_TITLE: Record<string, string> = {
   victims: "Пострадавшие",
@@ -308,26 +346,59 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     if (line) revealed.set(f.key, { fact: f, line });
   }
 
-  // An empty card («нет контакта» / «срыв звонка») for a caller who was on the line is a critical mistake.
+  // Time to «сохранить» (for an empty card — to «сохранить карточку как пустую»).
+  const timeCheck = (title: (time: string) => string) => {
+    if (card.openedAt && card.savedAt) {
+      const sec = Math.max(0, Math.round((card.savedAt.getTime() - card.openedAt.getTime()) / 1000));
+      add("op112.typing_time", "timeliness", title(mmss(sec)), sec <= input.typingSec, {
+        evidence: `Норматив набора — ${mmss(input.typingSec)}; таймер ${sec <= input.typingSec ? "не покраснел" : "покраснел"}`,
+      });
+    } else add("op112.typing_time", "timeliness", "Время набора карточки", null);
+  };
+
+  // «Нет контакта» / «срыв звонка»: the instruction keeps these buttons for calls that bring nothing
+  // («для быстрой обработки нерезультативных вызовов»); a call with words to act on needs a card and services.
+  const expectedEmpty = truth?.emptyCall;
+  const line = lineStory(messages, facts);
   if (card.empty) {
-    const expected = truth?.emptyCall;
-    add("op112.empty", "completeness", "Карточка не сохранена пустой по ошибке", expected ? expected === card.empty : false, {
-      critical: !expected,
-      evidence: `Нажато «${card.empty === "noContact" ? "нет контакта" : "срыв звонка"}»${messages.some((m) => m.role === "counterpart") ? ", хотя заявитель был на линии" : ""}`,
-      expected: expected ? undefined : "Вернуться к заполнению и завести карточку по словам заявителя",
+    if (expectedEmpty) {
+      add("op112.empty.button", "completeness", `Нерезультативный вызов закрыт кнопкой «${EMPTY_BUTTON[expectedEmpty]}»`, card.empty === expectedEmpty, {
+        evidence: `Нажато «${EMPTY_BUTTON[card.empty]}». ${line.story}`,
+        expected: card.empty === expectedEmpty ? undefined : EMPTY_EXPECTED[expectedEmpty],
+      });
+      if (persona?.line === "silent") {
+        add("op112.empty.hail", "completeness", "Прежде чем закрыть вызов, оператор окликнул абонента", operatorLines.length > 0, {
+          evidence: operatorLines.length ? `Оператор: ${quote(operatorLines[0])}` : "Кнопка нажата без единой реплики в трубку",
+          expected: operatorLines.length ? undefined : "Сказать в трубку, например: «Служба 112, говорите, вас не слышно»",
+        });
+      }
+      timeCheck((t) => `Пустая карточка закрыта за ${t}`);
+    } else {
+      // A caller who was on the line with something to report: an empty card leaves the incident without services.
+      add("op112.empty", "completeness", "Карточка не сохранена пустой по ошибке", false, {
+        critical: true,
+        evidence: `Нажато «${EMPTY_BUTTON[card.empty]}», хотя ${line.said.length ? `заявитель успел сообщить: ${line.said.join(", ")}` : "заявитель был на линии"}${line.cutOff ? " — потом связь прервалась" : ""}`,
+        expected: "Вызов результативный: вернуться к заполнению, завести карточку по сказанному и оповестить службы",
+      });
+    }
+    return out;
+  }
+  if (expectedEmpty) {
+    // A card with services for a call that brought nothing sends the services to a call nobody made.
+    add("op112.empty.card", "services", "По пустому вызову не заведена карточка со службами", false, {
+      critical: true,
+      evidence: `Карточка сохранена как обычная${input.serviceIds.length ? ` и ушла в службы (${input.serviceIds.length})` : ""}, хотя ${line.story.charAt(0).toLowerCase()}${line.story.slice(1)}`,
+      expected: `${EMPTY_EXPECTED[expectedEmpty]} (Alt+N) → «сохранить карточку как пустую»`,
     });
     return out;
   }
-
-  // Time to «сохранить».
-  if (card.openedAt && card.savedAt) {
-    const sec = Math.max(0, Math.round((card.savedAt.getTime() - card.openedAt.getTime()) / 1000));
-    add("op112.typing_time", "timeliness", `Карточка сохранена за ${mmss(sec)}`, sec <= input.typingSec, {
-      evidence: `Норматив набора — ${mmss(input.typingSec)}; таймер ${sec <= input.typingSec ? "не покраснел" : "покраснел"}`,
+  if (line.cutOff && persona?.line === "drops") {
+    add("op112.dropped.card", "completeness", "Сорвавшийся вызов с данными оформлен карточкой, а не пустой", true, {
+      evidence: `Связь прервалась, но заявитель успел сообщить: ${line.said.join(", ") || "что случилось"}. Карточка заведена по сказанному${input.serviceIds.length ? ` и ушла в службы (${input.serviceIds.length})` : ""}`,
     });
-  } else {
-    add("op112.typing_time", "timeliness", "Время набора карточки", null);
   }
+
+  timeCheck((t) => `Карточка сохранена за ${t}`);
 
   // Address against the clarified place.
   if (truth && Object.keys(truth.address).length) {
@@ -446,18 +517,30 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     });
   }
 
-  // Required fields (the instruction lists description, name, caller status and victims).
+  // Required fields (the instruction lists description, name, caller status and victims). A line that broke
+  // before the caller named himself leaves nothing to write: the name and the contact phone are then «не применимо».
+  const unsaid = (key: string) => line.cutOff && !revealed.has(key);
   const statusSaid = revealed.get("status");
-  add("op112.field.fullName", "completeness", "Заполнена фамилия и имя заявителя", Boolean(card.caller.fullName?.trim()), {
-    evidence: card.caller.fullName ? quote(card.caller.fullName) : "Пусто — после сохранения исправить нельзя",
+  const nameFilled = Boolean(card.caller.fullName?.trim());
+  add("op112.field.fullName", "completeness", "Заполнена фамилия и имя заявителя", unsaid("name") && !nameFilled ? null : nameFilled, {
+    evidence: card.caller.fullName
+      ? quote(card.caller.fullName)
+      : unsaid("name")
+        ? "Связь прервалась раньше, чем заявитель назвался"
+        : "Пусто — после сохранения исправить нельзя",
   });
   const statusOk = Boolean(card.caller.status) && (Boolean(statusSaid) || !truth?.callerStatus || card.caller.status === truth.callerStatus);
   add("op112.field.status", "completeness", "Выбран статус заявителя", statusOk, {
     evidence: card.caller.status ? `Выбрано: ${card.caller.status}` : "Статус не выбран",
     expected: !statusSaid && truth?.callerStatus ? truth.callerStatus : undefined,
   });
-  add("op112.field.phone", "completeness", "Заполнен предоставленный телефон", Boolean(digits(card.caller.provided)), {
-    evidence: card.caller.provided ? card.caller.provided : "Пусто: можно было скопировать АОН кнопкой «АОН»",
+  const phoneFilled = Boolean(digits(card.caller.provided));
+  add("op112.field.phone", "completeness", "Заполнен предоставленный телефон", unsaid("phone") && !phoneFilled ? null : phoneFilled, {
+    evidence: card.caller.provided
+      ? card.caller.provided
+      : unsaid("phone")
+        ? "Связь прервалась раньше, чем заявитель назвал номер; АОН в карточке есть"
+        : "Пусто: можно было скопировать АОН кнопкой «АОН»",
   });
   add("op112.field.description", "completeness", "Заполнено описание со слов заявителя", card.description.trim().length >= 10, {
     evidence: card.description.trim() ? `${card.description.trim().length} знаков` : "Описание пустое",
@@ -529,7 +612,22 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     }
   }
 
+  // Services that get the card only by phone: called from the work-off row and written down.
+  const phone = phoneCheck(phonePlates(input), input.phoneNotices ?? null);
+  if (phone) out.push(phone);
+  // «Совпадение»: a repeat call is linked to the card of the first call; a new incident is not linked to another.
+  const link = linkCheck({ repeatOf: truth?.repeatOf, link: input.link ?? null, repeatCards: input.repeatCards ?? [] });
+  if (link) out.push(link);
+
   return out;
+}
+
+/** Plates of the card whose service is told only by phone (Service.delivery = PHONE, a grey plate). */
+export function phonePlates(input: Pick<EvalInput, "serviceIds" | "catalog">): { serviceId: number; name: string }[] {
+  return input.serviceIds.flatMap((id) => {
+    const s = input.catalog.find((c) => c.id === id);
+    return s?.delivery === "PHONE" ? [{ serviceId: id, name: s.shortName }] : [];
+  });
 }
 
 // ─── Model checks ────────────────────────────────────────────────────────────

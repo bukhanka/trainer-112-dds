@@ -8,10 +8,23 @@ import { loadJsonReference, readDataJson } from "./reference-json";
 
 type Scenario = {
   ticketRef: string;
+  source?: "instruction";
   status: "DRAFT" | "APPROVED";
   difficulty: number;
-  caller: { fullName: string; visibleAddress: string; hiddenAddress?: string; situation: string; facts: string[]; voice: string };
+  caller: {
+    fullName: string;
+    visibleAddress: string;
+    hiddenAddress?: string;
+    situation: string;
+    facts: string[];
+    voice: string;
+    line?: "silent" | "drops";
+    dropAfter?: number;
+    opening?: string;
+  };
   truth: {
+    emptyCall?: "noContact" | "dropped";
+    repeatOf?: string;
     typeCodes: number[];
     acceptableTypeCodes: number[];
     flags: Record<string, boolean>;
@@ -21,6 +34,7 @@ type Scenario = {
     requiredQuestions: string[];
   };
   category: string;
+  ddsCard: unknown;
   ddsReference: {
     services: {
       serviceId: number;
@@ -37,7 +51,10 @@ type Scenario = {
   teacherNote: string | null;
 };
 
-const scenarios = readDataJson<Scenario[]>("scenarios.json");
+const all = readDataJson<Scenario[]>("scenarios.json");
+/** The customer's tickets; the tasks written from the operator's instruction are checked apart, below. */
+const scenarios = all.filter((s) => s.source !== "instruction");
+const tasks = all.filter((s) => s.source === "instruction");
 const ref = loadJsonReference();
 /** Tickets worked through by hand (scripts/deep-scenarios.ts): the only APPROVED ones. */
 const DEEP = [
@@ -83,7 +100,7 @@ describe("scenarios from the tickets", () => {
   });
 
   it("types exist in the classifier and the reference card services match the engine", () => {
-    for (const s of scenarios) {
+    for (const s of all) {
       for (const code of [...s.truth.typeCodes, ...s.truth.acceptableTypeCodes]) expect(ref.types.has(code), `${s.ticketRef} ${code}`).toBe(true);
       const again = selectServices(
         {
@@ -237,5 +254,54 @@ describe("scenarios from the tickets", () => {
     const police = byRef("Б10-3").ddsReference!.services.find((d) => d.service === "Служба 102");
     expect(police?.decision).toBe("ACCEPTED");
     expect(police?.chain).toEqual(["ACCEPTED", "ARRIVED", "FINISHED"]);
+  });
+});
+
+describe("tasks from the operator's instruction (scripts/instruction-scenarios.ts)", () => {
+  const task = (ref: string) => tasks.find((s) => s.ticketRef === ref)!;
+
+  it("approved tasks for the 112 place only: no ДДС card, no ДДС reference", () => {
+    expect(tasks.map((s) => s.ticketRef)).toEqual(["НВ-1", "НВ-2", "НВ-3", "ПВ-1"]);
+    for (const s of tasks) {
+      expect(s.status, s.ticketRef).toBe("APPROVED");
+      expect(s.approvedSections, s.ticketRef).toEqual(["caller", "truth"]);
+      expect(s.ddsCard, s.ticketRef).toBeNull();
+      expect(s.ddsReference, s.ticketRef).toBeNull();
+    }
+    for (const ref of ["НВ-1", "НВ-2", "НВ-3"]) expect(task(ref).caller.line, ref).toBeDefined();
+  });
+
+  it("a repeat call keeps the reference card of the ticket it repeats and names it", () => {
+    const repeat = task("ПВ-1");
+    const original = scenarios.find((s) => s.ticketRef === "Б4-1")!;
+    expect(repeat.truth.repeatOf).toBe("Б4-1");
+    expect(repeat.truth.typeCodes).toEqual(original.truth.typeCodes);
+    expect(repeat.truth.address).toEqual(original.truth.address);
+    expect(repeat.truth.services).toEqual(original.truth.services);
+    // A second witness gives the place at once and does not know the first caller.
+    expect(repeat.caller.hiddenAddress).toBeUndefined();
+    expect(repeat.caller.fullName).not.toBe(original.caller.fullName);
+  });
+
+  it("a silent line and a break on the first words are closed as empty cards, without services", () => {
+    expect(task("НВ-1").caller.line).toBe("silent");
+    expect(task("НВ-1").truth.emptyCall).toBe("noContact");
+    expect(task("НВ-2").caller.line).toBe("drops");
+    expect(task("НВ-2").caller.dropAfter).toBe(1);
+    expect(task("НВ-2").truth.emptyCall).toBe("dropped");
+    for (const ref of ["НВ-1", "НВ-2"]) {
+      expect(task(ref).truth.services, ref).toEqual([]);
+      expect(task(ref).truth.typeCodes, ref).toEqual([]);
+    }
+  });
+
+  it("a call that breaks after the address is a real incident: a card with services, the phone-only one included", () => {
+    const s = task("НВ-3");
+    expect(s.truth.emptyCall).toBeUndefined();
+    expect(s.truth.typeCodes.length).toBeGreaterThan(0);
+    expect(s.truth.address.district).toBe("Щукино");
+    const plates = s.truth.services.map((x) => serviceName(x.serviceId));
+    expect(plates).toContain("Служба 101");
+    expect(plates).toContain("Деп. ЖКХ");
   });
 });

@@ -7,7 +7,20 @@ import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from 
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
-import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, referenceLeaves, type EvalInput } from "./evaluate";
+import {
+  AI_CODES,
+  aiEnabled,
+  aiUnavailable,
+  evaluateOp112Ai,
+  evaluateOp112Rules,
+  normalizeTruth,
+  phonePlates,
+  referenceLeaves,
+  type EvalInput,
+} from "./evaluate";
+import { LINK_CODES, linkCheck } from "./links";
+import { lessonCards } from "./links-db";
+import { PHONE_CODE, phoneCheck, phoneNotices, readWorkLog, type PhoneCall } from "./workoffs";
 import { regionOf, treesFor, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
 import { serviceCatalog } from "./services";
@@ -44,13 +57,18 @@ function settableFlags(trees: Record<string, { rows: { flag?: string; options?: 
 export async function loadEvalInput(incidentId: string): Promise<{ input: EvalInput; lessonId: string; seatId: string; studentId: string; scenarioId: string | null } | null> {
   const incident = await db.incident.findUnique({
     where: { id: incidentId },
-    include: { services: true, scenario: true, calls: { where: { kind: "CALLER_IN" }, orderBy: { startedAt: "desc" }, take: 1 } },
+    include: {
+      services: true,
+      scenario: true,
+      calls: { where: { kind: { in: ["CALLER_IN", "SERVICE_OUT"] } }, orderBy: { startedAt: "desc" } },
+      linkedTo: { select: { id: true, number: true } },
+    },
   });
   if (!incident?.createdBySeatId || !incident.lessonId) return null;
   const seat = await db.seat.findUnique({ where: { id: incident.createdBySeatId }, include: { lesson: true } });
   if (!seat) return null;
   const { cards } = tagsToAnswers(incident.tags);
-  const call = incident.calls[0];
+  const call = incident.calls.find((c) => c.kind === "CALLER_IN");
   const flags = (incident.flags ?? {}) as IncidentFlags;
   const catalog = await serviceCatalog();
   const truth = normalizeTruth(incident.scenario?.truth, catalog);
@@ -95,7 +113,57 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
     typeNames: await typeNames([...incident.typeCodes, ...(truth?.typeCodes ?? [])]),
     settableFlags: settableFlags(await treesFor(cards)),
   };
+  // «Совпадение»: the link and, for a repeat call, the cards of the first call in this lesson.
+  input.link = incident.linkedTo;
+  if (truth?.repeatOf) {
+    input.repeatCards = (await lessonCards(incident.lessonId, incident.id))
+      .filter((c) => c.scenarioRef === truth.repeatOf)
+      .map((c) => ({ id: c.ref.id, number: c.ref.number, place: c.ref.place }));
+  }
+  // The calls to the services working by phone are made after «сохранить»: they are judged at «отработана».
+  if (incident.status === "worked") {
+    const calls = incident.calls.filter((c) => c.kind === "SERVICE_OUT").map(phoneCallOf).filter((c): c is PhoneCall => c !== null);
+    input.phoneNotices = phoneNotices(phonePlates(input), calls, readWorkLog(incident.workLog));
+  }
   return { input, lessonId: incident.lessonId, seatId: seat.id, studentId: seat.studentId, scenarioId: incident.scenarioId };
+}
+
+/** A call from the work-off row, as the phone check reads it. */
+export function phoneCallOf(call: { id: string; counterpart: unknown; messages: unknown; startedAt: Date }): PhoneCall | null {
+  const cp = (call.counterpart ?? {}) as { serviceId?: number; duty?: string };
+  if (typeof cp.serviceId !== "number") return null;
+  return {
+    id: call.id,
+    serviceId: cp.serviceId,
+    duty: cp.duty ?? "",
+    at: call.startedAt.toISOString(),
+    messages: (Array.isArray(call.messages) ? call.messages : []) as CallLine[],
+  };
+}
+
+/**
+ * «отработана»: the checks of what is done after saving — the calls to the services working by phone, and a link
+ * made in the view mode («Кнопка доступна как в режиме создания карточки, так и в режиме просмотра»). Only these
+ * checks change: the card itself was graded as it was sent to the services.
+ */
+export async function regradeAfterWork(incidentId: string): Promise<void> {
+  try {
+    const loaded = await loadEvalInput(incidentId);
+    if (!loaded) return;
+    const { input } = loaded;
+    const fresh = [
+      phoneCheck(phonePlates(input), input.phoneNotices ?? null),
+      input.card.empty ? null : linkCheck({ repeatOf: input.truth?.repeatOf, link: input.link ?? null, repeatCards: input.repeatCards ?? [] }),
+    ].filter((c): c is CriterionResult => c !== null);
+    const replaced = new Set<string>([PHONE_CODE, ...LINK_CODES]);
+    const attempt = await db.attempt.findFirst({ where: { incidentId, kind: "OP112" }, orderBy: { createdAt: "desc" } });
+    if (!attempt) return;
+    const criteria = [...((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !replaced.has(c.code)), ...fresh];
+    const score = computeScore(criteria, await activeWeights(), attempt.override as Record<string, boolean | null> | null);
+    await db.attempt.update({ where: { id: attempt.id }, data: { criteria: criteria as unknown as Prisma.InputJsonValue, score } });
+  } catch (err) {
+    console.error("op112 after-work checks failed", incidentId, err);
+  }
 }
 
 /**
@@ -155,9 +223,11 @@ export async function runAiReview(attemptId: string): Promise<void> {
     const ctx = situation ?? { scenarioId: loaded.scenarioId, typeCode: null, typeGroupId: null, category: null };
     const [said, description] = await Promise.all([loadGuidance("op112.ai.said", ctx), loadGuidance("op112.ai.description", ctx)]);
     const ai = await evaluateOp112Ai(loaded.input, { ctx, said, description });
-    const base = ((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
+    // Read again: «отработана» may have updated the phone check while the model was thinking.
+    const fresh = (await db.attempt.findUnique({ where: { id: attemptId } })) ?? attempt;
+    const base = ((fresh.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
     const criteria = [...base, ...ai];
-    const score = computeScore(criteria, await activeWeights(), attempt.override as Record<string, boolean | null> | null);
+    const score = computeScore(criteria, await activeWeights(), fresh.override as Record<string, boolean | null> | null);
     await db.attempt.update({ where: { id: attemptId }, data: { criteria: criteria as unknown as Prisma.InputJsonValue, score } });
   } catch (err) {
     // The rule checks stay; the model checks are marked as not done so the review stops waiting.

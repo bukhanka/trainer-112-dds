@@ -21,9 +21,11 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/op112/calls/[i
 
   const cp = (call.counterpart ?? {}) as Counterpart;
   const persona = await personaOfCall(call);
-  const opening = persona ? await callerOpening(persona) : { text: "Алло! Помогите!", revealed: [] };
+  const opening: { text: string; revealed: string[]; noise?: CallLine["noise"] } = persona
+    ? await callerOpening(persona)
+    : { text: "Алло! Помогите!", revealed: [] };
   const now = new Date();
-  const line: CallLine = { role: "counterpart", text: opening.text, at: now.toISOString(), revealed: opening.revealed };
+  const line: CallLine = { role: "counterpart", text: opening.text, at: now.toISOString(), revealed: opening.revealed, ...(opening.noise ? { noise: opening.noise } : {}) };
 
   // Only one answer wins if the button is pressed twice; the card and the call are linked in one step.
   const seat = call.seat;

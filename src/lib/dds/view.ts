@@ -17,6 +17,8 @@ export const incidentInclude = {
     orderBy: [{ addedAt: "asc" }, { id: "asc" }],
   },
   scenario: { select: { id: true, title: true, category: true, caller: true, truth: true, ddsCard: true, ddsReference: true } },
+  // «Связи»: the main card a 112 operator linked this one to (a repeat call about the same incident)
+  linkedTo: { select: { number: true } },
 } satisfies Prisma.IncidentInclude;
 
 export type IncidentFull = Prisma.IncidentGetPayload<{ include: typeof incidentInclude }>;
@@ -153,6 +155,8 @@ export type FeedRow = {
   important: boolean;
   description: DescriptionEntry | null;
   preview: { services: string; caller: string; info: string };
+  /** «Связи»: the number of the main card this one is linked to */
+  linkedTo: number | null;
 };
 
 export function feedRow(incident: IncidentFull, ownServiceId: number, info: TypeInfo, crew: CrewTimer | null = null): FeedRow | null {
@@ -187,6 +191,7 @@ export function feedRow(incident: IncidentFull, ownServiceId: number, info: Type
     closed: isClosed(own.status) || own.status === "REJECTED",
     important: incident.important,
     description: log.length ? log[log.length - 1] : incident.description ? { at: "", author: "", text: incident.description } : null,
+    linkedTo: incident.linkedTo?.number ?? null,
     preview: {
       services,
       caller: [caller.fullName, caller.status, caller.aon && `АОН ${caller.aon}`, caller.provided && `предоставленный ${caller.provided}`]

@@ -12,11 +12,19 @@ type Props = {
   caller: IncidentCaller | null;
   onCaller: (patch: Partial<IncidentCaller>) => void;
   editable: boolean;
+  /** «Дополнить»: a phone left empty at saving can still be filled */
+  phoneEditable?: (field: "provided" | "onSite") => boolean;
   incident: { number: number; savedLabel: string | null } | null;
   operatorNo: string;
   armNo: string;
   timer: { sec: number; late: boolean; running: boolean } | null;
   onNotAvailable: (what: string) => void;
+  /** A saved card: «просмотр» (Shift+F1) and «дополнение» (Shift+F2) at the top right, as on the workstation. */
+  viewMenu?: { supplementing: boolean; busy: boolean; onView: () => void; onSupplement: () => void };
+  /** «⚠ совпадение» by a phone number: shown only in the АОН block, as the instruction says */
+  aonMatch?: React.ReactNode;
+  /** the main card this one is linked to */
+  linkedNumber?: number | null;
 };
 
 const TONE: Record<Telephony["tone"], string> = {
@@ -59,6 +67,7 @@ export function TopBar(p: Props) {
           readOnly
           extraIcons={
             <>
+              {p.aonMatch}
               <a
                 href="/help#op112"
                 target="_blank"
@@ -78,7 +87,7 @@ export function TopBar(p: Props) {
           hk="Alt+F2"
           id="op112-provided"
           value={p.caller?.provided ?? ""}
-          readOnly={!p.editable}
+          readOnly={!(p.editable || p.phoneEditable?.("provided"))}
           onChange={(v) => p.onCaller({ provided: v })}
           onCopyAon={() => p.onCaller({ provided: p.caller?.aon ?? "" })}
         />
@@ -87,19 +96,25 @@ export function TopBar(p: Props) {
           hk="Alt+F3"
           id="op112-onsite"
           value={p.caller?.onSite ?? ""}
-          readOnly={!p.editable}
+          readOnly={!(p.editable || p.phoneEditable?.("onSite"))}
           onChange={(v) => p.onCaller({ onSite: v })}
           onCopyAon={() => p.onCaller({ onSite: p.caller?.aon ?? "" })}
         />
       </div>
-      <div className="flex w-[210px] shrink-0 flex-col justify-center bg-white px-3 leading-tight 2xl:w-[250px]">
+      <div
+        className="flex w-[210px] shrink-0 flex-col justify-center bg-white px-3 leading-tight 2xl:w-[250px]"
+        data-hk={p.viewMenu ? "Alt+Y · Alt+N" : undefined}
+        title={p.viewMenu ? "Alt+Y «Проверена» и Alt+N «Вернуть на доработку» — для карточки в статусе «Проверена»" : undefined}
+      >
         {p.incident ? (
           <>
             <div className="text-[15px] font-bold 2xl:text-[17px]">Происшествие {p.incident.number}</div>
-            <div className="text-[12.5px]">{p.incident.savedLabel ? `Сохр. ${p.incident.savedLabel}` : "Сохр. —"}</div>
+            {/* A registered card says «Зарег», as the workstation does; a draft shows its last autosave. */}
+            <div className="text-[12.5px]">{p.incident.savedLabel ? `${p.viewMenu ? "Зарег" : "Сохр."} ${p.incident.savedLabel}` : "Сохр. —"}</div>
             <div className="text-[12.5px]">
               Опер. {p.operatorNo}, АРМ {p.armNo}, УМЦ
             </div>
+            {p.linkedNumber ? <div className="text-[12px] text-arm-blue">связана с № {p.linkedNumber}</div> : null}
           </>
         ) : (
           <div className="text-[13px] text-arm-desc">
@@ -121,6 +136,32 @@ export function TopBar(p: Props) {
           <span>секунд</span>
         </div>
       </div>
+      {p.viewMenu && (
+        <div className="flex w-[118px] shrink-0 flex-col gap-1.5" role="group" aria-label="Режим карточки">
+          <span data-hk="Shift+F1" className="flex flex-1">
+            <button
+              type="button"
+              aria-pressed={!p.viewMenu.supplementing}
+              disabled={p.viewMenu.busy}
+              onClick={p.viewMenu.onView}
+              className={`flex-1 text-[13px] ${p.viewMenu.supplementing ? "bg-arm-dark text-white hover:bg-black" : "bg-arm-blue text-white"}`}
+            >
+              просмотр
+            </button>
+          </span>
+          <span data-hk="Shift+F2" className="flex flex-1">
+            <button
+              type="button"
+              aria-pressed={p.viewMenu.supplementing}
+              disabled={p.viewMenu.busy}
+              onClick={p.viewMenu.onSupplement}
+              className={`flex-1 text-[13px] ${p.viewMenu.supplementing ? "bg-arm-blue text-white" : "bg-arm-dark text-white hover:bg-black"}`}
+            >
+              дополнение
+            </button>
+          </span>
+        </div>
+      )}
     </header>
   );
 }

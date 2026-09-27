@@ -26,6 +26,8 @@ export function FlagsBar(p: {
   flags: IncidentFlags;
   onToggle: (flag: TopFlag) => void;
   readOnly: boolean;
+  /** «Дополнить»: the victims flag may still change after saving (instruction, v1.8) */
+  victimsEditable?: boolean;
   typeChosen: boolean;
   onEmpty: (reason: "noContact" | "dropped") => void;
 }) {
@@ -35,7 +37,7 @@ export function FlagsBar(p: {
         type="button"
         id={`op112-flag-${flag}`}
         aria-pressed={Boolean(p.flags[flag])}
-        disabled={p.readOnly}
+        disabled={p.readOnly && !(flag === "victims" && p.victimsEditable)}
         onClick={() => p.onToggle(flag)}
         className="arm-flag-btn w-full"
       >
@@ -64,8 +66,9 @@ export function FlagsBar(p: {
           </>,
         )}
       </div>
-      <div className="flex flex-1 items-center gap-1.5 bg-arm-panel p-2" data-hk="Alt+N">
-        <button type="button" className="arm-orange-btn flex-1" disabled={p.readOnly || p.typeChosen} onClick={() => p.onEmpty("noContact")}>
+      {/* In a saved card Alt+N means «Вернуть на доработку», so the hint is not shown here. */}
+      <div className="flex flex-1 items-center gap-1.5 bg-arm-panel p-2" data-hk={p.readOnly ? undefined : "Alt+N"}>
+        <button type="button" id="op112-nocontact" className="arm-orange-btn flex-1" disabled={p.readOnly || p.typeChosen} onClick={() => p.onEmpty("noContact")}>
           нет контакта
         </button>
         <button type="button" className="arm-orange-btn flex-1" disabled={p.readOnly || p.typeChosen} onClick={() => p.onEmpty("dropped")}>
@@ -81,6 +84,9 @@ export function TypeBlock(p: {
   answers: Record<string, CardAnswers>;
   readOnly: boolean;
   classes: string[];
+  /** The questionnaire opens only once the address is filled, as the instruction orders the blocks. */
+  addressReady: boolean;
+  onAddress: () => void;
   onCards: (cards: string[], answers: Record<string, CardAnswers>) => void;
 }) {
   const [q, setQ] = useState("");
@@ -203,18 +209,42 @@ export function TypeBlock(p: {
           {p.classes.length > 0 && <span className="ml-2 text-[12.5px] text-arm-desc">Класс.: {p.classes.join("; ")}</span>}
         </div>
       )}
-      {p.cards.map((k, i) => (
-        <QuestionCardView
-          key={k}
-          index={i}
-          cardKey={k}
-          answers={p.answers[k] ?? {}}
-          readOnly={p.readOnly}
-          onChange={(a) => p.onCards(p.cards, { ...p.answers, [k]: a })}
-          onClose={() => remove(k)}
-        />
-      ))}
+      {p.cards.map((k, i) =>
+        p.readOnly || p.addressReady ? (
+          <QuestionCardView
+            key={k}
+            index={i}
+            cardKey={k}
+            answers={p.answers[k] ?? {}}
+            readOnly={p.readOnly}
+            onChange={(a) => p.onCards(p.cards, { ...p.answers, [k]: a })}
+            onClose={() => remove(k)}
+          />
+        ) : (
+          <SurveyLocked key={k} index={i} cardKey={k} onAddress={p.onAddress} onClose={() => remove(k)} />
+        ),
+      )}
     </>
+  );
+}
+
+/** A chosen kind before the address is filled: its header and a hint instead of the questions. */
+function SurveyLocked(p: { cardKey: string; index: number; onAddress: () => void; onClose: () => void }) {
+  return (
+    <section className="shrink-0 bg-white" id={`op112-card-${p.index + 1}`} data-survey-locked="">
+      <div className="flex items-center justify-between bg-arm-dark px-3 py-1.5 text-white">
+        <h3 className="text-[14px] font-bold">{kindTitle(p.cardKey)}</h3>
+        <button type="button" title="Снять тип" onClick={p.onClose} className="p-0.5 hover:text-arm-orange">
+          <IconClose className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13.5px] text-arm-desc">
+        <span>Опросная карта откроется после заполнения адреса.</span>
+        <button type="button" className="arm-mini-btn" onClick={p.onAddress}>
+          к адресу (Alt+A)
+        </button>
+      </div>
+    </section>
   );
 }
 

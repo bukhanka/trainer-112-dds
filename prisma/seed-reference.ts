@@ -1,8 +1,8 @@
 /**
  * Reference data from data/*.json: classifier groups and types, routing cells, services,
- * and training scenarios built from the customer's tickets.
+ * and training scenarios built from the customer's tickets and from the operator's instruction.
  * Idempotent: types, groups and services are upserted, routes are replaced as a whole,
- * ticket scenarios are matched by their ticket reference («Б1-1»).
+ * scenarios are matched by their reference («Б1-1», «НВ-1»).
  */
 import type { Prisma, PrismaClient, ServiceDelivery, ScenarioStatus } from "@prisma/client";
 import { existsSync, readFileSync } from "node:fs";
@@ -50,6 +50,8 @@ type ServiceFile = {
 
 type ScenarioFile = {
   ticketRef: string;
+  /** ticket (the customer's tickets, the default) | instruction (tasks written from the operator's instruction) */
+  source?: string;
   title: string;
   category: string;
   difficulty: number;
@@ -137,7 +139,7 @@ async function seedServices(db: PrismaClient, services: ServiceFile) {
 
 async function seedScenarios(db: PrismaClient, scenarios: ScenarioFile) {
   const existing = await db.scenario.findMany({
-    where: { source: "ticket", ticketRef: { not: null } },
+    where: { source: { in: ["ticket", "instruction"] }, ticketRef: { not: null } },
     select: { id: true, ticketRef: true },
   });
   const byRef = new Map(existing.map((s) => [s.ticketRef, s.id]));
@@ -148,7 +150,7 @@ async function seedScenarios(db: PrismaClient, scenarios: ScenarioFile) {
       category: s.category,
       difficulty: s.difficulty,
       status: s.status,
-      source: "ticket",
+      source: s.source ?? "ticket",
       ticketRef: s.ticketRef,
       caller: s.caller,
       truth: s.truth,
@@ -181,7 +183,7 @@ export async function seedReference(db: PrismaClient): Promise<void> {
   if (services) parts.push(`${await seedServices(db, services)} services`);
   if (scenarios) {
     const s = await seedScenarios(db, scenarios);
-    parts.push(`${s.total} ticket scenarios (${s.created} new)`);
+    parts.push(`${s.total} scenarios from tickets and the instruction (${s.created} new)`);
   }
   console.log(`seed-reference: ${parts.join(", ") || "no data files"} in ${((Date.now() - started) / 1000).toFixed(1)} s`);
 }

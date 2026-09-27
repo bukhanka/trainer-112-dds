@@ -3,11 +3,20 @@ import { describe, expect, it } from "vitest";
 import { readDataJson } from "@/lib/routing/reference-json";
 import { firstHundredMisses, gistOf, normalizeTruth } from "./evaluate";
 
-type Row = { ticketRef: string; status: string; truth: { descriptionKeywords?: string[] }; ddsCard: { description: string } };
+type Row = {
+  ticketRef: string;
+  status: string;
+  truth: { descriptionKeywords?: string[]; emptyCall?: string };
+  ddsCard: { description: string } | null;
+  caller: { situation: string };
+};
 
 const scenarios = readDataJson<Row[]>("scenarios.json");
-const approved = scenarios.filter((s) => s.status === "APPROVED");
+// A silent line or a call that broke off before a word leaves no card to describe.
+const approved = scenarios.filter((s) => s.status === "APPROVED" && !s.truth.emptyCall);
 const truthOf = (s: Row) => normalizeTruth(s.truth)!;
+/** The words of the situation: the ДДС card of a ticket, or the caller's own words of a 112-only task. */
+const ownWords = (s: Row) => s.ddsCard?.description ?? s.caller.situation;
 const FOREIGN = "Громко играет музыка во дворе, соседи не спят";
 
 describe("the gist in the first 100 characters", () => {
@@ -18,7 +27,7 @@ describe("the gist in the first 100 characters", () => {
   it("the ticket's own words pass for every approved scenario", () => {
     for (const s of approved) {
       const t = truthOf(s);
-      expect(firstHundredMisses(s.ddsCard.description, t, Boolean(t.flags.victims)).missing, s.ticketRef).toEqual([]);
+      expect(firstHundredMisses(ownWords(s), t, Boolean(t.flags.victims)).missing, s.ticketRef).toEqual([]);
     }
   });
 
@@ -33,7 +42,7 @@ describe("the gist in the first 100 characters", () => {
   it("the gist of a draft comes from what the type means, so its own ticket text passes too", () => {
     const failing = scenarios
       .filter((s) => s.status !== "APPROVED")
-      .filter((s) => firstHundredMisses(s.ddsCard.description, truthOf(s), false).missing.length > 0)
+      .filter((s) => firstHundredMisses(ownWords(s), truthOf(s), false).missing.length > 0)
       .map((s) => s.ticketRef);
     expect(failing).toEqual([]);
   });

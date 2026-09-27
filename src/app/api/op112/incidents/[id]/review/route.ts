@@ -7,6 +7,11 @@ import { activeWeights, aiState, loadEvalInput } from "@/lib/op112/review";
 import { serviceCatalog } from "@/lib/op112/services";
 import { computeScore, type CriterionResult, type Overrides } from "@/lib/scoring/score";
 
+const EMPTY_ANSWER = {
+  noContact: "«нет контакта» → «сохранить карточку как пустую»: контакта с заявителем не было, службы не оповещаются",
+  dropped: "«срыв звонка» → «сохранить карточку как пустую»: звонок сорвался раньше, чем заявитель что-то сообщил",
+} as const;
+
 // Review of the student's own saved card: checks with evidence, score by the active weights, the reference answer.
 export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents/[id]/review">) {
   const user = await op112User();
@@ -35,6 +40,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
         services: (loaded?.input.expectedServices ?? truth.services).map((sid) => catalog.find((c) => c.id === sid)?.shortName ?? `#${sid}`),
         questions: truth.requiredQuestions.map((q) => q.text),
         traps: truth.traps,
+        // A call that brought nothing: the right answer is a button, not a card.
+        empty: truth.emptyCall ? EMPTY_ANSWER[truth.emptyCall] : null,
       }
     : null;
   return Response.json({
@@ -42,11 +49,13 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
     score,
     criteria,
     overrides,
-    ai: attempt.incidentId && !isEmpty ? aiState(criteria) : "off",
+    // An empty card has no conversation to read: the model checks are not needed, whether a model is set or not.
+    ai: isEmpty ? "empty" : attempt.incidentId ? aiState(criteria) : "off",
     reviewStatus: attempt.reviewStatus,
     teacherComment: attempt.teacherComment,
     scenarioTitle: scenario?.title ?? null,
-    ticketRef: scenario?.ticketRef ?? null,
+    // Only the customer's tickets are «билеты»; the tasks written from the instruction have their own codes.
+    ticketRef: scenario?.source === "ticket" ? scenario.ticketRef : null,
     reference,
   });
 }

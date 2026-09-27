@@ -80,6 +80,12 @@ export function ChatPanel(p: {
   now: number;
   hints: boolean;
   cards: string[];
+  /** A call from the work-off row: its own title, the other side's name and ready phrases. */
+  title?: string;
+  who?: string;
+  quick?: string[];
+  /** Switch between the caller and the calls to services. */
+  tabs?: React.ReactNode;
   onSend: (text: string) => void;
   onHangup: () => void;
 }) {
@@ -97,7 +103,8 @@ export function ChatPanel(p: {
   const last = p.lines[p.lines.length - 1];
   const lastKey = last ? `${last.at}|${last.text}` : null;
   useEffect(() => {
-    if (!last || last.role !== "counterpart" || !active || muted || spoken.current === lastKey) return;
+    // Silence and beeps are what the operator hears, not words: they are shown, never read out.
+    if (!last || last.role !== "counterpart" || last.noise || !active || muted || spoken.current === lastKey) return;
     spoken.current = lastKey;
     void say(last.text, gender, manner);
   }, [last, lastKey, active, muted, gender, manner, say]);
@@ -161,10 +168,10 @@ export function ChatPanel(p: {
   );
 
   return (
-    <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#b9c0c5] bg-white xl:w-[340px] 2xl:w-[390px]" aria-label="Разговор с заявителем">
+    <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#b9c0c5] bg-white xl:w-[340px] 2xl:w-[390px]" aria-label={p.title ?? "Разговор с заявителем"}>
       <div className="flex items-center justify-between bg-arm-dark px-3 py-2 text-white">
         <div className="min-w-0 leading-tight">
-          <div className="text-[14px] font-semibold">Разговор с заявителем</div>
+          <div className="truncate text-[14px] font-semibold">{p.title ?? "Разговор с заявителем"}</div>
           <div className="truncate text-[12px] text-white/75">
             {p.call ? (active ? `на линии · ${mmss(talkSec)}` : `звонок завершён · ${mmss(talkSec)}`) : "нет вызова"}
           </div>
@@ -196,21 +203,28 @@ export function ChatPanel(p: {
         </button>
       </div>
 
+      {p.tabs}
       <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-[#f4f5f6] px-3 py-3" aria-live="polite">
         {!p.lines.length && <div className="m-auto text-center text-[13px] text-arm-desc">Здесь будет разговор с заявителем.</div>}
-        {p.lines.map((l, i) => (
-          <div key={i} className={`flex max-w-[88%] flex-col ${l.role === "trainee" ? "self-end items-end" : "self-start items-start"}`}>
-            <div
-              className={`px-3 py-2 text-[14px] leading-snug ${l.role === "trainee" ? "bg-arm-blue text-white" : "border border-[#dde1e3] bg-white text-arm-dark"}`}
-            >
+        {p.lines.map((l, i) =>
+          l.noise ? (
+            <div key={i} className="self-center px-2 text-center text-[13px] italic text-arm-desc" data-noise={l.noise}>
               {l.text}
             </div>
-            <div className="mt-0.5 text-[10.5px] text-arm-desc">
-              {l.role === "trainee" ? "Оператор" : "Заявитель"} · {hhmm(l.at)}
+          ) : (
+            <div key={i} className={`flex max-w-[88%] flex-col ${l.role === "trainee" ? "self-end items-end" : "self-start items-start"}`}>
+              <div
+                className={`px-3 py-2 text-[14px] leading-snug ${l.role === "trainee" ? "bg-arm-blue text-white" : "border border-[#dde1e3] bg-white text-arm-dark"}`}
+              >
+                {l.text}
+              </div>
+              <div className="mt-0.5 text-[10.5px] text-arm-desc">
+                {l.role === "trainee" ? "Оператор" : (p.who ?? "Заявитель")} · {hhmm(l.at)}
+              </div>
             </div>
-          </div>
-        ))}
-        {p.pending && <div className="self-start text-[12.5px] italic text-arm-desc">Заявитель отвечает…</div>}
+          ),
+        )}
+        {p.pending && <div className="self-start text-[12.5px] italic text-arm-desc">{p.who ?? "Заявитель"} отвечает…</div>}
       </div>
 
       {p.hints && p.call && (
@@ -242,7 +256,7 @@ export function ChatPanel(p: {
         </div>
         {voice.error && <div className="mb-1 text-[12px] text-arm-late">{voice.error}</div>}
         <div className="mb-1.5 flex flex-wrap gap-1">
-          {QUICK.map((q) => (
+          {(p.quick ?? QUICK).map((q) => (
             <button
               key={q}
               type="button"
@@ -261,7 +275,7 @@ export function ChatPanel(p: {
             maxLength={1000}
             value={text}
             disabled={!active}
-            placeholder={active ? "Ваш вопрос заявителю… (Enter — сказать)" : "Разговор не идёт"}
+            placeholder={active ? (p.who ? "Что сказать службе… (Enter — сказать)" : "Ваш вопрос заявителю… (Enter — сказать)") : "Разговор не идёт"}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.altKey) {

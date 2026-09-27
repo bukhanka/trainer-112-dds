@@ -19,6 +19,14 @@ export async function ownCall(user: SessionUser, callId: string) {
   return call;
 }
 
+/** A call from the work-off row of the student's own card (Call.kind = SERVICE_OUT). */
+export async function ownServiceCall(user: SessionUser, callId: string) {
+  const call = await db.call.findUnique({ where: { id: callId } });
+  if (!call || call.kind !== "SERVICE_OUT" || !call.incidentId) return null;
+  const own = await ownIncident(user, call.incidentId);
+  return own ? { call, ...own } : null;
+}
+
 export async function ownIncident(user: SessionUser, incidentId: string) {
   const incident = await db.incident.findUnique({ where: { id: incidentId } });
   if (!incident?.createdBySeatId) return null;

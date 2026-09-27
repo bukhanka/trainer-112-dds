@@ -33,6 +33,10 @@ export type CallLine = {
   text: string;
   at: string;
   revealed?: string[]; // fact keys the caller disclosed in this line
+  /** Not words but what the operator hears: silence on the line, or short beeps after the caller is cut off. */
+  noise?: "silence" | "hangup";
+  /** A service's duty dispatcher took the card in this line (a call from the work-off row). */
+  accepted?: boolean;
 };
 
 /** A fact the caller knows and how the card should reflect it once said. */
@@ -93,4 +97,6 @@ export type ScenarioTruth = {
   descriptionKeywords: string[]; // regex sources; each must be in the first 100 characters
   traps: string[];
   emptyCall?: "noContact" | "dropped"; // the right answer is an empty card
+  /** a repeat call about the incident of this scenario (ticket reference): the card must be linked to that one */
+  repeatOf?: string;
 };

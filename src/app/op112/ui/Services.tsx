@@ -14,7 +14,7 @@ export type Plate = {
   addedAt?: string;
   phoneOnly?: boolean;
 };
-export type ServiceItem = { id: number; shortName: string; fullName: string | null; phoneOnly?: boolean };
+export type ServiceItem = { id: number; shortName: string; fullName: string | null; phoneOnly?: boolean; phone?: string };
 
 const STATUS_RU: Record<string, string> = {
   ADDED: "Добавлена",
@@ -37,8 +37,16 @@ export function ServicesBar(p: {
   onRemove: (id: number) => void;
   onSave: () => void;
   onWorked: () => void;
+  /** «Дополнить» is open: the main button saves the supplement instead of «отработана». */
+  supplement?: boolean;
+  onSupplementSave?: () => void;
+  /** After «сохранить»: the handset on a grey plate calls the service (a row of the work-offs). */
+  onDial?: (serviceId: number) => void;
   onImportant: () => void;
   onNotAvailable: (what: string) => void;
+  /** «создать связь» (Alt+W); the button is lit while the card is linked to a main one */
+  onLink: () => void;
+  linkedNumber?: number | null;
 }) {
   return (
     <footer
@@ -56,7 +64,26 @@ export function ServicesBar(p: {
             {p.saved ? (
               <IconChevronUp className="absolute left-1 top-0.5 h-3.5 w-3.5 opacity-80" />
             ) : (
-              <IconPhone className="absolute left-1 top-1 h-3.5 w-3.5 opacity-90" />
+              // Before saving the handset transfers the caller to the service (the instruction's «Управление звонком»).
+              <button
+                type="button"
+                title="Позвонить"
+                onClick={() => p.onNotAvailable("Перевод заявителя в службу")}
+                className="absolute left-1 top-1 p-0 opacity-90 hover:opacity-100"
+              >
+                <IconPhone className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {p.saved && s.phoneOnly && p.onDial && (
+              <button
+                type="button"
+                title="Позвонить: служба получает карточку только по телефону"
+                aria-label={`Позвонить: ${s.shortName}`}
+                onClick={() => p.onDial?.(s.serviceId)}
+                className="absolute right-1 top-0.5 p-0.5 hover:text-arm-orange"
+              >
+                <IconPhone className="h-4 w-4" />
+              </button>
             )}
             {!p.saved && !s.auto && (
               <button type="button" onClick={() => p.onRemove(s.serviceId)} title="Убрать службу" className="absolute right-1 top-0.5 p-0.5 hover:text-arm-dark">
@@ -85,7 +112,11 @@ export function ServicesBar(p: {
       </div>
       <div className="flex items-center gap-1.5">
         <span data-hk="Alt+S" className="flex">
-          {p.saved ? (
+          {p.saved && p.supplement ? (
+            <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" onClick={p.onSupplementSave}>
+              сохранить
+            </button>
+          ) : p.saved ? (
             <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" onClick={p.onWorked}>
               отработана
             </button>
@@ -95,9 +126,17 @@ export function ServicesBar(p: {
             </button>
           )}
         </span>
-        <button type="button" className="arm-bar-btn" title="Создать связь (Alt+W)" onClick={() => p.onNotAvailable("Связи карточек")}>
-          <IconLink className="h-6 w-6" />
-        </button>
+        <span data-hk="Alt+W" className="flex">
+          <button
+            type="button"
+            className={`arm-bar-btn ${p.linkedNumber ? "bg-white !text-arm-blue" : ""}`}
+            aria-pressed={Boolean(p.linkedNumber)}
+            title={p.linkedNumber ? `Связана с карточкой № ${p.linkedNumber} (Alt+W)` : "Создать связь (Alt+W)"}
+            onClick={p.onLink}
+          >
+            <IconLink className="h-6 w-6" />
+          </button>
+        </span>
         <button type="button" className="arm-bar-btn" title="Напоминание (Alt+B)" onClick={() => p.onNotAvailable("Напоминание")}>
           <IconStopwatch className="h-6 w-6" />
         </button>
@@ -280,6 +319,38 @@ export function EmptyCardModal(p: { reason: "noContact" | "dropped"; busy: boole
       <div className="px-5 py-4 text-[14px] text-arm-dark">
         Причина: <b>{p.reason === "noContact" ? "нет контакта" : "срыв звонка"}</b>. Пустая карточка сразу получает статус «Завершена», службы не
         оповещаются.
+      </div>
+    </Modal>
+  );
+}
+
+export function PhoneWarnModal(p: { missing: { name: string; reason: "call" | "record" }[]; busy: boolean; onConfirm: () => void; onBack: () => void }) {
+  return (
+    <Modal
+      title="Не все службы оповещены по телефону"
+      onClose={p.onBack}
+      width="max-w-[600px]"
+      footer={
+        <>
+          <button type="button" autoFocus className="border border-[#8f989e] px-5 py-2.5 text-[15px] text-arm-dark hover:bg-[#f3f5f6]" onClick={p.onBack}>
+            вернуться к отработкам
+          </button>
+          <button type="button" disabled={p.busy} className="bg-arm-orange px-5 py-2.5 text-[15px] font-bold text-white disabled:opacity-60" onClick={p.onConfirm}>
+            отработана без звонка
+          </button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2 px-5 py-4 text-[14px] text-arm-dark">
+        <p>Эти службы получают карточку только по телефону, система их не оповещает:</p>
+        <ul className="list-disc pl-5">
+          {p.missing.map((m) => (
+            <li key={m.name}>
+              <b>{m.name}</b> — {m.reason === "call" ? "не позвонили или карточку не приняли" : "звонок был, отработка не записана (кто принял, суть)"}
+            </li>
+          ))}
+        </ul>
+        <p className="text-arm-desc">Позвоните из строки отработки (Alt+O) и запишите, кто принял. Если закрыть карточку сейчас, разбор отметит службу как не оповещённую.</p>
       </div>
     </Modal>
   );

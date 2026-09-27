@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mockOpening, mockReply, type Persona } from "./caller";
+import { callerOpening, lineTurn, mockOpening, mockReply, NOISE_TEXT, noiseLines, type Persona } from "./caller";
 import { askedTopics, expectationOfFact, factCards, findAsked, spokenFact, statusOfRole, topicsOfFact } from "./facts";
 import type { CallLine } from "./types";
 
@@ -138,5 +138,59 @@ describe("what counts as said", () => {
     expect(statusOfRole("мама ребёнка")).toBe("родственник");
     expect(statusOfRole("медсестра")).toBeUndefined();
     expect(statusOfRole("мужчина с собакой")).toBe("очевидец");
+  });
+});
+
+describe("a silent line and a call that breaks off («нет контакта», «срыв звонка»)", () => {
+  const op = (text: string): CallLine => ({ role: "trainee", text, at });
+  const silent: Persona = { ...persona, line: "silent", dropAfter: 3 };
+  const drops: Persona = {
+    ...persona,
+    hiddenAddress: undefined,
+    visibleAddress: "улица Берзарина, дом 21, во дворе",
+    line: "drops",
+    dropAfter: 3,
+    dropLine: "Я же сказала — Берзарина, двадцать од…",
+  };
+
+  it("a silent line opens with silence and answers with silence, never with words", async () => {
+    const opening = await callerOpening(silent);
+    expect(opening).toMatchObject({ text: NOISE_TEXT.silence, noise: "silence", revealed: [] });
+    expect(lineTurn(silent, [], "Служба 112, говорите!")).toEqual({ kind: "silence", hangup: false });
+    const lines = noiseLines({ kind: "silence", hangup: false }, at);
+    expect(lines).toEqual([{ role: "counterpart", text: NOISE_TEXT.silence, at, revealed: [], noise: "silence" }]);
+  });
+
+  it("after the set number of tries the silent caller hangs up", () => {
+    const history = [op("Алло?"), op("Говорите, вас не слышно")];
+    expect(lineTurn(silent, history, "Перезвоните, пожалуйста")).toEqual({ kind: "silence", hangup: true });
+    expect(noiseLines({ kind: "silence", hangup: true }, at).map((l) => l.noise)).toEqual(["silence", "hangup"]);
+  });
+
+  it("a breaking line breaks when the address is asked again after the caller has named it", () => {
+    const named: CallLine[] = [op("Назовите адрес"), said(drops.visibleAddress, ["address"])];
+    expect(lineTurn(drops, named, "Как вас зовут?")).toEqual({ kind: "talk" });
+    expect(lineTurn(drops, named, "Уточните номер дома, какой подъезд?")).toEqual({ kind: "drop", words: drops.dropLine });
+    expect(lineTurn(drops, [], "Назовите адрес")).toEqual({ kind: "talk" });
+  });
+
+  it("a breaking line also breaks on its n-th operator line; the break ends with the beeps", () => {
+    const history = [op("Что случилось?"), op("Есть пострадавшие?")];
+    const turn = lineTurn(drops, history, "Как вас зовут?");
+    expect(turn).toEqual({ kind: "drop", words: drops.dropLine });
+    const lines = noiseLines(turn as Exclude<typeof turn, { kind: "talk" }>, at);
+    expect(lines.map((l) => l.text)).toEqual([drops.dropLine, NOISE_TEXT.hangup]);
+    expect(lines[0].noise).toBeUndefined();
+    expect(lines[1].noise).toBe("hangup");
+  });
+
+  it("a written opening is said as it is, with or without a model", async () => {
+    const early: Persona = { ...persona, line: "drops", dropAfter: 1, opening: "Алло! Алло, это сто двенадцать? Тут у нас…" };
+    expect((await callerOpening(early)).text).toBe("Алло! Алло, это сто двенадцать? Тут у нас…");
+    expect(lineTurn(early, [], "Служба 112, что случилось?").kind).toBe("drop");
+  });
+
+  it("an ordinary caller always talks", () => {
+    expect(lineTurn(persona, [op("Назовите адрес"), said("ул. Грина", ["address"])], "Уточните адрес")).toEqual({ kind: "talk" });
   });
 });

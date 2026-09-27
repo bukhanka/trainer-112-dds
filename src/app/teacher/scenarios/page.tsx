@@ -106,7 +106,7 @@ export default async function ScenariosPage(props: PageProps<"/teacher/scenarios
                     <span className="font-medium">{s.title}</span>
                     <span className="block text-xs text-arm-desc">
                       {s.category} · сложность {s.difficulty} · {s.place || "район не определён"} ·{" "}
-                      {s.ticketRef ? `билет ${s.ticketRef}` : s.source === "generated" ? "сгенерирован ИИ" : "свой"} · изменён {formatDate(s.updatedAt)}
+                      {s.source === "instruction" ? `по инструкции оператора, ${s.ticketRef}` : s.ticketRef ? `билет ${s.ticketRef}` : s.source === "generated" ? "сгенерирован ИИ" : "свой"} · изменён {formatDate(s.updatedAt)}
                     </span>
                   </span>
                   <span className="text-xs tabular-nums text-arm-desc">

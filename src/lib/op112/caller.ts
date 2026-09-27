@@ -130,9 +130,50 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
   }
 }
 
+// ─── Silent and breaking lines («нет контакта» / «срыв звонка») ─────────────
+
+/** What the operator hears on a silent line, and the beeps once the other side is gone. Never spoken aloud. */
+export const NOISE_TEXT = {
+  silence: "…тишина, в трубке только шум…",
+  hangup: "…короткие гудки: связь прервалась…",
+} as const;
+
+export type LineTurn = { kind: "talk" } | { kind: "silence"; hangup: boolean } | { kind: "drop"; words?: string };
+
+/**
+ * How the line meets the operator's next line — by rules only, so a task behaves the same with and without a
+ * model. A silent line stays silent, and after `dropAfter` tries (3 by default) the other side hangs up. A breaking
+ * line breaks on the `dropAfter`-th operator line (2 by default) or when the operator asks for the address a second
+ * time — counted by the operator's own questions, since a model does not always report what it said.
+ */
+export function lineTurn(p: Persona, history: CallLine[], operatorText: string): LineTurn {
+  const asked = history.filter((m) => m.role === "trainee");
+  const turn = asked.length + 1;
+  if (p.line === "silent") return { kind: "silence", hangup: turn >= (p.dropAfter ?? 3) };
+  if (p.line !== "drops") return { kind: "talk" };
+  const aboutAddress = (text: string) => askedTopics(text).some((t) => t === "address" || t === "addressExact");
+  const named = asked.some((m) => aboutAddress(m.text)) || history.some((m) => m.revealed?.includes("address"));
+  return turn >= (p.dropAfter ?? 2) || (named && aboutAddress(operatorText)) ? { kind: "drop", words: p.dropLine } : { kind: "talk" };
+}
+
+/** The lines the operator gets for a turn that is not a reply: silence, or the last words and the beeps. */
+export function noiseLines(turn: Exclude<LineTurn, { kind: "talk" }>, at: string): CallLine[] {
+  if (turn.kind === "silence") {
+    const silence: CallLine = { role: "counterpart", text: NOISE_TEXT.silence, at, revealed: [], noise: "silence" };
+    return turn.hangup ? [silence, { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" }] : [silence];
+  }
+  return [
+    ...(turn.words ? [{ role: "counterpart" as const, text: turn.words, at, revealed: [] }] : []),
+    { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" },
+  ];
+}
+
 /** First words when the operator picks up. */
-export async function callerOpening(p: Persona): Promise<CallerReply> {
+export async function callerOpening(p: Persona): Promise<CallerReply & { noise?: "silence" }> {
+  if (p.line === "silent") return { text: NOISE_TEXT.silence, revealed: [], noise: "silence" };
   const cards = factCards(p);
+  // A written opening (a call that breaks mid-sentence) is said as is, with or without a model.
+  if (p.opening?.trim()) return { text: p.opening.trim(), revealed: guessRevealed(p.opening, cards) };
   const line = await modelLine(
     [
       { role: "system", content: systemPrompt(p, cards) },

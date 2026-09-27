@@ -9,7 +9,16 @@ export const DEFAULT_DDS_SERVICE = "Поселение Вороновское";
 
 export type FormGroup = { id: string; name: string; members: { id: string; fullName: string }[] };
 export type FormService = { id: number; shortName: string; fullName: string | null; kind: string };
-export type FormScenario = { id: string; title: string; category: string; difficulty: number; okrug: string | null; district: string | null };
+export type FormScenario = {
+  id: string;
+  title: string;
+  category: string;
+  difficulty: number;
+  okrug: string | null;
+  district: string | null;
+  /** no ДДС card (a silent line, a repeat call): a task for the 112 place only */
+  only112?: boolean;
+};
 
 export type LessonFormOptions = {
   groups: FormGroup[];
@@ -23,15 +32,19 @@ export type LessonFormOptions = {
   locations: LocationGroup[];
 };
 
-/** Scenarios a lesson may deal, with their location: approved ones, and drafts with an approved caller (they play at 112 places only). */
+/**
+ * Scenarios a lesson may deal, with their location: approved ones, and drafts with an approved caller (they play
+ * at 112 places only). An approved scenario without a ДДС card (a silent line, a call that breaks off) is for the
+ * 112 place only too.
+ */
 export async function dealableScenarios(): Promise<CoverageScenario[]> {
   const rows = await db.scenario.findMany({
     where: { OR: [{ status: "APPROVED" }, { status: "DRAFT", approvedSections: { has: "caller" } }] },
-    select: { id: true, category: true, status: true, truth: true },
+    select: { id: true, category: true, status: true, truth: true, ddsCard: true },
   });
   return rows.map((s) => {
     const place = scenarioPlace(s.truth);
-    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved: s.status === "APPROVED" };
+    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved: s.status === "APPROVED" && s.ddsCard !== null };
   });
 }
 
@@ -51,7 +64,7 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
     db.scenario.findMany({
       where: { status: "APPROVED" },
       orderBy: [{ category: "asc" }, { difficulty: "asc" }, { title: "asc" }],
-      select: { id: true, title: true, category: true, difficulty: true },
+      select: { id: true, title: true, category: true, difficulty: true, ddsCard: true },
     }),
     db.scenario.findMany({ where: { status: { not: "ARCHIVED" } }, distinct: ["category"], select: { category: true } }),
     dealableScenarios(),
@@ -74,7 +87,12 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
         .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru")),
     })),
     services,
-    scenarios: scenarios.map((s) => ({ ...s, okrug: placeOf.get(s.id)?.okrug ?? null, district: placeOf.get(s.id)?.district ?? null })),
+    scenarios: scenarios.map(({ ddsCard, ...s }) => ({
+      ...s,
+      okrug: placeOf.get(s.id)?.okrug ?? null,
+      district: placeOf.get(s.id)?.district ?? null,
+      ...(ddsCard === null ? { only112: true } : {}),
+    })),
     categories: categoryRows.map((c) => c.category).sort((a, b) => a.localeCompare(b, "ru")),
     defaultServiceId: defaultService?.id ?? null,
     coverage,
