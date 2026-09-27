@@ -22,9 +22,16 @@ export function ClockBlock({ seat, offset }: { seat: SeatInfo; offset: number })
           </span>
           <Monitor className="h-3 w-3 shrink-0" />
           <Gear className="h-3 w-3 shrink-0" />
-          <span title="Памятка: статусы ставятся по докладам бригады; «Не принята» и «Отказ» — с причиной и кому передано">
+          <a
+            href="/help#dds"
+            target="_blank"
+            rel="noopener"
+            aria-label="Справка: памятка диспетчера"
+            title="Справка: статусы, нормативы 30 секунд и 3 минуты, телефон — откроется в новой вкладке"
+            className="hover:text-white"
+          >
             <Help className="h-3 w-3 shrink-0" />
-          </span>
+          </a>
           <Link href="/" title="Выйти с рабочего места в кабинет">
             <Runner className="h-3 w-3 shrink-0" />
           </Link>

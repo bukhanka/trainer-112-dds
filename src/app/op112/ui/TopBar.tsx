@@ -59,7 +59,16 @@ export function TopBar(p: Props) {
           readOnly
           extraIcons={
             <>
-              <IconQuestion className="h-3.5 w-3.5" />
+              <a
+                href="/help#op112"
+                target="_blank"
+                rel="noopener"
+                aria-label="Справка: памятка оператора 112"
+                title="Справка: порядок работы и горячие клавиши — откроется в новой вкладке"
+                className="hover:text-arm-blue"
+              >
+                <IconQuestion className="h-3.5 w-3.5" />
+              </a>
               <IconPin className="h-3.5 w-3.5" />
             </>
           }

@@ -9,7 +9,7 @@ export type NavItem = { href: string; label: string };
 export function AppShell({ user, nav, children }: { user: SessionUser; nav: NavItem[]; children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="flex flex-wrap items-center gap-x-6 gap-y-2 bg-arm-dark px-4 py-2 text-white">
+      <header className="flex flex-wrap items-center gap-x-6 gap-y-2 bg-arm-dark px-4 py-2 text-white print:hidden">
         <Link href="/" className="text-lg font-bold">
           112 · Тренажёр
         </Link>
@@ -29,7 +29,7 @@ export function AppShell({ user, nav, children }: { user: SessionUser; nav: NavI
           </form>
         </div>
       </header>
-      <main className="flex-1 p-4 sm:p-6">{children}</main>
+      <main className="flex-1 p-4 sm:p-6 print:p-0">{children}</main>
     </div>
   );
 }
