@@ -5,7 +5,7 @@
  */
 import type { Call, Prisma } from "@prisma/client";
 import { inBackground } from "@/lib/ai/background";
-import { llmConfigured } from "@/lib/ai/provider";
+import { aiOffNote, llmConfigured } from "@/lib/ai/provider";
 import { formatAddress } from "@/lib/board/address";
 import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
@@ -65,7 +65,7 @@ function knownAbbreviations(): Promise<string[]> {
  */
 function clarityPart(basis: string | null, existing: { criteria: unknown; aiDraft: unknown } | null) {
   if (!basis) return { check: null, ask: null };
-  if (!llmConfigured()) return { check: clarityAiUnavailable("ИИ-проверка не выполнялась: модель не настроена", basis), ask: null };
+  if (!llmConfigured()) return { check: clarityAiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`, basis), ask: null };
   const prev = existing ? readCriteria(existing.criteria).find((c) => c.code === CLARITY_AI_CODE && c.basis === basis && c.ok !== null) : undefined;
   if (prev) return { check: prev, ask: null };
   const asked = (existing?.aiDraft as Draft)?.aiCheck;

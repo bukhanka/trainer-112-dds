@@ -7,7 +7,7 @@
  * «не применимо» (ok = null) and do not affect the score.
  */
 import { z } from "zod";
-import { aiMode, chatJson, type ChatMessage } from "@/lib/ai/provider";
+import { aiMode, aiOffNote, chatJson, type ChatMessage } from "@/lib/ai/provider";
 import { guidanceText, type CorrectionContext, type GuidanceRow } from "@/lib/review/corrections";
 import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller, type IncidentFlags } from "@/lib/incident/types";
 import { compareStreets as compareKnownStreets } from "@/lib/routing/address";
@@ -507,7 +507,7 @@ export function op112AiMessages(input: EvalInput, guidance?: Op112Guidance): Cha
 
 /** Transcript vs card by the model. Returns «не применимо» when no model is configured or it fails. */
 export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance): Promise<CriterionResult[]> {
-  if (!aiEnabled()) return aiUnavailable("ИИ-проверка не выполнялась: модель не настроена");
+  if (!aiEnabled()) return aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`);
   if (input.card.empty) return [];
   try {
     const res = await chatJson(op112AiMessages(input, guidance), aiSchema, { temperature: 0, maxTokens: 700 });

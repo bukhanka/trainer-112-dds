@@ -6,6 +6,7 @@ import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from 
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
+import { aiOffNote } from "@/lib/ai/provider";
 import { AI_CODES, aiEnabled, aiUnavailable, evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, type EvalInput } from "./evaluate";
 import { regionOf, treesFor, typeNames } from "./panels";
 import { lessonSettings } from "./seat";
@@ -121,7 +122,7 @@ async function grade(incidentId: string): Promise<{ attemptId: string; aiPending
   const { input } = loaded;
   const rules = evaluateOp112Rules(input);
   const aiPending = aiEnabled() && !input.card.empty;
-  const criteria: CriterionResult[] = [...rules, ...(aiPending || input.card.empty ? [] : aiUnavailable("ИИ-проверка не выполнялась: модель не настроена"))];
+  const criteria: CriterionResult[] = [...rules, ...(aiPending || input.card.empty ? [] : aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`))];
   const score = computeScore(criteria, await activeWeights());
   const attempt = await db.attempt.create({
     data: {

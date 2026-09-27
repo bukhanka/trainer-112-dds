@@ -19,7 +19,7 @@ export function HealthPanel({ initial }: { initial: Health }) {
           {error ? " · нет связи с сервером" : " · раз в 5 с"}
         </span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label="База данных" value={data.db.ok ? `работает · ${data.db.ms} мс` : "недоступна"} bad={!data.db.ok} />
         <Tile label="Нагрузка CPU (1 мин)" value={`${loadPct} % · ${data.cpus} ядер`} bad={loadPct > 90} />
         <Tile label="Память" value={`${data.memory.usedMb} из ${data.memory.totalMb} МБ · приложение ${data.memory.processMb} МБ`} />
@@ -33,18 +33,6 @@ export function HealthPanel({ initial }: { initial: Health }) {
           bad={data.lastBackup?.status === "failed"}
         />
       </div>
-      <section className="rounded border bg-white p-4 text-sm">
-        <h2 className="mb-2 font-semibold">Модели ИИ — задаются в .env, без правки кода</h2>
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-          <dt className="text-arm-desc">Языковая модель</dt>
-          <dd>{data.ai.llm}</dd>
-          <dt className="text-arm-desc">Распознавание речи</dt>
-          <dd>{data.ai.stt}</dd>
-          <dt className="text-arm-desc">Синтез речи</dt>
-          <dd>{data.ai.tts}</dd>
-        </dl>
-        <p className="mt-2 text-xs text-arm-desc">mock — режим заглушки без сети. Работа приложения: {data.uptimeMin} мин.</p>
-      </section>
     </div>
   );
 }

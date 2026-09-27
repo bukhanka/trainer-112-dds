@@ -1,7 +1,8 @@
 /**
  * Nightly reset of the public demo stand (DEMO_MODE=true): whatever reviewers created or changed during
  * the day is removed, and the stand returns to its initial state — demo accounts, reference data,
- * ticket scenarios as delivered, default weights and norms, demo lessons.
+ * ticket scenarios as delivered, default weights and norms, demo lessons; every service stopped by an
+ * administrator runs again and the access policy returns to its defaults (.env).
  *
  *   node dist/demo-reset.js                 (in the Docker image; the scheduler runs it daily)
  *   pnpm exec tsx prisma/demo-reset.ts      (development)
@@ -31,6 +32,8 @@ export async function resetDemo(db: PrismaClient) {
   for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
     await db.systemSetting.upsert({ where: { key }, update: { value: value as never }, create: { key, value: value as never } });
   }
+  // No switch row — the service runs; no policy row — the .env default applies (src/lib/admin/services.ts, src/lib/auth/policy.ts).
+  const switches = await db.systemSetting.deleteMany({ where: { OR: [{ key: { startsWith: "service." } }, { key: { startsWith: "policy." } }] } });
 
   // Accounts, group membership, reference data; ticket scenarios are restored to the delivered text.
   await seedBase(db);
@@ -40,7 +43,7 @@ export async function resetDemo(db: PrismaClient) {
     data: {
       action: "demo.reset",
       actor: "system",
-      after: { lessons: lessons.count, scenarios: scenarios.count, groups: groups.count, users: users.count },
+      after: { lessons: lessons.count, scenarios: scenarios.count, groups: groups.count, users: users.count, switches: switches.count },
     },
   });
   console.log(`demo-reset: removed ${lessons.count} lessons, ${scenarios.count} scenarios, ${groups.count} groups, ${users.count} users; demo rebuilt`);

@@ -5,6 +5,7 @@
  *
  *   TTS_PROVIDER=google-live, TTS_LIVE_MODEL, TTS_LIVE_LOCATION (us-central1), TTS_VOICE_MALE / TTS_VOICE_FEMALE
  */
+import { countUsage } from "../admin/usage";
 import { googleAccessToken, googleProject } from "./google-auth";
 
 export const LIVE_SAMPLE_RATE = 24_000;
@@ -37,6 +38,7 @@ type LiveMessage = {
  * to another voice); errors after the first chunk just end the stream.
  */
 export async function liveVoiceStream(text: string, gender: "male" | "female", manner = "calm"): Promise<ReadableStream<Uint8Array>> {
+  countUsage("ai.voice");
   const location = process.env.TTS_LIVE_LOCATION ?? "us-central1";
   const model = process.env.TTS_LIVE_MODEL ?? "gemini-live-2.5-flash-native-audio";
   const voice = (gender === "male" ? process.env.TTS_VOICE_MALE : process.env.TTS_VOICE_FEMALE) ?? VOICES[gender];

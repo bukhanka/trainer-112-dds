@@ -7,6 +7,7 @@
  * the 30-second norm ticks for every one of them (customer's answer #709).
  */
 import type { Prisma, Seat } from "@prisma/client";
+import { serviceOn } from "@/lib/admin/services";
 import { db } from "@/lib/db";
 import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
@@ -29,9 +30,12 @@ export type FlowInfo = {
   /** Seconds until the next generated card; null when the queue is full or cards come from students only. */
   nextCardInSec: number | null;
   noScenarios: boolean;
+  /** New cards are paused by the administrator (Состояние → Службы); open cards and calls go on. */
+  paused?: boolean;
 };
 
 export async function ensureDdsFlow(seatId: string, now = new Date()): Promise<FlowInfo> {
+  const paused = !(await serviceOn("ddsFlow"));
   return db.$transaction(
     async (tx) => {
       // One flow step per place at a time: two open tabs must not create two cards.
@@ -42,7 +46,7 @@ export async function ensureDdsFlow(seatId: string, now = new Date()): Promise<F
       const settings = settingsOf(seat.lesson.settings);
       if (seat.lesson.status !== "RUNNING") return { ...idle, maxQueue: settings.maxQueue };
 
-      const info = await maybeGenerate(tx, seat, settings, now);
+      const info = await maybeGenerate(tx, seat, settings, now, paused);
       await advanceBots(tx, seat, now);
       await phoneTick(tx, seat, settings, now);
       return info;
@@ -63,10 +67,12 @@ async function maybeGenerate(
   seat: Seat & { lesson: { id: string; settings: Prisma.JsonValue } },
   settings: LessonSettings,
   now: Date,
+  paused = false,
 ): Promise<FlowInfo> {
   const queue = await openCount(tx, seat);
   const base: FlowInfo = { running: true, queue, maxQueue: settings.maxQueue, nextCardInSec: null, noScenarios: false };
   if (settings.cardSource === "students") return base;
+  if (paused) return { ...base, paused: true };
   if (queue >= settings.maxQueue) return base;
 
   const last = await tx.incident.findFirst({
