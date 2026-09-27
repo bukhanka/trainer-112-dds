@@ -1,6 +1,8 @@
 import { saveLessonForecasts } from "@/lib/adaptive/snapshot";
 import { db } from "@/lib/db";
-import { isPractice } from "@/lib/lessons/form";
+import { lessonCoverage } from "@/lib/lessons/coverage";
+import { isPractice, parseTeacherSettings } from "@/lib/lessons/form";
+import { dealableScenarios } from "@/lib/lessons/options";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 
 /** Start the lesson: from now on the workstations deliver cards and the plan is frozen. */
@@ -15,7 +17,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
 
   const seats = await db.seat.findMany({
     where: { lessonId: id },
-    select: { studentId: true, scenarioIds: true, student: { select: { fullName: true, isBlocked: true } } },
+    select: { studentId: true, role: true, scenarioIds: true, student: { select: { fullName: true, isBlocked: true } } },
   });
   if (!seats.length) return jsonError("В занятии нет ни одного места");
 
@@ -31,6 +33,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
       return jsonError(`Задания больше не утверждены: ${titles.join(", ") || "удалены"}. Откройте «Изменить» и снимите их или утвердите сценарии.`, 409);
     }
   }
+
+  // Places without tasks draw from the categories and location: they must have something to draw,
+  // or a ДДС place would sit silently with «Нет одобренных сценариев» (lessons/coverage.ts).
+  const coverage = lessonCoverage(await dealableScenarios(), parseTeacherSettings(lesson.settings), seats);
+  if (coverage.blocked) return jsonError(coverage.blocked, 409);
 
   // A student works at one place at a time: two running lessons would split the card flow.
   // Self-practice at the workstation does not count: the teacher's lesson takes over the place.

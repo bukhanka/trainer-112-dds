@@ -1,12 +1,15 @@
 import type { SessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { groupLocations, type LocationGroup } from "@/lib/scenarios/location";
+import { scenarioPlace } from "@/lib/scenarios/place";
 import { groupScope } from "@/lib/teacher/access";
+import type { CoverageScenario } from "./coverage";
 
 export const DEFAULT_DDS_SERVICE = "Поселение Вороновское";
 
 export type FormGroup = { id: string; name: string; members: { id: string; fullName: string }[] };
 export type FormService = { id: number; shortName: string; fullName: string | null; kind: string };
-export type FormScenario = { id: string; title: string; category: string; difficulty: number };
+export type FormScenario = { id: string; title: string; category: string; difficulty: number; okrug: string | null; district: string | null };
 
 export type LessonFormOptions = {
   groups: FormGroup[];
@@ -14,11 +17,27 @@ export type LessonFormOptions = {
   scenarios: FormScenario[];
   categories: string[];
   defaultServiceId: number | null;
+  /** What places without tasks can draw, for the counts and warnings of the form (lessons/coverage.ts). */
+  coverage: CoverageScenario[];
+  /** Okrugs and districts of approved scenarios, for the location of the lesson. */
+  locations: LocationGroup[];
 };
+
+/** Scenarios a lesson may deal, with their location: approved ones, and drafts with an approved caller (they play at 112 places only). */
+export async function dealableScenarios(): Promise<CoverageScenario[]> {
+  const rows = await db.scenario.findMany({
+    where: { OR: [{ status: "APPROVED" }, { status: "DRAFT", approvedSections: { has: "caller" } }] },
+    select: { id: true, category: true, status: true, truth: true },
+  });
+  return rows.map((s) => {
+    const place = scenarioPlace(s.truth);
+    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved: s.status === "APPROVED" };
+  });
+}
 
 /** Everything the lesson form offers: own groups, the service list, approved tasks. */
 export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFormOptions> {
-  const [groups, services, scenarios, categoryRows] = await Promise.all([
+  const [groups, services, scenarios, categoryRows, coverage] = await Promise.all([
     db.group.findMany({
       where: groupScope(user),
       orderBy: { name: "asc" },
@@ -35,7 +54,9 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
       select: { id: true, title: true, category: true, difficulty: true },
     }),
     db.scenario.findMany({ where: { status: { not: "ARCHIVED" } }, distinct: ["category"], select: { category: true } }),
+    dealableScenarios(),
   ]);
+  const placeOf = new Map(coverage.map((c) => [c.id, c]));
 
   const defaultService =
     services.find((s) => s.shortName === DEFAULT_DDS_SERVICE) ??
@@ -53,8 +74,10 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
         .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru")),
     })),
     services,
-    scenarios,
+    scenarios: scenarios.map((s) => ({ ...s, okrug: placeOf.get(s.id)?.okrug ?? null, district: placeOf.get(s.id)?.district ?? null })),
     categories: categoryRows.map((c) => c.category).sort((a, b) => a.localeCompare(b, "ru")),
     defaultServiceId: defaultService?.id ?? null,
+    coverage,
+    locations: groupLocations(coverage.filter((c) => c.approved)),
   };
 }

@@ -6,8 +6,11 @@ import { Button, LinkButton } from "@/components/ui";
 
 type Status = "DRAFT" | "RUNNING" | "FINISHED";
 
-/** Start / stop / copy / delete. Every action is confirmed and audited on the server. */
-export function LessonControls({ id, status, onChanged }: { id: string; status: Status; onChanged?: () => void }) {
+/**
+ * Start / stop / copy / delete. Every action is confirmed and audited on the server.
+ * startBlocked — why the lesson cannot start yet (places would get no cards); the server checks it again.
+ */
+export function LessonControls({ id, status, onChanged, startBlocked }: { id: string; status: Status; onChanged?: () => void; startBlocked?: string | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +43,12 @@ export function LessonControls({ id, status, onChanged }: { id: string; status: 
       <div className="flex flex-wrap justify-end gap-2">
         {status === "DRAFT" && (
           <>
-            <Button variant="success" disabled={busy} onClick={() => call("/start", "POST", "Начать занятие? После старта места, задания и настройки менять нельзя.")}>
+            <Button
+              variant="success"
+              disabled={busy || Boolean(startBlocked)}
+              title={startBlocked ?? undefined}
+              onClick={() => call("/start", "POST", "Начать занятие? После старта места, задания и настройки менять нельзя.")}
+            >
               ▶ Начать занятие
             </Button>
             <LinkButton href={`/teacher/lessons/${id}/edit`}>Изменить</LinkButton>

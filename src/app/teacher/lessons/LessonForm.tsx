@@ -3,8 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, Section, fieldClass, inputClass } from "@/components/ui";
+import { coverageWarnings, lessonCoverage } from "@/lib/lessons/coverage";
 import type { TeacherSettings } from "@/lib/lessons/form";
 import type { FormScenario, LessonFormOptions } from "@/lib/lessons/options";
+import { inLocation } from "@/lib/scenarios/location";
+import { CoverageNotice, LocationField } from "./ScenarioCoverage";
 
 type Role = "OP112" | "DDS";
 type SeatDraft = { included: boolean; role: Role; serviceId: number | null; scenarioIds: string[]; label: string };
@@ -54,14 +57,21 @@ export function LessonForm({
   const group = options.groups.find((g) => g.id === groupId);
   const members = group?.members ?? [];
 
-  // Tasks on offer: approved scenarios of the chosen categories, plus anything already assigned.
+  // Tasks on offer: approved scenarios of the chosen categories and location, plus anything already assigned.
   const assigned = new Set([...Object.values(seats).flatMap((s) => s.scenarioIds), ...shared]);
   const tasks: FormScenario[] = options.scenarios.filter(
-    (s) => !settings.categories.length || settings.categories.includes(s.category) || assigned.has(s.id),
+    (s) => ((!settings.categories.length || settings.categories.includes(s.category)) && inLocation(s, settings.location)) || assigned.has(s.id),
   );
   const taskNo = new Map(tasks.map((t, i) => [t.id, i + 1]));
 
   const included = members.filter((m) => seats[m.id]?.included);
+  // Will places without tasks get cards from these categories and this location? (lessons/coverage.ts)
+  const coverage = lessonCoverage(
+    options.coverage,
+    settings,
+    included.map((m) => ({ role: seats[m.id].role, scenarioIds: settings.sameCard ? shared : seats[m.id].scenarioIds })),
+  );
+  const approvedIn = new Map(coverage.counts.map((c) => [c.name, c.here]));
   const set = <K extends keyof TeacherSettings>(key: K, value: TeacherSettings[K]) => setSettings((s) => ({ ...s, [key]: value }));
   const patchSeat = (id: string, patch: Partial<SeatDraft>) => setSeats((all) => ({ ...all, [id]: { ...all[id], ...patch } }));
 
@@ -172,15 +182,17 @@ export function LessonForm({
               <div className="flex flex-wrap gap-2">
                 {options.categories.map((c) => {
                   const on = settings.categories.includes(c);
+                  const ready = approvedIn.get(c) ?? 0;
                   return (
                     <button
                       key={c}
                       type="button"
                       aria-pressed={on}
+                      title={`Утверждённых сценариев${settings.location ? " в выбранной локации" : ""}: ${ready}`}
                       onClick={() => set("categories", on ? settings.categories.filter((x) => x !== c) : [...settings.categories, c])}
                       className={`rounded-full border px-3 py-1 text-sm ${on ? "border-arm-blue bg-arm-blue text-white" : "border-arm-gray bg-white hover:border-arm-blue"}`}
                     >
-                      {c}
+                      {c} <span className={`tabular-nums ${on ? "opacity-80" : ready ? "text-arm-desc" : "text-amber-700"}`}>{ready}</span>
                     </button>
                   );
                 })}
@@ -188,8 +200,11 @@ export function LessonForm({
             ) : (
               <p className="text-sm text-arm-desc">Сценариев пока нет — категории появятся вместе с ними.</p>
             )}
-            <p className="mt-1 text-xs text-arm-desc">Ничего не выбрано — все утверждённые сценарии.</p>
+            <p className="mt-1 text-xs text-arm-desc">Ничего не выбрано — все утверждённые сценарии. Число — сколько утверждённых сценариев в категории.</p>
           </div>
+
+          <LocationField value={settings.location} locations={options.locations} onChange={(v) => set("location", v)} />
+          <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} />
 
           <fieldset>
             <legend className="mb-1 text-sm">Источник карточек</legend>
@@ -277,8 +292,8 @@ export function LessonForm({
           </ol>
         ) : (
           <p className="mb-3 text-sm text-arm-desc">
-            Утверждённых сценариев в выбранных категориях нет. Утвердите их в разделе «Сценарии» или снимите фильтр категорий — без заданий
-            карточки возьмутся из выбранных категорий.
+            Утверждённых сценариев в выбранных категориях{settings.location ? " и локации" : ""} нет — раздавать нечего. Утвердите их в разделе «Сценарии»
+            или измените категории и локацию.
           </p>
         )}
         {settings.sameCard && (
