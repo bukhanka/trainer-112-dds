@@ -283,6 +283,9 @@ model Incident {
   description     String?
   /// [{ at, author, text }]
   descriptionLog  Json      @default("[]")
+  /// «Журнал отработок» of the 112 operator after «сохранить»: calls to services not notified by the system
+  /// [{ id, at, operator, arm, serviceId?, service?, where?, phone?, acceptedBy?, summary?, callId? }]
+  workLog         Json      @default("[]")
   important       Boolean   @default(false) // «ЧС» mark
   openedAt        DateTime?
   savedAt         DateTime?

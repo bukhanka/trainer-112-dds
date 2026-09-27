@@ -10,6 +10,7 @@ import { readCriteria, readDraft, readOverrides } from "@/lib/review/draft";
 import { RUNNING_LOCK } from "@/lib/review/review";
 import { passRulesOf } from "@/lib/scoring/pass";
 import { getActiveWeights } from "@/lib/scoring/weights";
+import { readWorkLog } from "@/lib/op112/workoffs";
 import { attemptScope } from "@/lib/teacher/access";
 import { AttemptReview, type LearnedView } from "./AttemptReview";
 
@@ -27,7 +28,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
       scenario: { select: { title: true, category: true, difficulty: true } },
       reviewedBy: { select: { fullName: true } },
       incident: {
-        select: { id: true, number: true, address: true, description: true, caller: true, createdAt: true, openedAt: true, savedAt: true },
+        select: { id: true, number: true, address: true, description: true, caller: true, createdAt: true, openedAt: true, savedAt: true, workLog: true },
       },
       incidentService: {
         select: {
@@ -45,7 +46,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
     db.attempt.findMany({ where: { lessonId: attempt.lessonId, reviewStatus: "PENDING" }, orderBy: { createdAt: "asc" }, select: { id: true, createdAt: true } }),
     getActiveWeights(),
     attempt.kind === "OP112" && attempt.incidentId
-      ? db.call.findMany({ where: { incidentId: attempt.incidentId }, orderBy: { startedAt: "asc" }, select: { kind: true, messages: true, startedAt: true } })
+      ? db.call.findMany({ where: { incidentId: attempt.incidentId }, orderBy: { startedAt: "asc" }, select: { kind: true, messages: true, startedAt: true, counterpart: true } })
       : Promise.resolve([]),
   ]);
   // Teacher corrections the model checks of this attempt were shown (учёт правок).
@@ -124,6 +125,18 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
                   <dd>{formatDuration((attempt.incident.savedAt.getTime() - (attempt.incident.openedAt ?? attempt.incident.createdAt).getTime()) / 1000)}</dd>
                 </>
               )}
+              {attempt.kind === "OP112" && readWorkLog(attempt.incident.workLog).length > 0 && (
+                <>
+                  <dt className="text-arm-desc">Отработки</dt>
+                  <dd>
+                    {readWorkLog(attempt.incident.workLog).map((w) => (
+                      <div key={w.id}>
+                        {formatTime(w.at, true)} · {[w.service ?? w.where, w.phone, w.acceptedBy && `принял ${w.acceptedBy}`, w.summary].filter(Boolean).join(" · ")}
+                      </div>
+                    ))}
+                  </dd>
+                </>
+              )}
             </dl>
           </Section>
         )}
@@ -149,14 +162,16 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
 
         {calls.map((c, i) => {
           const messages = (Array.isArray(c.messages) ? c.messages : []) as Message[];
+          // A call from the work-off row: the other side is a service's duty dispatcher.
+          const service = c.kind === "SERVICE_OUT" ? ((c.counterpart ?? {}) as { service?: string }).service ?? "служба" : null;
           return (
-            <Section key={i} title={`Разговор с заявителем · ${formatTime(c.startedAt, true)}`}>
+            <Section key={i} title={`${service ? `Звонок в службу: ${service}` : "Разговор с заявителем"} · ${formatTime(c.startedAt, true)}`}>
               {messages.length ? (
                 <ol className="flex flex-col gap-1.5 text-sm">
                   {messages.map((m, j) => (
                     <li key={j} className={`max-w-[85%] rounded px-2 py-1 ${m.role === "trainee" ? "self-end bg-arm-blue/10" : "self-start bg-arm-panel"}`}>
                       <span className="block text-[11px] text-arm-desc">
-                        {m.role === "trainee" ? "Оператор" : "Заявитель"}
+                        {m.role === "trainee" ? "Оператор" : service ? "Дежурный" : "Заявитель"}
                         {m.at && <> · {formatTime(m.at, true)}</>}
                       </span>
                       {m.text}

@@ -1,3 +1,4 @@
+import { servicePhone } from "@/lib/dds/personas";
 import { op112User } from "@/lib/op112/access";
 import { OKRUGS } from "@/lib/op112/gazetteer";
 import { serviceCatalog } from "@/lib/op112/services";
@@ -12,8 +13,8 @@ export async function GET() {
     .map((s) => ({ okrug: s.okrug ?? "", district: s.district! }))
     .sort((a, b) => a.district.localeCompare(b.district, "ru"));
   return Response.json({
-    // «Серые» плашки: службы, которые получают карточку только по телефону.
-    services: services.map((s) => ({ id: s.id, shortName: s.shortName, fullName: s.fullName, phoneOnly: s.delivery === "PHONE" })),
+    // «Серые» плашки: службы, которые получают карточку только по телефону; телефон — для строки отработки.
+    services: services.map((s) => ({ id: s.id, shortName: s.shortName, fullName: s.fullName, phoneOnly: s.delivery === "PHONE", phone: servicePhone(s) })),
     okrugs: OKRUGS,
     districts,
   });

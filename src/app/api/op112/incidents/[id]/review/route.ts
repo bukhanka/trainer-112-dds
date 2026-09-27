@@ -49,7 +49,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
     score,
     criteria,
     overrides,
-    ai: attempt.incidentId && !isEmpty ? aiState(criteria) : "off",
+    // An empty card has no conversation to read: the model checks are not needed, whether a model is set or not.
+    ai: isEmpty ? "empty" : attempt.incidentId ? aiState(criteria) : "off",
     reviewStatus: attempt.reviewStatus,
     teacherComment: attempt.teacherComment,
     scenarioTitle: scenario?.title ?? null,

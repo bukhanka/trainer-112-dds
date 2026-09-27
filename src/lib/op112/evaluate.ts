@@ -18,6 +18,7 @@ import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./g
 import type { Persona } from "./caller";
 import type { ServiceLite } from "./routing";
 import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
+import { phoneCheck, type PhoneNotice } from "./workoffs";
 
 export type EvalCard = {
   caller: IncidentCaller;
@@ -48,6 +49,8 @@ export type EvalInput = {
   typeNames: Record<number, string>;
   /** flags the chosen panels can set at all (top buttons included); absent — any flag */
   settableFlags?: string[];
+  /** calls to the services working by phone and the work-off rows — known once the card is «отработана» */
+  phoneNotices?: PhoneNotice[] | null;
 };
 
 // ─── Reference answer ────────────────────────────────────────────────────────
@@ -603,7 +606,19 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     }
   }
 
+  // Services that get the card only by phone: called from the work-off row and written down.
+  const phone = phoneCheck(phonePlates(input), input.phoneNotices ?? null);
+  if (phone) out.push(phone);
+
   return out;
+}
+
+/** Plates of the card whose service is told only by phone (Service.delivery = PHONE, a grey plate). */
+export function phonePlates(input: Pick<EvalInput, "serviceIds" | "catalog">): { serviceId: number; name: string }[] {
+  return input.serviceIds.flatMap((id) => {
+    const s = input.catalog.find((c) => c.id === id);
+    return s?.delivery === "PHONE" ? [{ serviceId: id, name: s.shortName }] : [];
+  });
 }
 
 // ─── Model checks ────────────────────────────────────────────────────────────

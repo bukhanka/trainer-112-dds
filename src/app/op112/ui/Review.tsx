@@ -33,6 +33,7 @@ const AI_NOTE: Record<string, string> = {
   done: "ИИ-проверка разговора выполнена.",
   failed: "ИИ-проверка не удалась — остались проверки по правилам.",
   off: "Модель не настроена: проверки по правилам, ИИ-пункты не учитываются.",
+  empty: "Пустая карточка: проверки по правилам, ИИ-проверка разговора не нужна.",
 };
 
 export function ReviewModal(p: { incidentId: string; number: number | null; onClose: () => void; nextLabel?: string }) {

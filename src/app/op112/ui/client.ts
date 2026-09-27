@@ -9,6 +9,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
+    /** the whole error body, for errors that carry details (e.g. which services were not notified) */
+    public data?: Record<string, unknown>,
   ) {
     super(code);
   }
@@ -20,7 +22,7 @@ async function parse<T>(res: Response): Promise<T> {
     throw new ApiError(401, "unauthorized");
   }
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new ApiError(res.status, data.error ?? "error");
+  if (!res.ok) throw new ApiError(res.status, data.error ?? "error", data as Record<string, unknown>);
   return data;
 }
 
