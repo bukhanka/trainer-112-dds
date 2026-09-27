@@ -42,7 +42,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
   const st = LESSON_STATUS[lesson.status];
   // Before the start: will the places without tasks have anything to draw? (lessons/coverage.ts)
   const coverage = lesson.status === "DRAFT" ? lessonCoverage(await dealableScenarios(), settings, seats) : null;
-  const from = `из категорий${settings.location ? ` (${placeLabel(settings.location)})` : ""}`;
+  const from = `из категорий${settings.location ? `, округ или район: ${placeLabel(settings.location)}` : ""}`;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4">
@@ -64,7 +64,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
         actions={<LessonControls id={id} status={lesson.status} startBlocked={coverage?.blocked ?? null} />}
       />
 
-      {coverage && <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} />}
+      {coverage && <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} location={settings.location} />}
 
       {lesson.status !== "DRAFT" && (
         <div className="flex flex-wrap gap-2 text-sm">

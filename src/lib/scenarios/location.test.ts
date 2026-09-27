@@ -11,6 +11,10 @@ describe("location of a scenario", () => {
     });
   });
 
+  it("takes a district written by hand with «район» as the same district", () => {
+    expect(scenarioPlace({ address: { street: "улица Рогова", district: "район Щукино", okrug: "СЗАО" } })).toMatchObject({ district: "Щукино" });
+  });
+
   it("completes a bare street by the gazetteer", () => {
     expect(scenarioPlace({ address: { subject: "Москва", street: "улица Рогова", house: "12" } })).toMatchObject({ okrug: "СЗАО", district: "Щукино" });
     // The same name, another kind of street: Коломенская набережная is not Коломенская улица, both in Нагатинский Затон.

@@ -46,8 +46,6 @@ export function lessonCoverage(scenarios: CoverageScenario[], settings: Coverage
     const approved = scenarios.filter((s) => s.approved && s.category === name);
     return { name, approved: approved.length, here: approved.filter((s) => inLocation(s, location)).length };
   });
-  const empty = chosen.filter((c) => !(counts.find((x) => x.name === c)?.here ?? 0));
-
   const usable = scenarios.filter((s) => inCategories(s) && inLocation(s, location));
   const pool = { dds: usable.filter((s) => s.approved).length, op112: usable.length };
 
@@ -55,6 +53,11 @@ export function lessonCoverage(scenarios: CoverageScenario[], settings: Coverage
   const ddsDraw = settings.cardSource !== "students" && drawingSeats.some((s) => s.role === "DDS");
   const opDraw = drawingSeats.some((s) => s.role === "OP112");
   const drawing = ddsDraw || opDraw;
+
+  // A category is empty for the places that draw: ДДС places need approved scenarios, 112 places
+  // also play drafts whose caller is approved.
+  const gives = (c: string) => usable.some((s) => s.category === c && (s.approved || !ddsDraw));
+  const empty = chosen.filter((c) => !gives(c));
 
   let blocked: string | null = null;
   if ((ddsDraw && !pool.dds) || (opDraw && !pool.op112)) {

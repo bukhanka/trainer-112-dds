@@ -55,7 +55,7 @@ export function scenarioPlace(truth: unknown): ScenarioPlace {
     return { okrug: null, district: null, region: subject || null };
   }
   let okrug = normalizeOkrug(a.okrug) ?? (a.okrug?.trim() || null);
-  let district = a.district?.trim() || null;
+  let district = a.district?.trim().replace(/^(район|р-н|поселение|пос\.)\s+/i, "") || null;
   if (!okrug || !district) {
     const byStreet = placeOfStreet(a.street);
     if (byStreet && (!okrug || !byStreet.okrug || sameName(okrug, byStreet.okrug))) {

@@ -46,6 +46,10 @@ describe("will every place get cards", () => {
     const settings = { categories: ["медицина"] };
     expect(lessonCoverage(library, settings, [op]).blocked).toBeNull();
     expect(lessonCoverage(library, settings, [op, dds]).blocked).not.toBeNull();
+    // No false warning for a lesson of 112 places only.
+    const both = { categories: ["пожар", "медицина"] };
+    expect(coverageWarnings(lessonCoverage(library, both, [op]), both)).toEqual([]);
+    expect(lessonCoverage(library, both, [op, dds]).empty).toEqual(["медицина"]);
   });
 
   it("does not bother when every place has tasks, or ДДС places take cards from students only", () => {

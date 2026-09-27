@@ -200,11 +200,11 @@ export function LessonForm({
             ) : (
               <p className="text-sm text-arm-desc">Сценариев пока нет — категории появятся вместе с ними.</p>
             )}
-            <p className="mt-1 text-xs text-arm-desc">Ничего не выбрано — все утверждённые сценарии. Число — сколько утверждённых сценариев в категории.</p>
+            <p className="mt-1 text-xs text-arm-desc">Ничего не выбрано — все утверждённые сценарии. Число — сколько утверждённых сценариев в категории{settings.location ? " в выбранном округе или районе" : ""}.</p>
           </div>
 
           <LocationField value={settings.location} locations={options.locations} onChange={(v) => set("location", v)} />
-          <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} />
+          <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} location={settings.location} />
 
           <fieldset>
             <legend className="mb-1 text-sm">Источник карточек</legend>

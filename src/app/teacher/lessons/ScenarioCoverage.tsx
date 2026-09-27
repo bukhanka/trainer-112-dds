@@ -19,7 +19,7 @@ export function LocationField({
   const known = locations.some((g) => encodeLocation({ okrug: g.okrug }) === current || g.districts.some((d) => encodeLocation({ okrug: g.okrug, district: d.name }) === current));
   return (
     <label className="flex flex-col gap-1 text-sm">
-      Локация (необязательно)
+      Округ или район (необязательно)
       <select className={`${fieldClass} h-10 w-full sm:w-80`} value={current} onChange={(e) => onChange(decodeLocation(e.target.value))}>
         <option value="">любая</option>
         {current && !known && <option value={current}>{placeLabel(value)} — нет утверждённых сценариев</option>}
@@ -41,15 +41,16 @@ export function LocationField({
   );
 }
 
-/** The way out: drafts of the empty category to approve, or new drafts of it. */
-function WayOut({ category }: { category: string | undefined }) {
+/** The way out: drafts of the empty category to approve, or new drafts of it in the lesson's location. */
+function WayOut({ category, location }: { category: string | undefined; location: LocationFilter | null }) {
   const q = category ? `&category=${encodeURIComponent(category)}` : "";
+  const gen = new URLSearchParams({ ...(category ? { category } : {}), ...(location ? { loc: encodeLocation(location) } : {}) });
   return (
     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-medium">
       <Link href={`/teacher/scenarios?status=DRAFT${q}`} className="text-arm-blue underline">
         {category ? `Черновики «${category}» — на утверждение` : "Черновики в разделе «Сценарии» — на утверждение"}
       </Link>
-      <Link href={`/teacher/scenarios/generate${category ? `?category=${encodeURIComponent(category)}` : ""}`} className="text-arm-blue underline">
+      <Link href={`/teacher/scenarios/generate${gen.size ? `?${gen}` : ""}`} className="text-arm-blue underline">
         Сгенерировать сценарии по категории
       </Link>
     </div>
@@ -57,13 +58,13 @@ function WayOut({ category }: { category: string | undefined }) {
 }
 
 /** Before the start: categories that give nothing, or a plain «так занятие не начнётся» with the way out. */
-export function CoverageNotice({ coverage, warnings }: { coverage: Coverage; warnings: string[] }) {
+export function CoverageNotice({ coverage, warnings, location = null }: { coverage: Coverage; warnings: string[]; location?: LocationFilter | null }) {
   if (coverage.blocked) {
     return (
       <div role="alert" className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
         <p className="font-medium">Занятие не начнётся с такими настройками.</p>
         <p className="mt-1">{coverage.blocked}</p>
-        <WayOut category={coverage.empty[0]} />
+        <WayOut category={coverage.empty[0]} location={location} />
       </div>
     );
   }
@@ -75,7 +76,7 @@ export function CoverageNotice({ coverage, warnings }: { coverage: Coverage; war
           <li key={w}>{w}</li>
         ))}
       </ul>
-      <WayOut category={coverage.empty[0]} />
+      <WayOut category={coverage.empty[0]} location={location} />
     </div>
   );
 }

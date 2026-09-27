@@ -8,9 +8,16 @@ const store = vi.hoisted(() => ({
 }));
 
 const library = [
-  { id: "fire", category: "пожар", status: "APPROVED", truth: { address: { street: "улица Рогова", district: "Щукино", okrug: "СЗАО" } } },
-  { id: "med", category: "медицина", status: "DRAFT", truth: { address: { street: "улица Арбат", district: "Арбат", okrug: "ЦАО" } } },
+  { id: "fire", category: "пожар", status: "APPROVED", approvedSections: ["caller", "truth", "ddsCard"], truth: { address: { street: "улица Рогова", district: "Щукино", okrug: "СЗАО" } } },
+  { id: "med", category: "медицина", status: "DRAFT", approvedSections: [], truth: { address: { street: "улица Арбат", district: "Арбат", okrug: "ЦАО" } } },
 ];
+type Row = (typeof library)[number];
+type Where = { id?: { in: string[] }; status?: string; OR?: { status?: string; approvedSections?: { has: string } }[] };
+/** The two questions the start asks: approved tasks by id, and what places without tasks can draw. */
+const matches = (s: Row, w: Where): boolean =>
+  (!w.id || w.id.in.includes(s.id)) &&
+  (!w.status || s.status === w.status) &&
+  (!w.OR || w.OR.some((o) => (!o.status || s.status === o.status) && (!o.approvedSections || s.approvedSections.includes(o.approvedSections.has))));
 
 vi.mock("@/lib/db", () => ({
   db: {
@@ -22,7 +29,7 @@ vi.mock("@/lib/db", () => ({
       },
     },
     seat: { findMany: async ({ where }: { where: { lessonId?: string } }) => (where.lessonId ? store.seats : []) },
-    scenario: { findMany: async () => library },
+    scenario: { findMany: async ({ where }: { where: Where }) => library.filter((s) => matches(s, where)) },
   },
 }));
 vi.mock("@/lib/adaptive/snapshot", () => ({ saveLessonForecasts: async () => 0 }));
