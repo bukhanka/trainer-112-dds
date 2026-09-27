@@ -5,7 +5,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import type { ServiceStatus } from "@prisma/client";
 import { crewSecondsLeft, type CrewTimer } from "@/lib/dds/crew";
-import { fmtDate, fmtDateTime, fmtDuration, fmtHM, dateParts } from "@/lib/dds/format";
+import { fmtDate, fmtDateTime, fmtDuration, fmtHM, dateParts, plateCaption } from "@/lib/dds/format";
 import type { CardView, PlateView } from "@/lib/dds/view";
 import { getJson, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
@@ -328,6 +328,7 @@ function Plate(props: { plate: PlateView; open: boolean; editing: boolean; edita
   const grey = plate.delivery === "PHONE";
   // Own plate turns blue while its history or its status line is open, as on the screenshots.
   const bg = open || (plate.own && props.editing) ? "bg-arm-blue" : grey ? "bg-arm-plate-gray" : "bg-arm-desc";
+  const caption = plateCaption(plate.shortName);
   return (
     <div className={`relative flex w-[104px] shrink-0 flex-col items-center justify-center border-r border-[#3c464d] px-1 ${bg}`}>
       <button onClick={props.onToggle} aria-label={`История статусов: ${plate.fullName}`} className="leading-none text-white/90 hover:text-white">
@@ -339,8 +340,8 @@ function Plate(props: { plate: PlateView; open: boolean; editing: boolean; edita
         </button>
       ) : null}
       {plate.vis ? <span className="absolute left-1 top-0.5 text-[8px] font-bold">ВИС</span> : null}
-      <button onClick={props.onToggle} className={`mt-0.5 w-full truncate text-center text-[13px] font-bold ${plate.main ? "underline" : ""}`} title={plate.fullName}>
-        {plate.shortName}
+      <button onClick={props.onToggle} className="mt-0.5 w-full" title={plate.fullName === plate.shortName ? plate.shortName : `${plate.shortName} — ${plate.fullName}`}>
+        <span className={`line-clamp-2 break-words text-center font-bold leading-[1.1] ${caption.length > 11 ? "text-[11.5px]" : "text-[13px]"} ${plate.main ? "underline" : ""}`}>{caption}</span>
       </button>
       <div className="w-full truncate text-center text-[10px]" title={`${fmtHM(plate.lastAt)} ${plate.label}`}>
         <span className={plate.lastLate ? "font-bold text-arm-late" : ""}>{fmtHM(plate.lastAt)}</span> {plate.label}

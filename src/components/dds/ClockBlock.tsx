@@ -13,7 +13,7 @@ export function ClockBlock({ seat, offset }: { seat: SeatInfo; offset: number })
   return (
     <div className="flex w-full shrink-0 items-start justify-between gap-3 bg-arm-dark px-3 py-3 text-white lg:w-[400px]">
       <div className="min-w-0 pt-1">
-        <div className="text-[15px] font-bold whitespace-nowrap" suppressHydrationWarning>
+        <div className="text-[15px] font-bold" suppressHydrationWarning>
           {now ? fmtLongDate(now) : " "}
         </div>
         <div className="mt-1 flex items-center gap-2 text-[11px] text-white/85">
