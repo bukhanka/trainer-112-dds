@@ -4,7 +4,7 @@ import { studentRatings, teacherLessons } from "@/lib/adaptive/levels";
 import type { Rating } from "@/lib/adaptive/rating";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { countLabel, formatDateTime } from "@/lib/format";
 import { coverageWarnings, lessonCoverage } from "@/lib/lessons/coverage";
 import { parseTeacherSettings } from "@/lib/lessons/form";
 import { dealableScenarios } from "@/lib/lessons/options";
@@ -56,7 +56,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
         }
         subtitle={
           <>
-            {group?.name ?? "без группы"} · {seats.length} мест · карточки: {SOURCE_LABEL[settings.cardSource]} · зачёт: {describePassRules(passRulesOf(settings))}
+            {group?.name ?? "без группы"} · {countLabel(seats.length, ["место", "места", "мест"])} · карточки: {SOURCE_LABEL[settings.cardSource]} · зачёт: {describePassRules(passRulesOf(settings))}
             {settings.location && <> · локация: {placeLabel(settings.location)}</>}
             {settings.commentTemplate.trim() && <> · шаблон итогового комментария ДДС задан</>}
             {lesson.startedAt && <> · начато {formatDateTime(lesson.startedAt)}</>}

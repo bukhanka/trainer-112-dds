@@ -74,6 +74,9 @@ export function DdsShell({ children }: { children: React.ReactNode }) {
   const state = data as Ctx["state"];
   return (
     <DdsContext.Provider value={{ state, seatParam, offset: data.clientOffset, refresh: () => void mutate() }}>
+      <p className="bg-amber-100 px-3 py-2 text-[13px] leading-snug text-amber-900 md:hidden">
+        Рабочее место рассчитано на экран компьютера, как настоящий АРМ: на телефоне лента и карточка прокручиваются вбок — удобнее работать за компьютером.
+      </p>
       <SoftphoneLayer>{children}</SoftphoneLayer>
     </DdsContext.Provider>
   );

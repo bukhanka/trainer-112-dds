@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 import type { BoardState, CardRow, SeatState } from "@/lib/board/state";
-import { formatDuration, formatTime, shortName } from "@/lib/format";
+import { countLabel, formatDuration, formatTime, shortName } from "@/lib/format";
 
 type BoardResponse = BoardState & {
   lesson: { id: string; title: string; status: "DRAFT" | "RUNNING" | "FINISHED"; startedAt: string | null; finishedAt: string | null };
@@ -41,8 +41,14 @@ export function LessonBoard({ lessonId, status, projector = false }: { lessonId:
   });
   const now = useClock(skew);
 
-  if (!data) {
-    return <div className="p-6 text-sm text-arm-desc">{error ? "Не удалось загрузить доску. Повторяю…" : "Загружаю доску класса…"}</div>;
+  // Right after «Завершить» the cache still holds the running lesson: no «Идёт… опаздывают» for a finished one.
+  const stale = data && status === "FINISHED" && data.lesson.status !== "FINISHED";
+  if (!data || stale) {
+    return (
+      <div className="p-6 text-sm text-arm-desc">
+        {error ? "Не удалось загрузить доску. Повторяю…" : stale ? "Подвожу итог занятия…" : "Загружаю доску класса…"}
+      </div>
+    );
   }
 
   const running = data.lesson.status === "RUNNING";
@@ -64,7 +70,7 @@ export function LessonBoard({ lessonId, status, projector = false }: { lessonId:
           <span className="font-medium text-arm-desc">{data.lesson.status === "FINISHED" ? `Итог занятия · длительность ${formatDuration(elapsed)}` : "Занятие не начато"}</span>
         )}
         <span className="text-arm-desc">
-          · мест {s.seats} · работают {s.working}
+          · {countLabel(s.seats, ["место", "места", "мест"])} · работают {s.working}
         </span>
         {s.lateNow > 0 && <Chip red>опаздывают сейчас: {s.lateNow}</Chip>}
         <span className="mx-1 hidden h-5 w-px bg-arm-gray sm:block" />
@@ -79,7 +85,7 @@ export function LessonBoard({ lessonId, status, projector = false }: { lessonId:
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {data.seats.map((seat) => (
-          <SeatTile key={seat.id} seat={seat} now={now} lessonId={lessonId} />
+          <SeatTile key={seat.id} seat={seat} now={now} lessonId={lessonId} finished={data.lesson.status === "FINISHED"} />
         ))}
       </div>
 
@@ -105,7 +111,7 @@ function timerText(seat: SeatState, now: number) {
   return { sec, late };
 }
 
-function SeatTile({ seat, now, lessonId }: { seat: SeatState; now: number; lessonId: string }) {
+function SeatTile({ seat, now, lessonId, finished }: { seat: SeatState; now: number; lessonId: string; finished: boolean }) {
   const t = timerText(seat, now);
   const redFlags = seat.red.notNotified + seat.red.refused + seat.red.notFinished + seat.lateTyping + seat.missedCalls;
   const border = t?.late ? "border-arm-late ring-2 ring-arm-late/40" : seat.current || seat.timer ? "border-arm-blue" : "border-arm-gray/70";
@@ -140,7 +146,7 @@ function SeatTile({ seat, now, lessonId }: { seat: SeatState; now: number; lesso
         ) : seat.timer ? (
           <div className="font-medium">{seat.timer.label === "входящий вызов" ? "Звонит заявитель" : "Разговор с заявителем"}</div>
         ) : (
-          <div className="text-arm-desc">{is112 ? "Ждёт вызова" : "Нет открытых карточек"}</div>
+          <div className="text-arm-desc">{finished ? "Занятие завершено" : is112 ? "Ждёт вызова" : "Нет открытых карточек"}</div>
         )}
       </div>
 
@@ -272,7 +278,17 @@ function Projector({ data, now, elapsed, running, offline }: { data: BoardRespon
               </div>
               <div className="truncate text-2xl font-semibold">{shortName(seat.studentName)}</div>
               <div className={`mt-2 font-mono text-5xl font-bold tabular-nums ${t?.late ? "text-red-400" : "text-white"}`}>{t ? formatDuration(t.sec) : "—"}</div>
-              <div className="truncate text-base text-white/70">{seat.current ? seat.current.title : seat.timer ? seat.timer.label : seat.role === "OP112" ? "ждёт вызова" : "нет карточек"}</div>
+              <div className="truncate text-base text-white/70">
+                {seat.current
+                  ? seat.current.title
+                  : seat.timer
+                    ? seat.timer.label
+                    : data.lesson.status === "FINISHED"
+                      ? "занятие завершено"
+                      : seat.role === "OP112"
+                        ? "ждёт вызова"
+                        : "нет карточек"}
+              </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-base">
                 <span className="text-white/70">сдал {seat.counts.submitted}</span>
                 {seat.queue > 0 && <span className="rounded bg-amber-500/30 px-2">очередь {seat.queue}</span>}

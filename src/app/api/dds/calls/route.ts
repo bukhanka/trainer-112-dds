@@ -2,7 +2,7 @@ import { z } from "zod";
 import { badRequest, ddsContext } from "@/lib/dds/api";
 import { dial } from "@/lib/dds/calls";
 
-const bodySchema = z.object({ number: z.string().min(1).max(40), incidentId: z.string().max(40).nullish() });
+const bodySchema = z.object({ number: z.string().min(1).max(40), incidentId: z.string().max(40).nullish(), cardNumber: z.number().int().positive().nullish() });
 
 /** Outgoing call: a crew, the applicant, another service of the card or an organisation from the book. */
 export async function POST(request: Request) {
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   if (ctx instanceof Response) return ctx;
   const body = bodySchema.safeParse(await request.json().catch(() => null));
   if (!body.success) return badRequest("Наберите номер");
-  const res = await dial(ctx.access.seat, body.data.number, body.data.incidentId);
+  const res = await dial(ctx.access.seat, body.data.number, body.data.incidentId, new Date(), body.data.cardNumber);
   if (!res.ok) return Response.json({ error: "call_failed", message: res.error }, { status: res.code });
   return Response.json(res.call);
 }

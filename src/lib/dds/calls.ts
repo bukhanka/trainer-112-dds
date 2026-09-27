@@ -349,7 +349,7 @@ async function reload(id: string): Promise<CallBrief> {
 }
 
 /** Dial a number from the card, the phone book or the keypad. */
-async function dialNumber(seat: DdsSeat, number: string, incidentId: string | null | undefined, now: Date): Promise<CallResult> {
+async function dialNumber(seat: DdsSeat, number: string, incidentId: string | null | undefined, now: Date, cardNumber?: number | null): Promise<CallResult> {
   if (seat.lesson.status !== "RUNNING") return fail("Занятие завершено", 409);
   if (!seat.service) return fail("У места не выбрана служба", 409);
   if (await db.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" }, select: { id: true } })) return fail(BUSY, 409);
@@ -359,7 +359,9 @@ async function dialNumber(seat: DdsSeat, number: string, incidentId: string | nu
 
   const settings = settingsOf(seat.lesson.settings);
   const incidents = await feedIncidents(seat);
-  const context = incidentId ? incidents.find((i) => i.id === incidentId) : undefined;
+  // The card the call is made from: named by the book or the card's phone icons, else the card open on the screen.
+  // Scenarios repeat, so one applicant's number may stand on several cards: the open card wins.
+  const context = incidentId ? incidents.find((i) => i.id === incidentId) : cardNumber ? incidents.find((i) => i.number === cardNumber) : undefined;
   const ordered = context ? [context, ...incidents.filter((i) => i !== context)] : incidents;
 
   // Another service of a card, by its phone (101, 102…).
@@ -707,7 +709,8 @@ async function guarded(step: () => Promise<CallResult>): Promise<CallResult> {
   }
 }
 
-export const dial = (seat: DdsSeat, number: string, incidentId?: string | null, now = new Date()) => guarded(() => dialNumber(seat, number, incidentId, now));
+export const dial = (seat: DdsSeat, number: string, incidentId?: string | null, now = new Date(), cardNumber?: number | null) =>
+  guarded(() => dialNumber(seat, number, incidentId, now, cardNumber));
 export const answer = (seat: DdsSeat, callId: string, now = new Date()) => guarded(() => answerCall(seat, callId, now));
 export const say = (seat: DdsSeat, callId: string, text: string, now = new Date()) => guarded(() => sayLine(seat, callId, text, now));
 export const hangUp = (seat: DdsSeat, callId: string, now = new Date()) => guarded(() => hangUpCall(seat, callId, now));

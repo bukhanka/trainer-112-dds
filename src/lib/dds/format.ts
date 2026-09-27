@@ -91,6 +91,16 @@ export function plateCaption(shortName: string): string {
   return shortName.replace(/^Поселение\s+/, "").trim() || shortName;
 }
 
+/**
+ * Font of a plate caption: the longest word has to fit the narrow plate whole — «Мосжилинспекция» on one
+ * line in a smaller font rather than «Мосжилинспекц / ия»; a longer caption goes to a second line.
+ */
+export function plateCaptionClass(caption: string): string {
+  const longest = Math.max(0, ...caption.split(/\s+/).map((w) => w.length));
+  if (longest > 13) return "text-[10px] tracking-tight";
+  return longest > 11 || caption.length > 11 ? "text-[11.5px]" : "text-[13px]";
+}
+
 /** «0:42», «12:05» */
 export function fmtDuration(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
