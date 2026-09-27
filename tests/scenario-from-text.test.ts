@@ -43,7 +43,13 @@ const byRules = (text: string) => {
   const ex = readByRules(text);
   return { type: matchType(types as never, ex.typeHint, text), address: ex.address };
 };
-type Truth = { typeCodes: number[]; finalType: string; address: { street?: string; house?: string; district?: string }; services: { shortName: string }[] };
+type Truth = {
+  typeCodes: number[];
+  finalType: string;
+  address: { street?: string; house?: string; district?: string; okrug?: string };
+  services: { shortName: string }[];
+  traps: string[];
+};
 const lastTruth = () => (store.created.at(-1) as { truth: Truth }).truth;
 
 beforeEach(() => {
@@ -107,9 +113,12 @@ describe("the draft, with a model", () => {
       description: "Мужчине плохо",
     });
     await generateScenarioDraft({ text: "На остановке у дома 3 по Ленинскому проспекту мужчине плохо, лежит, не отвечает" }, { id: "t1" });
-    // Ленинский проспект runs through several districts: the district stays open, the house is the one said.
+    // Ленинский проспект runs from ЦАО to ЮЗАО: for house 3 neither the district nor the okrug is guessed,
+    // the reference asks the operator to clarify (not «ЮЗАО» — house 3 is in Якиманка, ЦАО).
     expect(lastTruth().address).toMatchObject({ street: "Ленинский пр-т", house: "3" });
     expect(lastTruth().address.district).toBeUndefined();
+    expect(lastTruth().address.okrug).toBeUndefined();
+    expect(lastTruth().traps.join(" ")).toMatch(/уточнить/);
 
     store.model = () => ({
       title: "Драка",
@@ -153,3 +162,71 @@ describe("«Исправь» of the reference card", () => {
     expect(s.truth.typeCodes).toEqual([rail]);
   });
 });
+
+/** A lift, a railway or a transport object for a person in the street would send the wrong services. */
+const wrongPlace = (t: { groupId: number; finalType: string } | null) => !t || t.groupId === 12 || /лифт/i.test(t.finalType);
+
+describe("everyday words of the street: medicine and road accidents never become a lift or the railway", () => {
+  const medicine = [
+    "на остановке мужчина без сознания",
+    "Женщине стало плохо в магазине, упала в обморок",
+    "Пожилому мужчине плохо с сердцем прямо на улице",
+    "Человек упал на улице, разбил голову, кровь",
+    "У подъезда лежит мужчина, не двигается",
+    "Прохожему плохо, задыхается, сел на лавочку",
+    "Девушка потеряла сознание на остановке автобуса",
+  ];
+  const road = [
+    "На пешеходном переходе сбили женщину, она лежит",
+    "Машина сбила мальчика на велосипеде во дворе",
+    "Две машины столкнулись на перекрёстке, у водителя кровь на лице",
+    "Такси врезалось в столб, водитель без сознания",
+    "Мотоциклист упал на дороге после столкновения с машиной",
+  ];
+
+  it.each(medicine)("«%s» — медицина или человек в опасности, без модели", (text) => {
+    const t = byRules(text).type;
+    expect(wrongPlace(t)).toBe(false);
+    expect([22, 17]).toContain(t?.groupId);
+  });
+
+  it.each(road)("«%s» — ДТП, без модели", (text) => {
+    const t = byRules(text).type;
+    expect(wrongPlace(t)).toBe(false);
+    expect(t?.groupId).toBe(2);
+  });
+
+  it("a person knocked down on a crossing is «наезд на пешехода»", () => {
+    expect(byRules(road[0]).type?.finalType).toBe("ДТП наезд на пешехода");
+  });
+
+  // What a model tends to write as the type hint for these texts.
+  it.each([
+    ["без сознания, требуется медицинская помощь", medicine[0], 22],
+    ["обморок", medicine[1], 22],
+    ["потеря сознания", medicine[6], 22],
+    ["травма головы", medicine[3], 22],
+    ["лежит человек", medicine[4], 17],
+    ["плохо с сердцем", medicine[2], 22],
+    ["ДТП наезд на пешехода", road[0], 2],
+    ["ДТП с пострадавшими", road[4], 2],
+  ] as const)("model hint «%s» — group %s, never a lift or the railway", (hint, text, group) => {
+    const t = matchType(types as never, hint, text);
+    expect(wrongPlace(t)).toBe(false);
+    expect(t?.groupId).toBe(group);
+  });
+
+  it("the reported case end to end: «на остановке мужчина без сознания» with a model stays «Без сознания»", async () => {
+    store.model = () => ({
+      title: "Мужчина без сознания на остановке",
+      caller: { fullName: "Петрова Ольга Николаевна", role: "прохожая", visibleAddress: "остановка", situation: "На остановке мужчина без сознания!", facts: [] },
+      address: {},
+      typeHint: "без сознания, требуется медицинская помощь",
+      description: "На остановке мужчина без сознания",
+    });
+    await generateScenarioDraft({ text: "на остановке мужчина без сознания" }, { id: "t1" });
+    expect(lastTruth().finalType).toBe("Без сознания");
+    expect(lastTruth().services.map((x) => x.shortName)).not.toContain("Мослифт");
+  });
+});
+

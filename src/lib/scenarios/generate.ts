@@ -109,7 +109,7 @@ export function readByRules(text: string): Extracted {
   const flags: IncidentFlags = {};
   if (has(t, /пострадав|ранен|травм|без сознания|кров|ожог|задыха|не дышит|плохо|разбит[аы]? (голов|лиц|нос)/)) flags.victims = true;
   if (has(t, /угроз|остал(ся|ась|ись)|заперт|кричат|зовут на помощь|дет(и|ей)|ребён|ребен|люди внутри/)) flags.threat = true;
-  if (has(t, /газ(?!ета)/)) flags.gas = true;
+  if (has(t, /(^|[^а-яё])газ(?!ета|он)/)) flags.gas = true;
   if (has(t, /нет доступа|заперт|заблокир|не открыва|заж(ат|ало|али|ата)|не мо(жет|гут) выйти/)) flags.noAccess = true;
   if (has(t, /драк|дерут|дерет|дерёт|напал|угон|краж|избил|избива|угрожа|ограб|хулиган/)) flags.offense = true;
   if (has(t, /скор(ая|ую)|медицин|без сознания|плохо|рожает/)) flags.med = true;
@@ -143,10 +143,15 @@ export function readByRules(text: string): Extracted {
   let typeHint = t;
   if (has(t, /сигнализац/)) typeHint = "пожарная сигнализация (жилой дом)";
   else if (has(t, /подозрит|тика|бесхоз|взрывн/)) typeHint = "подозрительный предмет";
-  else if (has(t, /дтп|авари|столкн|сбил|наезд|врезал/) && !has(t, /залива|затоп|прорыв|лифт/))
+  else if (has(t, /дтп|авари|столкн|сбил|наезд|врезал/) && !has(t, /залива|затоп|прорыв|лифт/)) {
+    const hitPerson = has(t, /(сбил[аио]?|наех[а-я]*)( [а-яё]+)? (женщин|мужчин|человек|пешеход|ребен|ребён|мальчик|девочк|девушк|парн|бабушк|дедушк|старик|школьник|велосипедист)/);
+    if (hitPerson || has(t, /лежит|упал|не двигается/)) flags.victims = true;
     typeHint = flags.noAccess
       ? "ДТП с заблокированными"
-      : `ДТП ${flags.victims ? "с пострадавшими" : "без пострадавших"}${has(t, /бензин|топлив|разли|теч(е|ё)т/) ? " разлитие горючих жидкостей" : ""}`;
+      : hitPerson
+        ? "ДТП наезд на пешехода"
+        : `ДТП ${flags.victims ? "с пострадавшими" : "без пострадавших"}${has(t, /бензин|топлив|разли|теч(е|ё)т/) ? " разлитие горючих жидкостей" : ""}`;
+  }
   else if (has(t, /залива|затоп|протек|прорыв|прорвал|хлещет|вода (с потолка|льется|льётся)/)) typeHint = "течь прорыв трубы в квартире";
   else if (has(t, /лифт/) && has(t, /застрял|застряли|застрев/)) typeHint = "застревание в лифте";
   else if (fire) typeHint = `пожар: ${object ?? ""}`;
@@ -193,7 +198,11 @@ export function saidAddress(text: string, a: Extracted["address"]): Extracted["a
 
 // ─── classifier matching ─────────────────────────────────────────────────────
 
-const STOP = new Set(["без", "для", "при", "над", "под", "это", "что", "как", "или", "его", "она", "они", "все", "уже", "еще", "там", "тут", "так", "нет", "есть", "мне", "нас", "вас", "где"]);
+const STOP = new Set([
+  "без", "для", "при", "над", "под", "это", "что", "как", "или", "его", "она", "они", "все", "уже", "еще", "там", "тут", "так", "нет", "есть", "мне", "нас", "вас", "где",
+  // generic words of leaf names: «(требуется медицинская помощь)», «прочее» — they must not decide the type
+  "требуется", "помощь", "прочее", "прочие",
+]);
 const words = (s: string) =>
   s
     .toLowerCase()
@@ -210,8 +219,8 @@ function wordMatch(a: string, list: string[]): number {
   }
   return best;
 }
-/** «без пострадавших» and «с пострадавшими» must not match each other. */
-const negated = (s: string) => /(^|[^а-яё])без([^а-яё]|$)/i.test(s);
+/** «без пострадавших» and «с пострадавшими» must not match each other; «без сознания» is no negation. */
+const negated = (s: string) => /(^|[^а-яё])без пострадав/i.test(s);
 
 type TypeRow = Pick<IncidentType, "code" | "groupId" | "finalType" | "sign1" | "sign2" | "sign3" | "questions" | "hiddenFromOperator">;
 
@@ -223,9 +232,12 @@ const CONCEPTS: [RegExp, string][] = [
   [/драк|дерут|дерет|дерёт|избива/, "драка"],
   [/застрял|застряли|застрев/, "застревание"],
   [/задыха|не дышит/, "задыхается"],
-  [/без сознания|не отвечает|не реагирует/, "сознания"],
-  [/во дворе|на улице|у подъезда|на остановке|у магазина/, "улице"],
+  [/без сознания|сознани[ея]|не отвечает|не реагирует|обморок/, "сознания"],
+  [/(^|[^а-яё])кров(ь|и|ью)([^а-яё]|$)|окровавлен/, "крови"],
 ];
+
+/** Weak hints: they only break ties between leaves the text already points to («драка» — на улице, не в квартире). */
+const WEAK: [RegExp, string][] = [[/во дворе|на улице|у подъезда|на остановке|у магазина|на переходе/, "улице"]];
 
 /** Leaves that need their own word in the text: a railway accident is never guessed from «авария» alone. */
 const GATES: [RegExp, RegExp][] = [
@@ -236,6 +248,9 @@ const GATES: [RegExp, RegExp][] = [
   [/водн[а-я]* транспорт|судн|катер|теплоход|причал|(^|[^а-я])порт([^а-я]|$)/, /судн|катер|теплоход|лодк|причал|(^|[^а-я])порт([^а-я]|$)/],
   [/бпла|беспилот|дрон/, /бпла|беспилот|дрон|коптер/],
   [/(^|[^а-я])лес([^а-я]|у|ной|ном)?([^а-я]|$)/, /(^|[^а-я])лес/],
+  // A lift, an explosion or a bomb threat is never guessed either: «остановка» is not a lift stopped between floors.
+  [/лифт/, /лифт|кабин/],
+  [/взрыв/, /взрыв|взорв|хлоп|бахн|рванул|бомб|заминир/],
 ];
 
 /** Words that point to a group of the classifier: its leaves get a head start. */
@@ -245,8 +260,8 @@ const GROUP_CUES: Record<number, RegExp> = {
   13: /(^|[^а-я])газ(?!он|ет)/,
   14: /залива|затоп|течь|теч(ет|ёт)|прорыв|трубу|лифт|искрит|провод|электрощит|канализ|отоплен|батаре|нет света/,
   15: /драк|дерут|избива|напал|угрожа|краж|украл|ограб|угон|хулиган|скандал|шумят/,
-  17: /лежит|кричит|крики|тонет|упал с|суицид|прыгн/,
-  22: /плохо|боль|болит|сердц|давлени|без сознания|судорог|задыха|рожает|температур|отравил|кровотеч|травм/,
+  17: /лежит|кричит|крики|тонет|упал с|суицид|прыгн|(^|[^а-яё])кров(ь|и|ью)([^а-яё]|$)/,
+  22: /плохо|боль|болит|сердц|давлени|сознани|обморок|судорог|задыха|рожает|температур|отравил|кровотеч|травм|разбил голову/,
 };
 
 /**
@@ -257,7 +272,7 @@ const GROUP_CUES: Record<number, RegExp> = {
 export function matchType(types: TypeRow[], typeHint: string, text: string): TypeRow | null {
   const all = `${typeHint} ${text}`.toLowerCase().replace(/ё/g, "е");
   const hint = [...new Set([...words(typeHint), ...CONCEPTS.filter(([re]) => re.test(all)).flatMap(([, w]) => words(w))])];
-  const body = typeHint === text ? [] : words(text);
+  const body = [...(typeHint === text ? [] : words(text)), ...WEAK.filter(([re]) => re.test(all)).flatMap(([, w]) => words(w))];
   const cued = new Set(Object.entries(GROUP_CUES).flatMap(([g, re]) => (re.test(all) ? [Number(g)] : [])));
   let best: { row: TypeRow; score: number } | null = null;
   for (const row of types) {
