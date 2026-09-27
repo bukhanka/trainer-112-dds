@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { syncCorrections } from "@/lib/review/corrections-db";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { planReview, reviewActionSchema, RUNNING_LOCK } from "@/lib/review/review";
 import { getActiveWeights, lockScores } from "@/lib/scoring/weights";
@@ -59,6 +60,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/att
       });
       if (!res.count) throw new Refusal("Попытку только что изменили — обновите страницу", 409);
 
+      // «ИИ неправ» is kept as a teacher correction: the model checks learn from it (src/lib/review/corrections.ts).
+      const corrections = await syncCorrections(tx, user, request, { attemptId: id, criteria, next: plan.next });
+
       const byCode = new Map(criteria.map((c) => [c.code, c]));
       await auditInTx(tx, user, request, {
         action: plan.auditAction,
@@ -70,9 +74,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/att
           override: plan.next.override ?? null,
           reviewedBy: reopened ? null : user.login,
           changes: plan.changed.map((code) => ({ code, title: byCode.get(code)?.title ?? code, from: byCode.get(code)?.ok ?? null, to: plan.next.override?.[code] ?? null })),
+          corrections,
         },
       });
-      return plan.next;
+      return { ...plan.next, corrections };
     });
     return Response.json({ ok: true, ...next });
   } catch (err) {
