@@ -31,7 +31,7 @@ describe("drafts", () => {
   it("explains failures from the checks when no model is connected", () => {
     const d = ruleDraft(criteria);
     expect(d.summary).toContain("Ошибок: 1 из 2");
-    expect(d.summary).toContain("«Улица записана верно»");
+    expect(d.summary).toContain("Ошибки: «Не выполнено: Улица записана верно»");
     expect(d.comments?.street).toContain("Дубнинская");
     expect(d.recommendations).toHaveLength(1);
   });

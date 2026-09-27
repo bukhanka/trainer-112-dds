@@ -12,6 +12,8 @@
  *                  configured the review adds the model's own check (clarity-ai.ts)
  */
 import type { ServiceStatus } from "@prisma/client";
+import { countLabel } from "@/lib/format";
+import { errorTitle } from "@/lib/scoring/errors";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import { describeTemplates, matchTemplate, parseTemplates, templateProblem } from "@/lib/scoring/template";
 import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
@@ -424,8 +426,10 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
 export function summarize(criteria: CriterionResult[], score: number | null): string {
   const failed = criteria.filter((c) => c.ok === false);
   const passed = criteria.filter((c) => c.ok === true).length;
-  if (!failed.length) return `Замечаний нет: пройдено проверок ${passed}.${score !== null ? ` Балл ${score}.` : ""}`;
-  return `Пройдено ${passed} из ${passed + failed.length}. Ошибки: ${failed.map((c) => c.title.toLowerCase()).join("; ")}.${score !== null ? ` Балл ${score}.` : ""}`;
+  const points = score !== null ? ` Балл ${score}.` : "";
+  if (!failed.length && !passed) return "Проверять пока нечего: карточка ещё не обработана или время на ответ не истекло.";
+  if (!failed.length) return `Замечаний нет: ${countLabel(passed, ["проверка пройдена", "проверки пройдены", "проверок пройдено"])}.${points}`;
+  return `Пройдено ${passed} из ${passed + failed.length}. Ошибки: ${failed.map(errorTitle).join("; ")}.${points}`;
 }
 
 export function scoreOf(criteria: CriterionResult[], weights: Weights): number | null {

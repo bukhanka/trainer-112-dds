@@ -6,6 +6,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { GROUP_ADVICE, readCriteria, readOverrides } from "@/lib/review/draft";
 import { describePassRules, passRulesOf, passVerdict, type PassVerdict } from "@/lib/scoring/pass";
+import { errorTitle } from "@/lib/scoring/errors";
 import { applyOverrides, WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
 
 export function ownAttemptsWhere(studentId: string): Prisma.AttemptWhereInput {
@@ -94,7 +95,7 @@ export function buildStudentResults(rows: Row[]): StudentResults {
       title: WEIGHT_GROUPS[group],
       failed: list.length,
       advice: GROUP_ADVICE[group],
-      examples: [...new Set(list.map((c) => (c.expected ? `${c.title}: ${c.expected}` : c.title)))].slice(0, 3),
+      examples: [...new Set(list.map((c) => (c.expected ? `${errorTitle(c)} — как надо: ${c.expected}` : errorTitle(c))))].slice(0, 3),
     }));
 
   const scores = reviewed.flatMap((r) => (r.score == null ? [] : [r.score]));

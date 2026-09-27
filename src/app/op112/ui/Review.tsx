@@ -1,5 +1,6 @@
 "use client";
 import useSWR from "swr";
+import { errorTitle } from "@/lib/scoring/errors";
 import { WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
 import { getJson } from "./client";
 import { Modal } from "./Services";
@@ -88,7 +89,7 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
                 {fix.slice(0, 8).map((c) => (
                   <li key={c.code}>
                     {c.critical && <b className="text-arm-late">Критично: </b>}
-                    {c.title}
+                    {errorTitle(c)}
                     {c.expected ? ` — надо: ${c.expected}` : ""}
                   </li>
                 ))}

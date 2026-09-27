@@ -113,7 +113,7 @@ describe("pass criteria in the report", () => {
     expect(report.students.find((s) => s.studentId === "u2")).toMatchObject({ passed: 0, judged: 2 });
     expect(report.students.find((s) => s.studentId === "u3")).toMatchObject({ passed: 0, judged: 0 });
     const reasons = report.attempts.filter((a) => a.studentId === "u2").map((a) => a.pass?.reasons);
-    expect(reasons).toEqual([["балл 60 ниже 70"], ["критичная ошибка: «street»"]]);
+    expect(reasons).toEqual([["балл 60 ниже 70"], ["критичная ошибка: «Не выполнено: street»"]]);
   });
 
   it("follows other criteria and defaults to 70 without a critical error", () => {
