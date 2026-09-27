@@ -37,9 +37,10 @@ export function placeOfStreet(street: string | null | undefined): { okrug: strin
   if (!found.length) return null;
   const okrugs = [...new Set(found.map((p) => p.okrug).filter(Boolean))];
   const districts = [...new Set(found.map((p) => p.district).filter(Boolean))];
-  // A street listed without a district runs through several (Ленинский проспект): the district stays open.
-  const spans = found.some((p) => !p.district);
-  return { okrug: okrugs.length === 1 ? okrugs[0]! : null, district: districts.length === 1 && okrugs.length === 1 && !spans ? districts[0]! : null };
+  // A street listed without a district runs through several (Ленинский проспект — from ЦАО to ЮЗАО and beyond):
+  // the district and the okrug of a house on it stay open until the caller names the place precisely.
+  if (found.some((p) => !p.district)) return { okrug: null, district: null };
+  return { okrug: okrugs.length === 1 ? okrugs[0]! : null, district: districts.length === 1 && okrugs.length === 1 ? districts[0]! : null };
 }
 
 /** Okrug of a district the gazetteer knows. */
