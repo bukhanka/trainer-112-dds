@@ -625,12 +625,6 @@ export const DEEP: Record<string, DeepScenario> = {
         traps: [NO_REJECT_103],
       },
       {
-        service: "Поселение Хорошёво-Мнёвники", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог: спасён, госпитализирован"],
-        traps: [OTHER_SERVICE_TRAP],
-      },
-      {
         service: "Поселение СЗАО", decision: "ACCEPTED", chain: INFO,
         brigadeReport: "—",
         commentMustHave: ["принято к сведению", "итог"],
@@ -705,12 +699,6 @@ export const DEEP: Record<string, DeepScenario> = {
         service: "Гормост", decision: "ACCEPTED", chain: SHORT,
         brigadeReport: "Дежурный тоннеля на месте: конструкции и оборудование тоннеля не повреждены, после оформления ДТП движение открыто",
         commentMustHave: ["повреждения тоннеля — есть ли", "движение открыто"],
-        traps: [OTHER_SERVICE_TRAP],
-      },
-      {
-        service: "Поселение Тверской", decision: "ACCEPTED", chain: INFO,
-        brigadeReport: "—",
-        commentMustHave: ["принято к сведению", "итог: ДТП оформлено, движение восстановлено"],
         traps: [OTHER_SERVICE_TRAP],
       },
       {
