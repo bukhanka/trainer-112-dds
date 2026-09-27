@@ -13,6 +13,7 @@ async function backupNow() {
 }
 
 export default async function BackupsPage() {
+  await requireUser(["ADMIN"]);
   const [rows, dailyAt, keepDays] = await Promise.all([
     db.backup.findMany({ orderBy: { createdAt: "desc" }, take: 60 }),
     getSetting("backup.dailyAt", "03:00"),

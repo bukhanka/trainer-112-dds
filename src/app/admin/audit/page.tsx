@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { AUDIT_LABELS, auditWhere, readFilter } from "@/lib/admin/audit-query";
+import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 
 const PAGE_SIZE = 50;
 
 export default async function AuditPage({ searchParams }: PageProps<"/admin/audit">) {
+  await requireUser(["ADMIN"]);
   const params = await searchParams;
   const filter = readFilter(params);
   const page = Math.max(1, Number(params.page ?? 1) || 1);
