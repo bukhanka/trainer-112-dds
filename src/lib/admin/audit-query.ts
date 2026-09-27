@@ -4,6 +4,10 @@ import { isSystemKind, systemWhere, type SystemKind } from "./system-log";
 /** scope=system — the system journal (src/lib/admin/system-log.ts), `kind` narrows it. */
 export type AuditFilter = { action?: string; actor?: string; from?: string; to?: string; scope?: "system"; kind?: SystemKind };
 
+/**
+ * Every event the code writes to the journal, in plain Russian. tests/audit-labels.test.ts reads the code and
+ * fails when an event has no name here.
+ */
 export const AUDIT_LABELS: Record<string, string> = {
   "auth.login.ok": "Вход",
   "auth.login.fail": "Неудачный вход",
@@ -21,6 +25,39 @@ export const AUDIT_LABELS: Record<string, string> = {
   "group.restore": "Группа возвращена из архива",
   "group.member.add": "Ученик добавлен в группу",
   "group.member.remove": "Ученик убран из группы",
+  "lesson.create": "Создано занятие",
+  "lesson.update": "Изменено занятие",
+  "lesson.delete": "Удалено занятие",
+  "lesson.copy": "Занятие повторено («Провести ещё раз»)",
+  "lesson.start": "Занятие начато",
+  "lesson.stop": "Занятие завершено",
+  "report.export": "Отчёт занятия выгружен в CSV",
+  "op112.training.start": "Место 112: самостоятельная тренировка начата",
+  "op112.training.finish": "Место 112: самостоятельная тренировка завершена",
+  "op112.card.save": "Место 112: карточка сохранена",
+  "op112.card.link": "Место 112: карточка связана как совпадение",
+  "op112.card.unlink": "Место 112: связь совпадения снята",
+  "op112.card.supplement": "Место 112: дополнение к карточке",
+  "dds.practice.start": "Место ДДС: самостоятельная тренировка начата",
+  "dds.practice.finish": "Место ДДС: самостоятельная тренировка завершена",
+  "dds.status": "Место ДДС: статус службы",
+  "attempt.draft": "Черновик разбора собран заново",
+  "attempt.confirm": "Оценка подтверждена преподавателем",
+  "attempt.override": "Оценка исправлена преподавателем",
+  "attempt.reopen": "Оценка возвращена на проверку",
+  "correction.add": "Правка ИИ-проверки добавлена",
+  "correction.revise": "Правка ИИ-проверки заменена",
+  "correction.on": "Правка ИИ-проверки включена",
+  "correction.off": "Правка ИИ-проверки выключена",
+  "weights.update": "Изменены веса оценки",
+  "scenario.generate": "Сценарий создан генератором",
+  "scenario.update": "Сценарий изменён",
+  "scenario.regenerate": "Раздел сценария переписан по замечанию",
+  "scenario.fix.requested": "Замечание к сценарию сохранено",
+  "scenario.approve": "Сценарий утверждён",
+  "scenario.unapprove": "Утверждение сценария снято",
+  "scenario.archive": "Сценарий убран в архив",
+  "scenario.restore": "Сценарий возвращён из архива",
   "setting.update": "Изменена настройка",
   "backup.manual": "Резервная копия вручную",
   "backup.scheduled": "Резервная копия по расписанию",
@@ -37,6 +74,26 @@ export const AUDIT_LABELS: Record<string, string> = {
   "demo.reset.failed": "Ошибка ночного сброса стенда",
   "demo.defaults": "Демо-стенд: службы и политики по умолчанию",
 };
+
+/** Kinds of events for the journal filter: the code prefix and its name. */
+export const AUDIT_KINDS: { value: string; label: string }[] = [
+  { value: "auth", label: "вход и выход" },
+  { value: "user", label: "пользователи" },
+  { value: "group", label: "группы" },
+  { value: "lesson", label: "занятия" },
+  { value: "op112", label: "работа на местах 112" },
+  { value: "dds", label: "работа на местах ДДС" },
+  { value: "attempt", label: "оценки" },
+  { value: "correction", label: "правки ИИ-проверок" },
+  { value: "weights", label: "веса оценки" },
+  { value: "scenario", label: "сценарии" },
+  { value: "report", label: "отчёты" },
+  { value: "setting", label: "настройки" },
+  { value: "service", label: "службы" },
+  { value: "backup", label: "резервные копии" },
+  { value: "system", label: "система" },
+  { value: "demo", label: "демо-стенд" },
+];
 
 export function auditWhere(f: AuditFilter): Prisma.AuditLogWhereInput {
   const at: Prisma.DateTimeFilter = {};
