@@ -4,6 +4,7 @@ import { lessonCoverage } from "@/lib/lessons/coverage";
 import { isPractice, parseTeacherSettings } from "@/lib/lessons/form";
 import { dealableScenarios } from "@/lib/lessons/options";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
+import { lessonGroupProblem } from "@/lib/teacher/groups";
 
 /** Start the lesson: from now on the workstations deliver cards and the plan is frozen. */
 export async function POST(request: Request, ctx: RouteContext<"/api/teacher/lessons/[id]/start">) {
@@ -14,6 +15,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
   if (!lesson) return jsonError("Занятие не найдено", 404);
   if (lesson.status === "RUNNING") return jsonError("Занятие уже идёт", 409);
   if (lesson.status === "FINISHED") return jsonError("Занятие уже завершено. Создайте копию, чтобы провести его ещё раз.", 409);
+  // The group may have gone to the archive or to another teacher since the lesson was saved.
+  const groupProblem = await lessonGroupProblem(user, lesson.groupId);
+  if (groupProblem) return jsonError(groupProblem, 409);
 
   const seats = await db.seat.findMany({
     where: { lessonId: id },

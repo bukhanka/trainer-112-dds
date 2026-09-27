@@ -6,6 +6,7 @@ const ROLE = { OP112: "Оператор 112", DDS: "Диспетчер ДДС" }
 
 function whereCardsComeFrom(a: Assignment): string {
   const what = a.role === "OP112" ? "Вызовы" : "Карточки";
+  if (a.from112 === "only") return "Карточки придут с мест операторов 112 этого занятия.";
   if (a.source === "level") return `Заданий нет: ${what.toLowerCase()} тренажёр подберёт по вашему уровню.`;
   if (a.source === "categories") return `Заданий нет: ${what.toLowerCase()} из категорий занятия — ${a.categories.join(", ")}.`;
   return `Заданий нет: ${what.toLowerCase()} из утверждённых сценариев.`;
@@ -62,6 +63,7 @@ export function MyTasks({ assignments, empty }: { assignments: Assignment[]; emp
               ) : (
                 <p className="mt-2 text-sm text-arm-desc">{whereCardsComeFrom(a)}</p>
               )}
+              {a.from112 === "also" && <p className="mt-1 text-xs text-arm-desc">Кроме того, карточки придут с мест операторов 112 этого занятия.</p>}
             </li>
           ))}
         </ul>

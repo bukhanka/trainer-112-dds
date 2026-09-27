@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type CallRow = { id: string; seatId: string; status: string; holds: unknown; messages: unknown; counterpart: unknown; endedAt: Date | null; incident: null } & Record<string, unknown>;
 const at = (sec: number) => new Date(Date.UTC(2026, 8, 27, 8, 0, sec));
 let calls: CallRow[] = [];
-const state = vi.hoisted(() => ({ busy: false }));
+const state = vi.hoisted(() => ({ busy: false, beforeTx: null as null | (() => void) }));
 
 function reset() {
   const call = (id: string, seatId: string, status: string, kind: string): CallRow => ({
@@ -26,30 +26,42 @@ function reset() {
   calls[1].holds = [{ from: at(5).toISOString() }];
 }
 
-const pick = (where: Record<string, unknown>) =>
-  calls.find((c) => Object.entries(where).every(([k, v]) => (v && typeof v === "object" && "in" in v ? (v.in as unknown[]).includes(c[k]) : c[k] === v))) ?? null;
+const fits = (c: CallRow, where: Record<string, unknown>) =>
+  Object.entries(where).every(([k, v]) => {
+    if (v && typeof v === "object" && "in" in v) return (v.in as unknown[]).includes(c[k]);
+    if (v && typeof v === "object" && "lt" in v) return (c[k] as Date) < (v.lt as Date);
+    return c[k] === v;
+  });
+const pick = (where: Record<string, unknown>) => calls.find((c) => fits(c, where)) ?? null;
 
 vi.mock("@/lib/db", () => {
   const call = {
     findFirst: async ({ where }: { where: Record<string, unknown> }) => pick(where),
+    findMany: async ({ where, take }: { where: Record<string, unknown>; take?: number }) =>
+      calls
+        .filter((c) => fits(c, where))
+        .sort((a, b) => (b.startedAt as Date).getTime() - (a.startedAt as Date).getTime())
+        .slice(0, take ?? Infinity),
     findUnique: async ({ where }: { where: Record<string, unknown> }) => pick(where),
     findUniqueOrThrow: async ({ where }: { where: Record<string, unknown> }) => pick(where)!,
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => Object.assign(pick(where)!, data),
     updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
-      const hit = calls.filter((c) => Object.entries(where).every(([k, v]) => c[k] === v));
+      const hit = calls.filter((c) => fits(c, where));
       for (const c of hit) Object.assign(c, data);
       return { count: hit.length };
     },
   };
-  const db: Record<string, unknown> = { call, $executeRaw: async () => 0 };
+  const db: Record<string, unknown> = { call, incident: { findMany: async () => [] }, $executeRaw: async () => 0 };
   db.$transaction = async (fn: (tx: unknown) => unknown, opts?: { timeout?: number }) => {
     if (state.busy) throw new Prisma.PrismaClientKnownRequestError(`Transaction already closed: ${opts?.timeout}`, { code: "P2028", clientVersion: "test" });
+    state.beforeTx?.(); // another tab acts between the first read and the transaction
+    state.beforeTx = null;
     return fn(db);
   };
   return { db };
 });
 
-const { hangUp, hold, resume, say } = await import("@/lib/dds/calls");
+const { HOLD_MAX_SEC, hangUp, hold, phoneState, phoneTick, resume, say } = await import("@/lib/dds/calls");
 const seat = { id: "seat-1", lessonId: "l1", serviceId: 1, service: { id: 1, shortName: "Поселение Вороновское" }, lesson: { status: "RUNNING", settings: {} } } as never;
 const byId = (id: string) => calls.find((c) => c.id === id)!;
 
@@ -104,4 +116,29 @@ describe("ДДС phone: «Удержание»", () => {
     expect(!res.ok && res.error).toMatch(/повторите/);
     expect(byId("c-caller").status).toBe("ACTIVE");
   });
+
+  it("ends the conversation the user hung up even if a «Снять с удержания» parked it a moment ago", async () => {
+    state.beforeTx = () => {
+      byId("c-caller").status = "HELD";
+      byId("c-caller").holds = [{ from: at(29).toISOString() }];
+    };
+    await hangUp(seat, "c-caller", at(30));
+    expect(byId("c-caller")).toMatchObject({ status: "ENDED", endedAt: at(30), holds: [{ from: at(29).toISOString(), to: at(30).toISOString() }] });
+  });
+
+  it("keeps a held call on the phone however many calls came after it", async () => {
+    for (let i = 0; i < 45; i++) calls.push({ ...byId("c-other"), id: `c-new-${i}`, seatId: "seat-1", status: "ENDED", startedAt: at(100 + i) });
+    const phone = await phoneState({ ...(seat as object), service: null, serviceId: null } as never);
+    expect(phone.held.map((c) => c.id)).toEqual(["c-crew"]);
+    expect(phone.current?.id).toBe("c-caller");
+    expect(phone.log.length).toBe(42); // the latest 40 plus the two calls still going on
+  });
+
+  it("lets a counterpart left on hold too long hang up", async () => {
+    await phoneTick(await db(), seat, { brigadeReports: false } as never, new Date(at(5).getTime() + (HOLD_MAX_SEC + 1) * 1000));
+    expect(byId("c-crew")).toMatchObject({ status: "ENDED" });
+    expect((byId("c-crew").messages as { text: string }[]).at(-1)?.text).toMatch(/не дождался/i);
+    expect(byId("c-caller").status).toBe("ACTIVE");
+  });
 });
+const db = async () => (await import("@/lib/db")).db as never;

@@ -11,7 +11,7 @@ import { getJson, postJson, useNow, withSeat } from "./client";
 import { ClockBlock } from "./ClockBlock";
 import { useDds } from "./DdsShell";
 import { ResultsPanel } from "./ResultsPanel";
-import { Bolt, Bookmark, Car, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, MapPinOff, Search, Stopwatch } from "./icons";
+import { Bolt, Bookmark, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Hourglass, MapPinOff, Search, Stopwatch } from "./icons";
 
 type FeedBody = { rows: FeedRow[]; total: number; page: number; pages: number; size: number };
 
@@ -234,15 +234,19 @@ function TimerCell({ row, now, ackSec, workSec, live }: { row: FeedRow; now: num
     );
   }
   if (live && row.crew && !row.crew.sentAt) {
-    // After «Принята»: time left to send the crew, counted from «Добавлена» like the 30 seconds.
+    // After «Принята»: time left to work the card (send a crew or close it), counted from «Добавлена» like the 30 seconds.
     const left = now ? crewSecondsLeft(row.crew, now) : workSec;
     const late = left < 0;
     return (
       <Cell
         className={late ? "bg-arm-late! font-bold text-white" : "text-white"}
-        title={late ? `Норматив ${fmtDuration(workSec)} на отправку наряда превышен` : `Осталось на отправку наряда: норматив ${fmtDuration(workSec)} от «Добавлена»`}
+        title={
+          late
+            ? `Норматив отработки ${fmtDuration(workSec)} от «Добавлена» превышен`
+            : `Осталось на отработку: отправьте наряд или закройте карточку. Норматив ${fmtDuration(workSec)} от «Добавлена»`
+        }
       >
-        <Car className="mr-1 h-4 w-4 shrink-0" />
+        <Hourglass className="mr-1 h-4 w-4 shrink-0" />
         <span className="tabular-nums">{late ? `+${fmtDuration(-left)}` : fmtDuration(left)}</span>
       </Cell>
     );
@@ -395,7 +399,7 @@ function SeatStrip() {
     <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 bg-arm-dark/60 px-3 py-2 text-[13px]">
       <span>
         {seat.practice ? "Самостоятельная тренировка" : seat.lessonTitle} · место «{seat.serviceShort}». Карточки приходят каждые {seat.tempoSec} с,
-        в очереди не больше {seat.maxQueue}. На «Принята / Не принята» — {seat.ackSec} с, на отправку наряда — {fmtDuration(seat.workSec)} от «Добавлена».
+        в очереди не больше {seat.maxQueue}. На «Принята / Не принята» — {seat.ackSec} с, на отработку (отправить наряд или закрыть карточку) — {fmtDuration(seat.workSec)} от «Добавлена».
       </span>
       <span className="text-white/80">
         {flow?.noScenarios

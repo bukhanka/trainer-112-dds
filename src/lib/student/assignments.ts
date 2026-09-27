@@ -23,6 +23,8 @@ export type Assignment = {
   tasks: AssignmentTask[];
   /** Where the cards come from when the place has no tasks: by the student's level, by categories, or any approved. */
   source: "tasks" | "level" | "categories" | "all";
+  /** A ДДС place of a lesson where cards come from the 112 places: only them, or them as well. */
+  from112: "only" | "also" | null;
   categories: string[];
 };
 
@@ -55,6 +57,7 @@ export function buildAssignments(seats: SeatRow[], scenarios: AssignmentTask[]):
     .map((s): Assignment => {
       const parsed = lessonSettingsSchema.safeParse(s.lesson.settings ?? {});
       const categories = parsed.success ? parsed.data.categories : [];
+      const cardSource = parsed.success ? parsed.data.cardSource : "generated";
       const tasks = s.scenarioIds.map((id) => byId.get(id)).filter((t): t is AssignmentTask => !!t);
       return {
         lessonId: s.lesson.id,
@@ -69,6 +72,7 @@ export function buildAssignments(seats: SeatRow[], scenarios: AssignmentTask[]):
         tasks,
         source: tasks.length ? "tasks" : adaptiveChoice(s.lesson.settings) ? "level" : categories.length ? "categories" : "all",
         categories,
+        from112: s.role !== "DDS" ? null : cardSource === "students" ? "only" : cardSource === "mixed" ? "also" : null,
       };
     })
     .sort((a, b) => Number(b.status === "RUNNING") - Number(a.status === "RUNNING") || (b.startedAt ?? "").localeCompare(a.startedAt ?? ""));
@@ -76,7 +80,9 @@ export function buildAssignments(seats: SeatRow[], scenarios: AssignmentTask[]):
 
 export async function getAssignments(studentId: string): Promise<Assignment[]> {
   const seats = await db.seat.findMany({
-    where: { studentId, lesson: { status: { in: ["RUNNING", "DRAFT"] } } },
+    // A ДДС self-practice belongs to the student themself: left out here, so dozens of practices on a
+    // shared demo account never push the teacher's lessons out of the list.
+    where: { studentId, lesson: { status: { in: ["RUNNING", "DRAFT"] }, teacherId: { not: studentId } } },
     orderBy: { createdAt: "desc" },
     take: 30,
     select: seatSelect,

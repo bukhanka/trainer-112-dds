@@ -17,6 +17,16 @@ import { groupScope } from "./access";
 
 export const GROUP_NAME_MAX = 80;
 const DEMO_LOCK = "Демо-группу на стенде менять нельзя: создайте свою группу и работайте с ней.";
+export const GROUP_ARCHIVED = "Группа в архиве: верните её в разделе «Группы» или выберите другую";
+export const GROUP_HANDED_OVER = "Группы занятия больше нет среди ваших — её передали другому преподавателю. Выберите свою группу в «Изменить».";
+
+/** A lesson's group must still be the teacher's and active to start the lesson or run it again. */
+export async function lessonGroupProblem(user: SessionUser, groupId: string | null): Promise<string | null> {
+  if (!groupId) return null;
+  const group = await findGroup(user, groupId);
+  if (!group) return GROUP_HANDED_OVER;
+  return group.archivedAt ? GROUP_ARCHIVED : null;
+}
 const ARCHIVED = "Группа в архиве: верните её из архива, чтобы менять состав.";
 
 export type GroupResult<T> = { ok: true; data: T } | { ok: false; error: string; status: number };
@@ -164,7 +174,7 @@ export type StudentOption = {
   id: string;
   fullName: string;
   login: string;
-  /** Not in any active group: this is who waits to be added. */
+  /** Not in any active group of the viewer (of the centre for the administrator): who waits to be added. */
   noGroup: boolean;
   /** Names of the viewer's own active groups the student is in (never another teacher's). */
   groups: string[];
@@ -198,16 +208,14 @@ export async function searchStudents(user: SessionUser, opts: { q?: string | nul
   const list = rows
     .filter((r) => !groupId || !r.memberships.some((m) => m.group.id === groupId))
     .map((r) => {
-      const active = r.memberships.map((m) => m.group).filter((g) => !g.archivedAt);
+      // Only the viewer's own groups are looked at: another teacher's groups are not the teacher's business.
+      const mine = r.memberships.map((m) => m.group).filter((g) => !g.archivedAt && own(g));
       return {
         id: r.id,
         fullName: r.fullName,
         login: r.login,
-        noGroup: active.length === 0,
-        groups: active
-          .filter(own)
-          .map((g) => g.name)
-          .sort((a, b) => a.localeCompare(b, "ru")),
+        noGroup: mine.length === 0,
+        groups: mine.map((g) => g.name).sort((a, b) => a.localeCompare(b, "ru")),
       };
     })
     .sort((a, b) => Number(b.noGroup) - Number(a.noGroup) || a.fullName.localeCompare(b.fullName, "ru"));

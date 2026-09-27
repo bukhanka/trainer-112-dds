@@ -32,7 +32,7 @@ export async function GroupsView({ user }: { user: SessionUser }) {
         name: true,
         teacherId: true,
         archivedAt: true,
-        teacher: { select: { fullName: true } },
+        teacher: { select: { id: true, fullName: true, isBlocked: true } },
         members: { select: { user: { select: { id: true, fullName: true, login: true, role: true, isBlocked: true } } } },
         // Only the teacher's own lessons: someone else's lesson has no report for this teacher.
         lessons: { where: { status: "FINISHED", ...lessonScope(user) }, orderBy: { startedAt: "desc" }, take: LAST_LESSONS * 2, select: { id: true, title: true, startedAt: true, settings: true } },
@@ -73,7 +73,7 @@ export async function GroupsView({ user }: { user: SessionUser }) {
             <Section
               key={g.id}
               title={`${g.name} · ${students.length} уч.`}
-              actions={<GroupActions group={{ id: g.id, name: g.name, teacherId: g.teacherId }} teachers={teachers} locked={demo} />}
+              actions={<GroupActions group={{ id: g.id, name: g.name, teacherId: g.teacherId }} teachers={teachers} current={g.teacher} locked={demo} />}
             >
               {students.length ? (
                 <div className="overflow-x-auto">
@@ -134,7 +134,7 @@ export async function GroupsView({ user }: { user: SessionUser }) {
                 <p className="text-sm text-arm-desc">В группе пока нет учеников — добавьте их кнопкой ниже.</p>
               )}
               <div className="mt-3">
-                <AddStudents groupId={g.id} />
+                <AddStudents groupId={g.id} admin={admin} />
               </div>
             </Section>
           );

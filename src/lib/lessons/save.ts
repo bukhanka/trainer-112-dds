@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import type { SessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { groupScope } from "@/lib/teacher/access";
+import { GROUP_ARCHIVED } from "@/lib/teacher/groups";
 import { firstIssue, lessonInputSchema, normalizeSeats, type NormalizedSeat, type TeacherSettings } from "./form";
 
 export type ResolvedLesson = {
@@ -25,7 +26,7 @@ export async function resolveLessonInput(
     include: { members: { select: { userId: true } } },
   });
   if (!group) return { ok: false, error: "Группа не найдена" };
-  if (group.archivedAt) return { ok: false, error: "Группа в архиве: верните её в разделе «Группы» или выберите другую" };
+  if (group.archivedAt) return { ok: false, error: GROUP_ARCHIVED };
 
   const { seats, error } = normalizeSeats(input);
   if (error) return { ok: false, error };

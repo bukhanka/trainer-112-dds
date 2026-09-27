@@ -13,7 +13,7 @@ import type { CallerPersona, IncidentAddress, IncidentCaller } from "@/lib/incid
 import type { LessonSettings } from "@/lib/lessons/settings";
 import { crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
 import { addressShort } from "./format";
-import { endHold, readHolds, resumeLine, startHold, type HoldPeriod } from "./hold";
+import { endHold, openHold, readHolds, resumeLine, startHold, type HoldPeriod } from "./hold";
 import {
   callerGreeting,
   callerMockReply,
@@ -48,6 +48,8 @@ type PhoneSeat = Pick<DdsSeat, "id" | "lessonId" | "serviceId" | "service" | "le
 
 /** An unanswered incoming call is lost after this many seconds. */
 export const RING_SEC = 25;
+/** A counterpart waits on hold this long, then hangs up. */
+export const HOLD_MAX_SEC = 180;
 
 
 
@@ -155,6 +157,20 @@ export async function phoneTick(tx: Tx, seat: PhoneSeat, settings: LessonSetting
     where: { seatId: seat.id, status: "RINGING", startedAt: { lt: new Date(now.getTime() - RING_SEC * 1000) } },
     data: { status: "MISSED", endedAt: now },
   });
+  // A counterpart left on hold for too long hangs up. Conditional on HELD: a resume a moment ago wins.
+  for (const call of await tx.call.findMany({ where: { seatId: seat.id, status: "HELD" }, select: { id: true, holds: true, messages: true } })) {
+    const open = openHold(readHolds(call.holds));
+    if (!open || now.getTime() - Date.parse(open.from) < HOLD_MAX_SEC * 1000) continue;
+    await tx.call.updateMany({
+      where: { id: call.id, status: "HELD" },
+      data: {
+        status: "ENDED",
+        endedAt: now,
+        holds: endHold(readHolds(call.holds), now) as Prisma.InputJsonValue,
+        messages: [...msgs(call), { role: "counterpart", text: "Не дождался на удержании и положил трубку.", at: now.toISOString() }] as Prisma.InputJsonValue,
+      },
+    });
+  }
   if (!settings.brigadeReports || !seat.serviceId || !seat.service) return;
 
   const open = await tx.incident.findMany({
@@ -259,12 +275,13 @@ function brief(call: Call & { incident: { number: number } | null }): CallBrief 
 }
 
 export async function phoneState(seat: DdsSeat): Promise<PhoneState> {
-  const calls = await db.call.findMany({
-    where: { seatId: seat.id },
-    orderBy: { startedAt: "desc" },
-    take: 40,
-    include: { incident: { select: { number: true } } },
-  });
+  const include = { incident: { select: { number: true } } } satisfies Prisma.CallInclude;
+  // The journal shows the latest 40; calls still going on (ringing, talking, on hold) come whatever their age.
+  const [recent, live] = await Promise.all([
+    db.call.findMany({ where: { seatId: seat.id }, orderBy: { startedAt: "desc" }, take: 40, include }),
+    db.call.findMany({ where: { seatId: seat.id, status: { in: ["RINGING", "ACTIVE", "HELD"] } }, orderBy: { startedAt: "desc" }, include }),
+  ]);
+  const calls = [...new Map([...live, ...recent].map((c) => [c.id, c])).values()].sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
   const briefs = calls.map(brief);
   return {
     current: briefs.find((c) => c.status === "ACTIVE") ?? null,
@@ -611,19 +628,19 @@ async function speakAs(prompt: string, history: CallMessage[], line: string, fal
 async function hangUpCall(seat: DdsSeat, callId: string, now: Date): Promise<CallResult> {
   const call = await ownCall(seat, callId);
   if (!call) return fail("Звонок не найден", 404);
-  if (call.status === "HELD") {
-    // The counterpart hears the hang-up while waiting: the open hold period ends with the call.
-    await db.$transaction(async (tx) => {
-      await lockLine(tx, seat.id);
-      await lockCall(tx, call.id);
-      const fresh = await tx.call.findUnique({ where: { id: call.id } });
-      if (fresh?.status !== "HELD") return;
+  // Under the same locks as hold and resume, on a fresh read: a conversation that a «Снять с удержания»
+  // has just parked still ends, and a call answered a moment ago never turns into a missed one.
+  await db.$transaction(async (tx) => {
+    await lockLine(tx, seat.id);
+    await lockCall(tx, call.id);
+    const fresh = await tx.call.findUnique({ where: { id: call.id } });
+    if (fresh?.status === "ACTIVE" || fresh?.status === "HELD") {
+      // The counterpart hears the hang-up while waiting: an open hold period ends with the call.
       await tx.call.update({ where: { id: call.id }, data: { status: "ENDED", endedAt: now, holds: endHold(readHolds(fresh.holds), now) as Prisma.InputJsonValue } });
-    }, TX);
-  }
-  // Conditional steps: a call answered a moment ago must not turn into a missed one.
-  const ended = await db.call.updateMany({ where: { id: call.id, status: "ACTIVE" }, data: { status: "ENDED", endedAt: now } });
-  if (!ended.count) await db.call.updateMany({ where: { id: call.id, status: "RINGING" }, data: { status: "MISSED", endedAt: now } });
+    } else if (fresh?.status === "RINGING") {
+      await tx.call.update({ where: { id: call.id }, data: { status: "MISSED", endedAt: now } });
+    }
+  }, TX);
   return { ok: true, call: await reload(call.id) };
 }
 
@@ -658,7 +675,10 @@ async function resumeCall(seat: DdsSeat, callId: string, now: Date): Promise<Cal
     const talking = await tx.call.findFirst({ where: { seatId: seat.id, status: "ACTIVE" } });
     if (talking) {
       await lockCall(tx, talking.id);
-      await tx.call.update({ where: { id: talking.id }, data: { status: "HELD", holds: startHold(readHolds(talking.holds), now) as Prisma.InputJsonValue } });
+      await tx.call.updateMany({
+        where: { id: talking.id, status: "ACTIVE" },
+        data: { status: "HELD", holds: startHold(readHolds(talking.holds), now) as Prisma.InputJsonValue },
+      });
     }
     await tx.call.update({
       where: { id: call.id },

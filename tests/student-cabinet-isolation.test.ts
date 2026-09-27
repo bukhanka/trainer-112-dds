@@ -6,9 +6,10 @@ const teacher = { fullName: "Смирнова Ольга Петровна" };
 const group = { name: "Учебная группа № 1" };
 const running = { id: "l-run", title: "Смена в реальном темпе", status: "RUNNING", startedAt: new Date("2026-09-27T07:00:00Z"), settings: { adaptive: true }, group, teacher };
 const draft = { id: "l-draft", title: "Итоговое занятие", status: "DRAFT", startedAt: null, settings: { adaptive: false, categories: ["Пожары"] }, group, teacher };
-const practice = { id: "l-practice", title: "Тренировка без занятия", status: "RUNNING", startedAt: new Date(), settings: { practice: true }, group: null, teacher };
+const practice = { id: "l-practice", title: "Тренировка без занятия", status: "RUNNING", startedAt: new Date(), settings: { practice: true }, group: null, teacher, teacherId: "ivanov" };
+const mixed = { id: "l-mixed", title: "Смешанный поток", status: "DRAFT", startedAt: null, settings: { cardSource: "students" }, group, teacher };
 const finished = { id: "l-done", title: "Прошлое", status: "FINISHED", startedAt: new Date("2026-09-20T07:00:00Z"), settings: {}, group, teacher };
-type LessonRow = { id: string; title: string; status: string; startedAt: Date | null; settings: object; group: { name: string } | null; teacher: { fullName: string } };
+type LessonRow = { id: string; title: string; status: string; startedAt: Date | null; settings: object; group: { name: string } | null; teacher: { fullName: string }; teacherId?: string };
 const seat = (studentId: string, lesson: LessonRow, role: "DDS" | "OP112", scenarioIds: string[]) => ({
   studentId,
   lesson,
@@ -22,6 +23,8 @@ const seats = [
   seat("ivanov", running, "DDS", ["sc-pipe", "sc-fire"]),
   seat("ivanov", draft, "OP112", []),
   seat("ivanov", practice, "DDS", ["sc-secret"]),
+  ...Array.from({ length: 40 }, () => seat("ivanov", practice, "DDS", [])), // a shared demo account piles up practices
+  seat("ivanov", mixed, "DDS", []),
   seat("ivanov", finished, "DDS", ["sc-secret"]),
   seat("petrova", running, "DDS", ["sc-secret"]),
 ];
@@ -60,7 +63,10 @@ const attempts = [
 
 const session = vi.hoisted(() => ({ user: null as null | { id: string; login: string; fullName: string; role: "STUDENT" | "TEACHER" | "ADMIN" } }));
 
-vi.mock("@/lib/db", () => ({ db: { seat: fakeModel(seats), scenario: fakeModel(scenarios), attempt: fakeModel(attempts) } }));
+// Seats honour `take`, like the database: the list must not be cut before the practices are left out.
+const seatModel = fakeModel(seats);
+const seatWithTake = { ...seatModel, findMany: async (args: { where?: Record<string, unknown>; take?: number }) => (await seatModel.findMany(args)).slice(0, args.take ?? Infinity) };
+vi.mock("@/lib/db", () => ({ db: { seat: seatWithTake, scenario: fakeModel(scenarios), attempt: fakeModel(attempts) } }));
 vi.mock("@/lib/auth/session", () => ({
   apiUser: async (roles?: string[]) => {
     if (!session.user) return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -81,7 +87,8 @@ describe("student cabinet: my tasks and reaction time are only mine", () => {
     const res = await assignments();
     expect(res.status).toBe(200);
     const { assignments: list } = await res.json();
-    expect(list.map((a: { lessonId: string }) => a.lessonId)).toEqual(["l-run", "l-draft"]);
+    expect(list.map((a: { lessonId: string }) => a.lessonId)).toEqual(["l-run", "l-draft", "l-mixed"]);
+    expect(list[2]).toMatchObject({ role: "DDS", from112: "only" });
     expect(list[0]).toMatchObject({ status: "RUNNING", role: "DDS", serviceName: "Поселение Вороновское", source: "tasks" });
     expect(list[0].tasks.map((t: { title: string }) => t.title)).toEqual(["Прорыв трубы в подвале", "Пожар в квартире"]);
     expect(list[1]).toMatchObject({ status: "DRAFT", role: "OP112", tasks: [], source: "categories", categories: ["Пожары"] });

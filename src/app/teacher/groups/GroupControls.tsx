@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, inputClass } from "@/components/ui";
 import type { StudentOption } from "@/lib/teacher/groups";
 
-type Teacher = { id: string; fullName: string };
+type Teacher = { id: string; fullName: string; isBlocked?: boolean };
 type Sent = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
 
 const DEMO_HINT = "Демо-группу на стенде менять нельзя: создайте свою группу";
@@ -79,8 +79,18 @@ export function NewGroupForm({ teachers }: { teachers: Teacher[] | null }) {
   );
 }
 
-/** Rename and archive; the administrator also names the teacher. */
-export function GroupActions({ group, teachers, locked }: { group: { id: string; name: string; teacherId: string | null }; teachers: Teacher[] | null; locked: boolean }) {
+/** Rename and archive; the administrator also names the teacher (the current one is listed even when blocked). */
+export function GroupActions({
+  group,
+  teachers,
+  current,
+  locked,
+}: {
+  group: { id: string; name: string; teacherId: string | null };
+  teachers: Teacher[] | null;
+  current: Teacher | null;
+  locked: boolean;
+}) {
   const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(group.name);
@@ -137,10 +147,22 @@ export function GroupActions({ group, teachers, locked }: { group: { id: string;
             value={group.teacherId ?? ""}
             disabled={busy || locked}
             title={locked ? DEMO_HINT : undefined}
-            onChange={(e) => void patch({ teacherId: e.target.value || null })}
+            onChange={(e) => {
+              const next = teachers.find((t) => t.id === e.target.value);
+              const text = next
+                ? `Передать группу «${group.name}» преподавателю ${next.fullName}? Он увидит группу и её историю, а прежний преподаватель — перестанет.`
+                : `Оставить группу «${group.name}» без преподавателя? Её увидит только администратор.`;
+              if (window.confirm(text)) void patch({ teacherId: e.target.value || null });
+            }}
             className="h-8 rounded border border-arm-gray bg-white px-2 text-sm text-arm-dark"
           >
             <option value="">— не назначен —</option>
+            {current && !teachers.some((t) => t.id === current.id) && (
+              <option value={current.id}>
+                {current.fullName}
+                {current.isBlocked ? " (заблокирован)" : ""}
+              </option>
+            )}
             {teachers.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.fullName}
@@ -225,7 +247,7 @@ export function RemoveMember({ groupId, student, locked }: { groupId: string; st
 }
 
 /** «Добавить учеников»: search by name or login among active students; those without a group come first. */
-export function AddStudents({ groupId }: { groupId: string }) {
+export function AddStudents({ groupId, admin }: { groupId: string; admin: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -307,7 +329,11 @@ export function AddStudents({ groupId }: { groupId: string }) {
               <span className="min-w-0 flex-1">
                 <span className="font-medium">{s.fullName}</span> <span className="text-xs text-arm-desc">· {s.login}</span>
                 <span className="mt-0.5 block text-xs">
-                  {s.noGroup ? <Badge tone="amber">без группы</Badge> : s.groups.length ? <span className="text-arm-desc">в группах: {s.groups.join(", ")}</span> : <span className="text-arm-desc">в группе другого преподавателя</span>}
+                  {s.groups.length ? (
+                    <span className="text-arm-desc">{admin ? "в группах" : "в ваших группах"}: {s.groups.join(", ")}</span>
+                  ) : admin ? (
+                    <Badge tone="amber">без группы</Badge>
+                  ) : null}
                 </span>
               </span>
               <Button size="sm" variant="primary" disabled={busyId !== null} onClick={() => void add(s)}>
@@ -319,7 +345,9 @@ export function AddStudents({ groupId }: { groupId: string }) {
       ) : (
         <p className="text-sm text-arm-desc">{q.trim() ? "Никого не нашли. Нового ученика создаёт администратор в разделе «Пользователи»." : "Все ученики уже в этой группе."}</p>
       )}
-      <p className="text-xs text-arm-desc">Показаны активные учётные записи обучающихся; сначала — те, кто ещё не в группе. Ученик может быть в нескольких группах.</p>
+      <p className="text-xs text-arm-desc">
+        Показаны активные учётные записи обучающихся; сначала — те, кто ещё не в {admin ? "группах" : "ваших группах"}. Ученик может быть в нескольких группах.
+      </p>
     </div>
   );
 }

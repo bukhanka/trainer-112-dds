@@ -139,8 +139,10 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
   /** «Удержать и ответить»: the conversation waits while the dispatcher takes the ringing call. */
   async function holdAndAnswer(ringingId: string) {
     cancel();
-    if (current && !(await run(`/api/dds/calls/${current.id}/hold`))) return;
-    await run(`/api/dds/calls/${ringingId}/answer`);
+    const parked = current?.id;
+    if (parked && !(await run(`/api/dds/calls/${parked}/hold`))) return;
+    // The ringing call is gone (lost or taken): back to the conversation that was parked for it.
+    if (!(await run(`/api/dds/calls/${ringingId}/answer`)) && parked) await run(`/api/dds/calls/${parked}/resume`);
   }
 
   const missed = (phone?.log ?? []).filter((c) => c.status === "MISSED" && c.incoming).length;
@@ -317,8 +319,9 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
                       <Pause className="h-4 w-4" /> Удержание
                     </button>
                     <button
+                      disabled={busy}
                       onClick={() => hangUp(current.id)}
-                      className="flex flex-[1.4] items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110"
+                      className="flex flex-[1.4] items-center justify-center gap-2 bg-arm-late py-2 text-white hover:brightness-110 disabled:opacity-50"
                     >
                       <HandsetDown className="h-4 w-4" /> Положить трубку
                     </button>
