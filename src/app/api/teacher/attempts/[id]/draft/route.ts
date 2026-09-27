@@ -15,5 +15,8 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/att
   const draft = await buildDraft(attempt.kind, readCriteria(attempt.criteria), readOverrides(attempt.override));
   await db.attempt.update({ where: { id }, data: { aiDraft: draft as unknown as Prisma.InputJsonValue } });
   await auditBy(user, request, { action: "attempt.draft", entity: "Attempt", entityId: id, after: { source: draft.source ?? "rules", model: draft.model ?? null } });
-  return Response.json({ draft });
+  // The model's name stays in the audit record above; the cabinet says only that the draft was written by AI.
+  const shown = { ...draft };
+  delete shown.model;
+  return Response.json({ draft: shown });
 }

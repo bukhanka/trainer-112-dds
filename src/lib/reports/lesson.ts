@@ -2,6 +2,7 @@
  * Lesson report: who, where, how fast against the norm, which checks failed, the score — only for
  * attempts the teacher has confirmed (a draft never reaches a report). Pure function over plain rows.
  */
+import { errorTitle } from "@/lib/scoring/errors";
 import { DEFAULT_PASS, passVerdict, type PassRules, type PassVerdict } from "@/lib/scoring/pass";
 import { applyOverrides, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup } from "@/lib/scoring/score";
 
@@ -112,7 +113,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
     const checks = mine.flatMap(checksOf);
     const failed = checks.filter((c) => c.ok === false);
     const counts = new Map<string, number>();
-    for (const c of failed) counts.set(c.title, (counts.get(c.title) ?? 0) + 1);
+    for (const c of failed) counts.set(errorTitle(c), (counts.get(errorTitle(c)) ?? 0) + 1);
     const scores = mine.flatMap((a) => (a.score == null ? [] : [a.score]));
     const avgScore = mean(scores);
     return {
@@ -145,10 +146,13 @@ export function buildLessonReport(input: ReportInput): LessonReport {
   for (const a of reviewed) {
     for (const c of checksOf(a)) {
       if (c.ok === null) continue;
-      const s = stats.get(c.code) ?? { code: c.code, title: c.title, group: c.group, failed: 0, applicable: 0, rate: 0 };
+      // By the name of the error, not the code: «вопрос 1» is a different question in each scenario, and the
+      // title of one attempt («сохранена за 3:44») must not stand for all of them.
+      const name = errorTitle(c);
+      const s = stats.get(name) ?? { code: c.code, title: name, group: c.group, failed: 0, applicable: 0, rate: 0 };
       s.applicable++;
       if (c.ok === false) s.failed++;
-      stats.set(c.code, s);
+      stats.set(name, s);
     }
   }
   const typical = [...stats.values()]
@@ -230,7 +234,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
         normSec: a.kind === "OP112" ? input.norms.typingSec : input.norms.ackSec,
         failedTitles: checksOf(a)
           .filter((c) => c.ok === false)
-          .map((c) => c.title),
+          .map(errorTitle),
         pass: verdicts.get(a.id) ?? null,
       };
     }),

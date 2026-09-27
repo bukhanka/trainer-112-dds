@@ -171,10 +171,12 @@ export function commentIssues(c: JudgedComment, known: ReadonlySet<string> = new
       flag(w, spell(w));
     }
   }
-  // «бриг. выехала», «устр. в 14:30»: a cut word with a dot and the sentence going on.
-  for (const m of text.matchAll(/(?<![а-яё])([а-яё]{2,6})\.(?=\s*[а-яё0-9])/gi)) {
+  // «бриг. выехала», «устр. в 14:30»: a cut word with a dot and the sentence going on in lower case. A whole word
+  // at the end of a sentence («не наш район. Передано …») is not one: longer words count only if known as cut ones.
+  for (const m of text.matchAll(/(?<![а-яёА-ЯЁ])([А-ЯЁа-яё][а-яё]{1,5})\.(?=\s*[а-яё0-9])/g)) {
     const w = m[1].toLowerCase();
     if (STANDARD_SHORT.has(w) || known.has(w)) continue;
+    if (!EXPAND[w] && (w.length > 4 || /[аеёиоуыэюяйь]$/.test(w))) continue; // a cut word ends on a consonant: «бриг.», «устр.»
     flag(`${m[1]}.`, spell(w));
   }
   // «бр», «нпр»: lower-case letters without a single vowel are not a word.

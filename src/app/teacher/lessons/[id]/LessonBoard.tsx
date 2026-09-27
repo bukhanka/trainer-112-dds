@@ -188,7 +188,7 @@ function SeatTile({ seat, now, lessonId, finished }: { seat: SeatState; now: num
             на проверке {seat.pendingReview}
           </Link>
         )}
-        {seat.topErrors.length > 0 && <span className="w-full text-arm-desc">Чаще всего: {seat.topErrors.join("; ").toLowerCase()}</span>}
+        {seat.topErrors.length > 0 && <span className="w-full text-arm-desc">Чаще всего: {seat.topErrors.join("; ")}</span>}
       </div>
     </article>
   );

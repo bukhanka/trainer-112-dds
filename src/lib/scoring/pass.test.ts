@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { describePassRules, passLabel, passRulesOf, passVerdict } from "./pass";
 import type { CriterionResult } from "./score";
 
-const street: CriterionResult = { code: "street", group: "address", title: "Улица совпадает", ok: false, critical: true, source: "rule" };
+const street: CriterionResult = { code: "op112.address.street", group: "address", title: "Улица совпадает с местом происшествия", ok: false, critical: true, source: "rule" };
 const time: CriterionResult = { code: "time", group: "timeliness", title: "Вовремя", ok: true, source: "rule" };
 
 describe("pass criteria of a lesson", () => {
@@ -12,13 +12,13 @@ describe("pass criteria of a lesson", () => {
   });
 
   it("fails a failed critical check even with a high score, unless the lesson allows it", () => {
-    expect(passVerdict(90, [street, time], null, { passScore: 70, maxCritical: 0 })).toEqual({ passed: false, reasons: ["критичная ошибка: «Улица совпадает»"] });
+    expect(passVerdict(90, [street, time], null, { passScore: 70, maxCritical: 0 })).toEqual({ passed: false, reasons: ["критичная ошибка: «Улица не совпадает с местом происшествия»"] });
     expect(passVerdict(90, [street, time], null, { passScore: 70, maxCritical: 1 })?.passed).toBe(true);
     expect(passVerdict(90, [street, { ...street, code: "s2" }], null, { passScore: 70, maxCritical: 1 })?.reasons).toEqual(["критичных ошибок 2, допустимо 1"]);
   });
 
   it("follows the teacher's correction of a check", () => {
-    expect(passVerdict(90, [street, time], { street: true }, { passScore: 70, maxCritical: 0 })?.passed).toBe(true);
+    expect(passVerdict(90, [street, time], { "op112.address.street": true }, { passScore: 70, maxCritical: 0 })?.passed).toBe(true);
   });
 
   it("has no verdict without a score", () => {

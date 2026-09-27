@@ -212,13 +212,20 @@ describe("phraseCovered", () => {
     expect(phraseCovered("Не обслуживаем, передано в ООО «Практика»", "кому передано (ООО «Практика»)")).toBe(true);
   });
 
-  it("wants at least half of the must-haves in the final comment", () => {
-    const events = [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, "Работы выполнены, всё в порядке, закрываем")];
-    const list = Object.fromEntries(
-      evaluateDdsPlate(facts({ status: "FINISHED", events, dispatch: { crew: "23", at: at(10), via: "status" } })).map((c) => [c.code, c]),
-    );
-    expect(list["dds.comment_content"].ok).toBe(false);
-    expect(list["dds.comment_content"].evidence).toContain("не хватает");
+  it("wants every must-have of the reference in the final comment", () => {
+    const run = (comment: string) =>
+      Object.fromEntries(
+        evaluateDdsPlate(
+          facts({ status: "FINISHED", events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("FINISHED", 400, comment)], dispatch: { crew: "23", at: at(10), via: "status" } }),
+        ).map((c) => [c.code, c]),
+      );
+    expect(run("Работы выполнены, всё в порядке, закрываем")["dds.comment_content"].ok).toBe(false);
+    // One of two: the evidence names what is missing, and the verdict agrees with it.
+    const half = run("Стояк перекрыт, вода подана")["dds.comment_content"];
+    expect(half.ok).toBe(false);
+    expect(half.evidence).toContain("не хватает: устран");
+    expect(run("Стояк перекрыт, течь устранена")["dds.comment_content"]).toMatchObject({ ok: true });
+    expect(run("Стояк перекрыт, течь устранена")["dds.comment_content"].evidence).not.toContain("не хватает");
   });
 
   it("does not judge the decision or the crew of an «open» reference, but still the 30 s and the comment", () => {
@@ -315,5 +322,32 @@ describe("end of the lesson", () => {
     expect(miss).toMatchObject({ ok: false, group: "comments" });
     expect(miss.expected).toBe("«Наряд № {номер} прибыл…» или «Сообщение принято…» ({номер} — номер цифрами; «…» — дальше любой текст)");
     expect(run("Наряд № 23 прибыл, стояк перекрыт, течь устранена", "Наряд № {номер} прибыл…")["dds.comment_template"].ok).toBe(true);
+  });
+
+  it("does not hold the report template against a refusal", () => {
+    const template = "Наряд № {номер} направлен…";
+    const rejected = byCode(
+      evaluateDdsPlate(
+        facts({
+          reference: liftRef,
+          status: "REJECTED",
+          events: [ev("ADDED", 0), ev("REJECTED", 20, "Адрес в районе Строгино, не наш район. Передано в ДДС района Строгино, дежурный Иванов")],
+          commentTemplate: template,
+        }),
+      ),
+    );
+    expect(rejected["dds.comment_template"]).toBeUndefined();
+    expect(rejected["dds.literacy"].ok).toBe(true);
+    const refused = byCode(
+      evaluateDdsPlate(
+        facts({
+          status: "REFUSED",
+          events: [ev("ADDED", 0), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("REFUSED", 300, "Работы не проводились: заявитель отказался, сообщено в ДДС округа")],
+          dispatch: { crew: "23", at: at(10), via: "status" },
+          commentTemplate: template,
+        }),
+      ),
+    );
+    expect(refused["dds.comment_template"]).toBeUndefined();
   });
 });

@@ -37,6 +37,10 @@ describe("clarity of a ДДС comment by rules", () => {
     expect(commentIssues(final("Прибыла п/б, а/м потушен")).map((i) => i.fragment)).toEqual(["п/б"]);
     expect(commentIssues({ status: "REJECTED", text: "Передано в УК, бр. выехала", final: true }).map((i) => i.fragment)).toEqual(["бр."]);
     expect(kinds(final("ул. Лесная, д. 5, кв. 12: течь устранена"))).toEqual([]);
+    // An ordinary word at the end of a sentence is not a cut one, even when the next one is typed in lower case.
+    expect(kinds({ status: "REJECTED", text: "Адрес в районе Строгино, не наш район. Передано в ДДС района Строгино, дежурный Иванов", final: true })).toEqual([]);
+    expect(kinds({ status: "REJECTED", text: "не наш район. передано в ДДС района, дежурный Иванов", final: true })).toEqual([]);
+    expect(kinds(final("Утечки газа. проверено, газ подан"))).toEqual([]);
   });
 
   it("does not take vehicle makes and number plates for abbreviations", () => {

@@ -143,15 +143,19 @@ export function WeightsPanel({ saved, savedName, attempts, runningLesson }: { sa
             <span className={`text-sm font-semibold ${(delta(avgBefore, avgAfter) ?? 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{sign(delta(avgBefore, avgAfter))}</span>
           </div>
           <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-sm">
-            <dt className="text-arm-desc">Попыток изменили балл</dt>
+            <dt className="text-arm-desc">Изменят балл — из всех попыток</dt>
             <dd className="tabular-nums">
               {changed.length} из {rows.length}
             </dd>
-            <dt className="text-arm-desc">Набрали 70 и больше</dt>
+            <dt className="text-arm-desc">Подтверждённых с баллом 70 и больше</dt>
             <dd className="tabular-nums">
               {ready("before")} → {ready("after")} из {counted.length}
             </dd>
           </dl>
+          <p className="mt-2 text-xs text-arm-desc">
+            Пересчитываются все попытки, и черновики на проверке тоже ({rows.length}). Средний балл и «70 и больше» — только по подтверждённым
+            преподавателем ({counted.length}), как в отчётах.
+          </p>
           {savedName && <p className="mt-2 text-xs text-arm-desc">Сохранено: {savedName}</p>}
         </section>
         {runningLesson && (

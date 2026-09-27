@@ -7,6 +7,7 @@
  * check change it at once. For the student and in the reports only confirmed attempts get a verdict;
  * the draft verdict is shown to the teacher alone.
  */
+import { errorTitle } from "./errors";
 import { applyOverrides, type CriterionResult, type Overrides } from "./score";
 
 export type PassRules = { passScore: number; maxCritical: number };
@@ -31,7 +32,7 @@ export function passVerdict(score: number | null, criteria: CriterionResult[], o
     reasons.push(
       rules.maxCritical
         ? `критичных ошибок ${critical.length}, допустимо ${rules.maxCritical}`
-        : `критичная ошибка: ${critical.map((c) => `«${c.title}»`).join(", ")}`,
+        : `критичная ошибка: ${critical.map((c) => `«${errorTitle(c)}»`).join(", ")}`,
     );
   }
   return { passed: reasons.length === 0, reasons };

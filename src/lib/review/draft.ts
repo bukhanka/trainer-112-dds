@@ -6,6 +6,7 @@
  * themselves, so the teacher always sees a readable summary.
  */
 import { z } from "zod";
+import { errorTitle } from "@/lib/scoring/errors";
 import { applyOverrides, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup } from "@/lib/scoring/score";
 
 export type AiDraft = {
@@ -101,8 +102,8 @@ export function ruleDraft(criteria: CriterionResult[], overrides?: Overrides | n
   if (!failed.length) parts.push(passed.length ? `Все проверки пройдены (${passed.length}).` : "Проверок, которые можно применить, нет.");
   else {
     parts.push(`Ошибок: ${failed.length} из ${failed.length + passed.length}.`);
-    if (critical.length) parts.push(`Критичная ошибка: ${critical.map((c) => `«${c.title}»`).join(", ")} — балл ограничен.`);
-    parts.push(`Не выполнено: ${failed.slice(0, 3).map((c) => `«${c.title}»`).join(", ")}${failed.length > 3 ? " и другие" : ""}.`);
+    if (critical.length) parts.push(`Критичная ошибка: ${critical.map((c) => `«${errorTitle(c)}»`).join(", ")} — балл ограничен.`);
+    parts.push(`Ошибки: ${failed.slice(0, 3).map((c) => `«${errorTitle(c)}»`).join(", ")}${failed.length > 3 ? " и другие" : ""}.`);
   }
   const comments: Record<string, string> = {};
   for (const c of failed) {

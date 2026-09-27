@@ -83,7 +83,7 @@ describe("buildLessonReport", () => {
 
   it("finds the typical errors of the group", () => {
     expect(report.typical[0]).toMatchObject({ code: "ack", failed: 2, applicable: 3, rate: 67 });
-    expect(report.insight).toContain("«ack» — 2 из 3");
+    expect(report.insight).toContain("«Не выполнено: ack» — 2 из 3");
   });
 
   it("measures how often the teacher agreed with the draft", () => {
@@ -96,6 +96,24 @@ describe("buildLessonReport", () => {
     const pet = report.heat.rows.find((r) => r.studentId === "u2")!;
     expect(pet.cells.find((x) => x.group === "timeliness")).toMatchObject({ failed: 2, applicable: 2, rate: 100 });
     expect(pet.cells.find((x) => x.group === "address")?.rate).toBeNull();
+  });
+});
+
+describe("typical errors are counted by the error, not by the code", () => {
+  it("does not lend one attempt's time to another or merge different questions", () => {
+    const op = { kind: "OP112" as const };
+    const report = buildLessonReport(
+      input([
+        attempt("s3", "u3", [c("op112.typing_time", "timeliness", false, { title: "Карточка сохранена за 3:44" }), c("op112.question.1", "completeness", true, { title: "Задан вопрос: В сознании ли, дышит ли" })], op),
+        attempt("s3", "u3", [c("op112.typing_time", "timeliness", false, { title: "Карточка сохранена за 2:01" }), c("op112.question.1", "completeness", false, { title: "Задан вопрос: Есть ли угроза людям" })], op),
+      ]),
+    );
+    expect(report.typical.map((t) => [t.title, t.failed, t.applicable])).toEqual([
+      ["Карточка набрана дольше норматива", 2, 2],
+      ["Не задан вопрос: Есть ли угроза людям", 1, 1],
+    ]);
+    expect(report.insight).not.toContain("3:44");
+    expect(report.attempts[1].failedTitles).toEqual(["Карточка набрана дольше норматива", "Не задан вопрос: Есть ли угроза людям"]);
   });
 });
 
@@ -113,7 +131,7 @@ describe("pass criteria in the report", () => {
     expect(report.students.find((s) => s.studentId === "u2")).toMatchObject({ passed: 0, judged: 2 });
     expect(report.students.find((s) => s.studentId === "u3")).toMatchObject({ passed: 0, judged: 0 });
     const reasons = report.attempts.filter((a) => a.studentId === "u2").map((a) => a.pass?.reasons);
-    expect(reasons).toEqual([["балл 60 ниже 70"], ["критичная ошибка: «street»"]]);
+    expect(reasons).toEqual([["балл 60 ниже 70"], ["критичная ошибка: «Не выполнено: street»"]]);
   });
 
   it("follows other criteria and defaults to 70 without a critical error", () => {

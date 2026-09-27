@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeScore, type Weights } from "@/lib/scoring/score";
 import type { Persona } from "./caller";
 import { resolveCard } from "./card";
-import { evaluateOp112Ai, evaluateOp112Rules, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, type EvalInput } from "./evaluate";
+import { evaluateOp112Ai, evaluateOp112Rules, nameWithoutPatronymic, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, type EvalInput } from "./evaluate";
 import { factCards } from "./facts";
 import type { ServiceLite } from "./routing";
 import type { CallLine, CardAnswers } from "./types";
@@ -257,7 +257,40 @@ describe("reference answer", () => {
   });
 });
 
+describe("«сказал ↔ заполнил»: the verdict and its evidence agree", () => {
+  const p2: Persona = { ...persona, facts: [...persona.facts, "Дом 17-этажный, я на седьмом этаже"] };
+  const floors = factCards(p2).find((c) => c.expect?.kind === "tag" && c.expect.row === "Этажность здания")!;
+  const messages = [
+    ...goodMessages,
+    line("trainee", "На каком вы этаже?"),
+    line("counterpart", "На седьмом этаже дым идёт из клапана мусоропровода.", [floors.key]),
+    line("trainee", "Сколько этажей в доме?"),
+    line("counterpart", "Дом семнадцатиэтажный.", [floors.key]),
+  ];
+  const check = (description: string) => evaluateOp112Rules({ ...input({ messages, description }), persona: p2 }).find((c) => c.code === `op112.said.${floors.key}`)!;
+
+  it("quotes the line with the value and does not take a house number for the floors", () => {
+    const c = check("Горит мусорный контейнер у дома 17, пострадавших нет.");
+    expect(c.ok).toBe(false);
+    expect(c.evidence).toContain("«Дом семнадцатиэтажный.»");
+    expect(c.evidence).toContain("«Этажность здания»: не заполнено, в описании нет");
+  });
+
+  it("says «в описании» when the value is written there", () => {
+    const c = check("Задымление мусоропровода, дом 17 этажей, пострадавших нет.");
+    expect(c.ok).toBe(true);
+    expect(c.evidence).toContain("→ в описании: «");
+    expect(c.evidence).not.toContain("не заполнено");
+  });
+});
+
 describe("evaluateOp112Ai", () => {
+  it("does not count a name without the patronymic as a discrepancy", () => {
+    expect(nameWithoutPatronymic({ field: "Заявитель", said: "Соколова Вера Ивановна", filled: "Соколова Вера" })).toBe(true);
+    expect(nameWithoutPatronymic({ field: "ФИО", said: "Соколова Вера Ивановна", filled: "Соколов" })).toBe(false);
+    expect(nameWithoutPatronymic({ field: "Адрес", said: "улица Твардовского 2", filled: "Твардовского 2" })).toBe(false);
+  });
+
   it("leaves the model checks «не применимо» when no model is configured", async () => {
     const prev = process.env.LLM_BASE_URL;
     delete process.env.LLM_BASE_URL;

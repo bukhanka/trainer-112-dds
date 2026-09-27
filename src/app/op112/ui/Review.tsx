@@ -1,5 +1,7 @@
 "use client";
 import useSWR from "swr";
+import { plural } from "@/lib/format";
+import { errorTitle } from "@/lib/scoring/errors";
 import { WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
 import { getJson } from "./client";
 import { Modal } from "./Services";
@@ -7,8 +9,13 @@ import { IconCheck, IconClose } from "./icons";
 
 type ReviewData =
   | { ready: false }
+  // A lesson: the draft waits for the teacher, the student sees nothing of it.
+  | { ready: true; hidden: true; reviewStatus: string }
   | {
       ready: true;
+      hidden?: false;
+      /** «Тренировка без занятия»: the automatic review is a self-check, not a mark. */
+      selfCheck?: boolean;
       score: number | null;
       criteria: CriterionResult[];
       overrides: Record<string, boolean | null> | null;
@@ -38,9 +45,10 @@ const AI_NOTE: Record<string, string> = {
 
 export function ReviewModal(p: { incidentId: string; number: number | null; onClose: () => void; nextLabel?: string }) {
   const { data } = useSWR<ReviewData>(`/api/op112/incidents/${p.incidentId}/review`, getJson, {
-    refreshInterval: (d) => (!d || !d.ready || d.ai === "pending" ? 2500 : 0),
+    refreshInterval: (d) => (!d || !d.ready || (!d.hidden && d.ai === "pending") ? 2500 : 0),
   });
-  const ready = data?.ready ? data : null;
+  const hidden = data?.ready && data.hidden;
+  const ready = data?.ready && !data.hidden ? data : null;
   const criteria = ready ? applyOverrides(ready.criteria, ready.overrides) : [];
   const said = criteria.filter((c) => c.code.startsWith("op112.said.") || c.code === "op112.ai.said");
   const rest = criteria.filter((c) => !said.includes(c));
@@ -60,7 +68,11 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
         </button>
       }
     >
-      {!ready ? (
+      {hidden ? (
+        <div className="px-5 py-10 text-center text-[15px] text-arm-dark">
+          Карточка сохранена. Разбор появится после проверки преподавателем — в разделе «Мои результаты».
+        </div>
+      ) : !ready ? (
         <div className="px-5 py-10 text-center text-arm-desc">Проверяем карточку…</div>
       ) : (
         <div className="flex flex-col gap-5 px-5 py-4">
@@ -75,7 +87,11 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
               )}
               <div>{AI_NOTE[ready.ai] ?? ""}</div>
               <div>
-                {ready.reviewStatus === "PENDING" ? "Оценка предварительная: её подтверждает преподаватель." : "Оценку подтвердил преподаватель."}
+                {ready.reviewStatus !== "PENDING"
+                  ? "Оценку подтвердил преподаватель."
+                  : ready.selfCheck
+                    ? "Самопроверка тренировки — не оценка: оценку ставит преподаватель на занятии."
+                    : "Оценка предварительная: её подтверждает преподаватель."}
               </div>
               {ready.teacherComment && <div className="mt-1 text-arm-dark">Комментарий преподавателя: {ready.teacherComment}</div>}
             </div>
@@ -88,7 +104,7 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
                 {fix.slice(0, 8).map((c) => (
                   <li key={c.code}>
                     {c.critical && <b className="text-arm-late">Критично: </b>}
-                    {c.title}
+                    {errorTitle(c)}
                     {c.expected ? ` — надо: ${c.expected}` : ""}
                   </li>
                 ))}
@@ -158,7 +174,7 @@ export function ScoreBadge({ score }: { score: number | null }) {
   return (
     <div className={`flex h-[72px] w-[92px] shrink-0 flex-col items-center justify-center text-white ${tone}`}>
       <div className="text-[30px] font-bold leading-none">{score ?? "—"}</div>
-      <div className="mt-1 text-[11px]">баллов из 100</div>
+      <div className="mt-1 text-[11px]">{score === null ? "баллов" : plural(score, ["балл", "балла", "баллов"])} из 100</div>
     </div>
   );
 }

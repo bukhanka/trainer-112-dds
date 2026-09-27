@@ -9,6 +9,7 @@
  *   «Не завершено» — the lesson is over (or 48 h passed) and a service has not closed the card.
  * These three are shown in red, as on the controller's screen.
  */
+import { errorTitle } from "@/lib/scoring/errors";
 import { applyOverrides, type CriterionResult, type Overrides } from "@/lib/scoring/score";
 
 export type PlateStatus = "ADDED" | "RECEIVED" | "ACCEPTED" | "REJECTED" | "STARTED" | "ARRIVED" | "WORKING" | "FINISHED" | "REFUSED";
@@ -230,7 +231,8 @@ function topFailed(attempts: BoardInput["attempts"]): { failed: number; top: str
     for (const c of applyOverrides(a.criteria, a.override)) {
       if (c.ok === false) {
         failed++;
-        counts.set(c.title, (counts.get(c.title) ?? 0) + 1);
+        const name = errorTitle(c);
+        counts.set(name, (counts.get(name) ?? 0) + 1);
       }
     }
   }

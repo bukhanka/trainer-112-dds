@@ -177,7 +177,7 @@ describe("buildBoard: errors", () => {
       NOW,
     );
     expect(board.seats[0].failedChecks).toBe(1);
-    expect(board.seats[0].topErrors).toEqual(["Улица записана верно"]);
+    expect(board.seats[0].topErrors).toEqual(["Не выполнено: Улица записана верно"]);
     expect(board.summary.pendingReview).toBe(0);
   });
 });
