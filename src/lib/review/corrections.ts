@@ -134,3 +134,21 @@ export function planCorrectionSync(active: ActiveCorrection[], desired: DesiredC
   const have = new Set(active.map(key));
   return { create: desired.filter((d) => !have.has(key(d))), retire: active.filter((a) => !want.has(key(a))).map((a) => a.id) };
 }
+
+// ─── Switching a correction off and on ───────────────────────────────────────
+
+/**
+ * Corrections belong to the centre's methodology, so every teacher sees them all; switching one off or on
+ * is for its author or an administrator. A correction replaced by a newer decision on its attempt stays off.
+ */
+export function switchRefusal(
+  user: { id: string; role: string },
+  row: { authorId: string | null; active: boolean; offReason: string | null },
+  active: boolean,
+): { status: number; error: string } | null {
+  if (user.role !== "ADMIN" && row.authorId !== user.id) return { status: 403, error: "Отключить или включить правку может только её автор или администратор" };
+  if (active && !row.active && row.offReason === "revised") {
+    return { status: 409, error: "Эту правку заменило новое решение по той же попытке — включить её нельзя" };
+  }
+  return null;
+}

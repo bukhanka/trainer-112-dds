@@ -3,8 +3,18 @@ import type { Prisma, PrismaClient, SeatRole } from "@prisma/client";
 import type { SessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import type { CriterionResult } from "@/lib/scoring/score";
-import { auditInTx } from "@/lib/teacher/access";
-import { desiredCorrections, GUIDANCE_LIMIT, LEARNING_CHECKS, pickGuidance, planCorrectionSync, type CorrectionContext, type GuidanceRow } from "./corrections";
+import { attemptScope, auditInTx } from "@/lib/teacher/access";
+import {
+  desiredCorrections,
+  GUIDANCE_LIMIT,
+  learnerOf,
+  LEARNING_CHECKS,
+  pickGuidance,
+  planCorrectionSync,
+  switchRefusal,
+  type CorrectionContext,
+  type GuidanceRow,
+} from "./corrections";
 
 type Client = PrismaClient | Prisma.TransactionClient;
 
@@ -138,4 +148,117 @@ export async function syncCorrections(
     }
   }
   return { created, retired: plan.retire.length };
+}
+
+// ─── The «Учёт правок» page ──────────────────────────────────────────────────
+
+export type CorrectionFilter = { state?: string; role?: string; mine?: boolean };
+
+export type CorrectionListItem = {
+  id: string;
+  createdAt: Date;
+  authorName: string;
+  mine: boolean;
+  /** The viewer may switch it (author or administrator). */
+  canSwitch: boolean;
+  role: SeatRole;
+  code: string;
+  title: string;
+  source: string;
+  /** The model check that reads it (self — the correction is of that very check), or null: a rule nobody reads. */
+  learner: { title: string; self: boolean } | null;
+  scenarioTitle: string | null;
+  typeName: string | null;
+  draftOk: boolean | null;
+  draftEvidence: string | null;
+  teacherOk: boolean | null;
+  comment: string;
+  active: boolean;
+  offReason: string | null;
+  offByName: string | null;
+  offAt: Date | null;
+  /** In how many model checks it was shown. */
+  used: number;
+  /** Only when the viewer may open that attempt (own lesson, or an administrator). */
+  attemptId: string | null;
+};
+
+export type CorrectionList = {
+  items: CorrectionListItem[];
+  stats: { active: number; learning: number; used: number; off: number };
+  /** Rule checks the teachers correct most often: rules do not learn, this is a hint for the methodologist. */
+  rules: { code: string; title: string; count: number; learner: string | null }[];
+};
+
+/**
+ * All corrections of the centre, newest first: the methodology is shared by the teachers. Nothing about
+ * students is shown, and the link to the attempt only to those who may open it.
+ */
+function learnerFor(code: string): CorrectionListItem["learner"] {
+  const l = learnerOf(code);
+  return l ? { title: l.title, self: l.code === code } : null;
+}
+
+export async function listCorrections(user: SessionUser, f: CorrectionFilter = {}): Promise<CorrectionList> {
+  const where: Prisma.TeacherCorrectionWhereInput = {};
+  if (f.state === "active") where.active = true;
+  if (f.state === "off") where.active = false;
+  if (f.role === "OP112" || f.role === "DDS") where.role = f.role;
+  if (f.mine) where.authorId = user.id;
+  const [rows, counts, used] = await Promise.all([
+    db.teacherCorrection.findMany({ where, orderBy: { createdAt: "desc" }, take: 300 }),
+    db.teacherCorrection.findMany({ where: { active: true }, select: { code: true, title: true, source: true } }),
+    db.$queryRaw<{ id: string; n: bigint | number }[]>`
+      SELECT l.id AS id, count(*) AS n
+      FROM "Attempt" a
+      CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(a.criteria) = 'array' THEN a.criteria ELSE '[]'::jsonb END) AS c
+      CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(c->'learned') = 'array' THEN c->'learned' ELSE '[]'::jsonb END) AS l(id)
+      GROUP BY l.id`,
+  ]);
+  const usedBy = new Map(used.map((u) => [u.id, Number(u.n)]));
+  const attemptIds = [...new Set(rows.flatMap((r) => (r.attemptId ? [r.attemptId] : [])))];
+  const open = attemptIds.length
+    ? new Set((await db.attempt.findMany({ where: { id: { in: attemptIds }, ...attemptScope(user) }, select: { id: true } })).map((a) => a.id))
+    : new Set<string>();
+
+  const byRule = new Map<string, { code: string; title: string; count: number; learner: string | null }>();
+  for (const c of counts) {
+    if (c.source !== "rule") continue;
+    const e = byRule.get(c.code) ?? { code: c.code, title: c.title, count: 0, learner: learnerOf(c.code)?.title ?? null };
+    e.count++;
+    byRule.set(c.code, e);
+  }
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      authorName: r.authorName,
+      mine: r.authorId === user.id,
+      canSwitch: !switchRefusal(user, r, !r.active),
+      role: r.role,
+      code: r.code,
+      title: r.title,
+      source: r.source,
+      learner: learnerFor(r.code),
+      scenarioTitle: r.scenarioTitle,
+      typeName: r.typeName,
+      draftOk: r.draftOk,
+      draftEvidence: r.draftEvidence,
+      teacherOk: r.teacherOk,
+      comment: r.comment,
+      active: r.active,
+      offReason: r.offReason,
+      offByName: r.offByName,
+      offAt: r.offAt,
+      used: usedBy.get(r.id) ?? 0,
+      attemptId: r.attemptId && open.has(r.attemptId) ? r.attemptId : null,
+    })),
+    stats: {
+      active: counts.length,
+      learning: counts.filter((c) => learnerOf(c.code)).length,
+      used: [...usedBy.values()].reduce((a, b) => a + b, 0),
+      off: await db.teacherCorrection.count({ where: { active: false } }),
+    },
+    rules: [...byRule.values()].sort((a, b) => b.count - a.count).slice(0, 5),
+  };
 }

@@ -5,6 +5,7 @@ const NAV = [
   { href: "/teacher", label: "Занятия" },
   { href: "/teacher/scenarios", label: "Сценарии" },
   { href: "/teacher/weights", label: "Веса оценки" },
+  { href: "/teacher/corrections", label: "Учёт правок" },
   { href: "/teacher/reports", label: "Отчёты" },
   { href: "/teacher/groups", label: "Группы" },
 ];

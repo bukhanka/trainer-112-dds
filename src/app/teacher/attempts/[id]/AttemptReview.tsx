@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PassLine } from "@/components/pass";
 import { Badge, Button, REVIEW_STATUS } from "@/components/ui";
+import { learnerOf, verdictWord } from "@/lib/review/corrections";
 import type { AiDraft } from "@/lib/review/draft";
 import { describePassRules, passVerdict, type PassRules } from "@/lib/scoring/pass";
 import { applyOverrides, computeScore, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup, type Weights } from "@/lib/scoring/score";
@@ -25,7 +26,50 @@ export type AttemptReviewProps = {
   nextPendingId: string | null;
   /** Pass criteria of the lesson: «зачтено / не зачтено». */
   pass: PassRules;
+  /** Model checks: the teacher corrections they were shown, by check code. */
+  learned: Record<string, LearnedView[]>;
 };
+
+export type LearnedView = {
+  id: string;
+  typeName: string | null;
+  draftOk: boolean | null;
+  teacherOk: boolean | null;
+  comment: string;
+  authorName: string;
+  when: string;
+  active: boolean;
+};
+
+/** «учтены правки преподавателя: N» — opens to the list (a tap on phones, the comments also on hover). */
+function LearnedList({ items }: { items: LearnedView[] }) {
+  return (
+    <details className="mt-1 text-xs">
+      <summary className="cursor-pointer select-none text-arm-blue" title={items.map((l) => `«${l.comment}»`).join("\n")}>
+        учтены правки преподавателя: {items.length}
+      </summary>
+      <ul className="mt-1 space-y-1 border-l-2 border-arm-blue/40 pl-2 text-arm-dark">
+        {items.map((l) => (
+          <li key={l.id}>
+            <span className="text-arm-desc">
+              {[l.typeName, `${l.authorName}, ${l.when}`].filter(Boolean).join(" · ")}
+              {!l.active && " · потом отключена"}:{" "}
+            </span>
+            черновик «{verdictWord(l.draftOk)}» → преподаватель «{verdictWord(l.teacherOk)}»: {l.comment}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** What a changed check teaches: the model check learns, a rule does not (its model twin may read the correction). */
+function learnsNote(c: CriterionResult): string {
+  const learner = learnerOf(c.code);
+  if (learner?.code === c.code) return "проверка ИИ учтёт правку в похожих случаях";
+  if (learner) return `правило не изменится, правку прочитает «${learner.title}»`;
+  return "правило не учится: правка действует только в этой попытке";
+}
 
 const VERDICTS: { value: Verdict; label: string; cls: string }[] = [
   { value: true, label: "Верно", cls: "bg-emerald-700 text-white border-emerald-700" },
@@ -166,6 +210,7 @@ export function AttemptReview(p: AttemptReviewProps) {
                           </p>
                         )}
                         {aiNote && !editing && p.draft?.source === "ai" && <p className="mt-1 text-xs text-arm-blue">ИИ: {aiNote}</p>}
+                        {p.learned[c.code]?.length ? <LearnedList items={p.learned[c.code]} /> : null}
                         {editing && (
                           <div className="mt-2 inline-flex overflow-hidden rounded border border-arm-gray text-xs" role="group" aria-label={`Вердикт: ${c.title}`}>
                             {VERDICTS.map((v) => (
@@ -225,6 +270,11 @@ export function AttemptReview(p: AttemptReviewProps) {
               {p.teacherComment}
             </p>
           )}
+          {p.reviewStatus === "OVERRIDDEN" && !editing && (
+            <Link href="/teacher/corrections" className="mt-2 block text-xs text-arm-blue hover:underline">
+              Исправление сохранено в «Учёт правок» →
+            </Link>
+          )}
         </section>
 
         {p.locked ? (
@@ -233,6 +283,22 @@ export function AttemptReview(p: AttemptReviewProps) {
           <section className="flex flex-col gap-2 rounded border-2 border-arm-blue bg-white p-4">
             <div className="text-sm font-semibold">ИИ неправ — как надо</div>
             <p className="text-xs text-arm-desc">Переключите вердикты у проверок. Изменено: {changed.length}.</p>
+            {changed.length > 0 && (
+              <ul className="list-disc space-y-0.5 pl-4 text-xs text-arm-desc">
+                {changed.map((c) => (
+                  <li key={c.code}>
+                    «{c.title}» — {learnsNote(c)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-arm-desc">
+              Правка с комментарием сохранится в{" "}
+              <Link href="/teacher/corrections" className="text-arm-blue underline">
+                «Учёт правок»
+              </Link>
+              .
+            </p>
             <textarea
               className="min-h-24 rounded border border-arm-gray p-2 text-sm outline-none focus:border-arm-blue"
               placeholder="Комментарий ученику: что было не так и как правильно"
