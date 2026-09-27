@@ -8,8 +8,8 @@ type Field = { key: string; label: string; kind: "number" | "time"; min?: number
 
 const FIELDS: Field[] = [
   { key: "norm.ackSec", label: "Норматив ответа ДДС «Принята / Не принята», с", kind: "number", min: 5, max: 600, hint: "памятка: 30 с" },
-  { key: "norm.workSec", label: "Норматив отработки карточки на месте ДДС, с", kind: "number", min: 30, max: 3600, hint: "QA: 3 мин" },
-  { key: "norm.typingSec", label: "Таймер набора карточки 112 краснеет после, с", kind: "number", min: 20, max: 600, hint: "по скриншотам ~65 с" },
+  { key: "norm.workSec", label: "Норматив отработки карточки на месте ДДС, с", kind: "number", min: 30, max: 3600, hint: "памятка ДДС: 3 мин" },
+  { key: "norm.typingSec", label: "Таймер набора карточки 112 краснеет после, с", kind: "number", min: 20, max: 600, hint: "как в АРМ-112: 65 с" },
   { key: "norm.finishHours", label: "«Не завершено», если нет «Работы завершены» дольше, ч", kind: "number", min: 1, max: 240 },
   { key: "audit.retentionDays", label: "Срок хранения журнала аудита, дн.", kind: "number", min: 183, max: 3650, hint: "не меньше 6 месяцев" },
   { key: "backup.dailyAt", label: "Время ежедневной резервной копии", kind: "time" },

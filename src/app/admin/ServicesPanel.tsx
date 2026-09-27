@@ -89,19 +89,21 @@ export function ServicesPanel({ initial }: { initial: ServicesStatus }) {
           title="Модели ИИ"
           what="Реплики заявителей и бригад, ИИ-проверки, черновики разбора, распознавание и синтез речи"
           state={ai}
-          status={!ai.on ? stoppedText(ai, "выключены") : ai.config.llm === "mock" ? "не подключены — режим заглушки" : "работают"}
+          status={!ai.on ? stoppedText(ai, "выключены") : ai.config.llm === "mock" ? "не подключены — отвечают правила" : "работают"}
           action={{ on: ai.on, stop: "Выключить", start: "Включить" }}
           busy={busy === "ai"}
           onToggle={(on) => toggle("ai", on)}
         >
           {!ai.on && <Fact label="Сейчас">отвечают правила, речь распознаёт и озвучивает браузер, ИИ-проверки — «не применимо»</Fact>}
-          <Fact label="Языковая модель">{ai.config.llm}</Fact>
-          <Fact label="Распознавание речи">{ai.config.stt}</Fact>
-          <Fact label="Синтез речи">{ai.config.tts}</Fact>
+          <Fact label="Языковая модель">{shownModel(ai.config.llm, "отвечают правила")}</Fact>
+          <Fact label="Распознавание речи">{shownModel(ai.config.stt, "распознаёт браузер")}</Fact>
+          <Fact label="Синтез речи">{shownModel(ai.config.tts, "озвучивает браузер")}</Fact>
           <Fact label="Сегодня">
             обращений к моделям {ai.today.calls} · ответов по правилам {ai.today.rules} · сбоев {ai.today.failed}
           </Fact>
-          <p className="text-xs text-arm-desc">Адреса моделей задаются в .env при установке; mock — модель не подключена, отвечают правила.</p>
+          <p className="text-xs text-arm-desc">
+            Модели задаются в .env при установке: на демо-стенде — облачные, в контуре учебного центра — локальные на своём сервере, данные наружу не уходят.
+          </p>
         </ServiceCard>
 
         <ServiceCard
@@ -218,4 +220,9 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 
 function Manual({ children }: { children: ReactNode }) {
   return <p className="rounded bg-arm-panel px-2 py-1.5 text-xs text-arm-desc [&_code]:font-mono [&_code]:whitespace-nowrap [&_code]:text-arm-dark">{children}</p>;
+}
+
+/** «mock» from the settings means «no model configured»: say what works instead. */
+function shownModel(value: string, fallback: string): string {
+  return value === "mock" ? `не подключена — ${fallback}` : value;
 }
