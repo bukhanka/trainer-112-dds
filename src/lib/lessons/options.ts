@@ -44,7 +44,8 @@ export async function dealableScenarios(): Promise<CoverageScenario[]> {
   });
   return rows.map((s) => {
     const place = scenarioPlace(s.truth);
-    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved: s.status === "APPROVED" && s.ddsCard !== null };
+    const approved = s.status === "APPROVED";
+    return { id: s.id, category: s.category, okrug: place.okrug, district: place.district, approved, dds: approved && s.ddsCard !== null };
   });
 }
 

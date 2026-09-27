@@ -80,4 +80,17 @@ describe("will every place get cards", () => {
     // Places with their own tasks draw nothing: no warning.
     expect(coverageWarnings(lessonCoverage(library, settings, [{ role: "DDS", scenarioIds: ["f1"] }]), settings)).toEqual([]);
   });
+
+  it("counts tasks for the 112 place only in the category, but not for ДДС places", () => {
+    const silent = { id: "q1", category: "тишина и срыв звонка", okrug: "ЦАО", district: "Арбат", approved: true, dds: false };
+    const all = [...library, silent];
+    const settings = { categories: ["тишина и срыв звонка"] };
+    expect(lessonCoverage(all, settings, [op]).counts.find((c) => c.name === "тишина и срыв звонка")).toMatchObject({ approved: 1 });
+    expect(lessonCoverage(all, settings, [op]).blocked).toBeNull();
+    expect(lessonCoverage(all, settings, [dds]).blocked).toMatch(/только задания для места 112/);
+    const mixed = { categories: ["пожар", "тишина и срыв звонка"] };
+    expect(aboutEmpty(lessonCoverage(all, mixed, [op, dds]), mixed)).toEqual([
+      "В категории «тишина и срыв звонка» только задания для места 112 — места ДДС получат карточки только из других категорий.",
+    ]);
+  });
 });
