@@ -225,7 +225,7 @@ describe("groups: a teacher works only with own groups", () => {
     const list = (await res.json()).students as { id: string; noGroup: boolean; groups: string[] }[];
     expect(list.map((s) => s.id)).toEqual(["novikov", "sidorov"]); // members, teachers, admins and blocked are left out
     expect(list[0]).toMatchObject({ noGroup: true, groups: [] });
-    expect(list[1]).toMatchObject({ noGroup: false, groups: [] });
+    expect(list[1]).toMatchObject({ noGroup: true, groups: [] }); // Орлов's group is not Смирнова's business
     expect(JSON.stringify(list)).not.toContain("Орлова");
     const found = (await (await search("q=%D0%A1%D0%98%D0%94")).json()).students as { id: string }[]; // «СИД»
     expect(found.map((s) => s.id)).toEqual(["sidorov"]);
