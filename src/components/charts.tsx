@@ -192,3 +192,54 @@ export function ForecastScatter({ points }: { points: ScatterPoint[] }) {
     </figure>
   );
 }
+
+export type ColumnSeries = { name: string; tone: keyof typeof TONE; values: number[] };
+
+/**
+ * Days side by side, a thin column per series (e.g. lessons started and finished). The scale starts at zero,
+ * the axis shows its range, every day tells its exact values on hover; the exact numbers also go in a table
+ * next to the chart. For the administrator's usage statistics.
+ */
+export function DailyColumns({ days, series, label }: { days: { key: string; label: string; title: string }[]; series: ColumnSeries[]; label: string }) {
+  const top = Math.max(0, ...series.flatMap((s) => s.values));
+  // Small counts get a small even axis (0–2, 0–4, 0–6), so one lesson a day is not a sliver.
+  const max = top <= 6 ? Math.max(2, Math.ceil(top / 2) * 2) : niceMax(top, 10);
+  const height = (v: number) => `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
+  const summary = series.map((s) => `${s.name}: всего ${s.values.reduce((a, b) => a + b, 0)}`).join(", ");
+  return (
+    <figure className="flex flex-col gap-1 text-sm" role="img" aria-label={`${label} по дням. ${summary}`}>
+      <div className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-1">
+        <div className="flex h-28 flex-col justify-between text-right text-[11px] leading-none tabular-nums text-arm-desc" aria-hidden>
+          <span>{max}</span>
+          <span>{max / 2}</span>
+          <span>0</span>
+        </div>
+        <div className="relative flex h-28 items-end gap-[2px] border-b border-l border-arm-gray">
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-dashed border-arm-gray/70" aria-hidden />
+          {days.map((d, i) => (
+            <div key={d.key} className="relative flex h-full min-w-0 flex-1 items-end justify-center gap-px" title={`${d.title}: ${series.map((s) => `${s.name.toLowerCase()} ${s.values[i] ?? 0}`).join(", ")}`}>
+              {series.map((s) => (
+                <div key={s.name} className={`w-full max-w-2.5 rounded-t-sm ${TONE[s.tone]}`} style={{ height: height(s.values[i] ?? 0) }} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <span />
+        <div className="flex gap-[2px] pt-0.5 text-[10px] text-arm-desc" aria-hidden>
+          {days.map((d) => (
+            <span key={d.key} className="min-w-0 flex-1 overflow-hidden text-center">
+              {d.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      <figcaption className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-arm-desc">
+        {series.map((s) => (
+          <span key={s.name} className="inline-flex items-center gap-1">
+            <span className={`inline-block h-2.5 w-2.5 rounded-sm ${TONE[s.tone]}`} /> {s.name}
+          </span>
+        ))}
+      </figcaption>
+    </figure>
+  );
+}

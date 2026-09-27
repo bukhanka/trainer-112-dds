@@ -1,5 +1,6 @@
 /** Grading a saved 112 card: rule checks at once, model checks afterwards, one Attempt per card. */
 import type { Prisma } from "@prisma/client";
+import { aiOffNote } from "@/lib/ai/provider";
 import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
 import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from "@/lib/scoring/score";
@@ -125,7 +126,7 @@ async function grade(incidentId: string): Promise<{ attemptId: string; aiPending
   const { input } = loaded;
   const rules = evaluateOp112Rules(input);
   const aiPending = aiEnabled() && !input.card.empty;
-  const criteria: CriterionResult[] = [...rules, ...(aiPending || input.card.empty ? [] : aiUnavailable("ИИ-проверка не выполнялась: модель не настроена"))];
+  const criteria: CriterionResult[] = [...rules, ...(aiPending || input.card.empty ? [] : aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`))];
   const score = computeScore(criteria, await activeWeights());
   const attempt = await db.attempt.create({
     data: {

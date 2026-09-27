@@ -508,6 +508,16 @@ model SystemSetting {
   updatedById String?
 }
 
+/// Per-day usage counters (model calls, answers by rules) for the administrator's statistics.
+/// Each server process adds its sums at most once a minute with an atomic increment (src/lib/admin/usage.ts).
+model UsageCounter {
+  day   String // YYYY-MM-DD, Moscow time
+  name  String // ai.chat | ai.voice | ai.rules | ai.failed
+  value Int    @default(0)
+
+  @@id([day, name])
+}
+
 model Backup {
   id        String   @id @default(cuid())
   kind      String // manual | scheduled

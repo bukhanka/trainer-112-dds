@@ -6,11 +6,9 @@ import { db } from "../db";
 import { audit } from "../audit";
 import { isProtectedDemoLogin } from "./demo";
 import { verifyPassword } from "./password";
+import { accessPolicy } from "./policy";
 
 export const SESSION_COOKIE = "sid";
-const SESSION_HOURS = Number(process.env.SESSION_HOURS ?? 10);
-const MAX_FAILED_LOGINS = Number(process.env.MAX_FAILED_LOGINS ?? 5);
-const LOCK_MINUTES = Number(process.env.LOCK_MINUTES ?? 15);
 const TOUCH_EVERY_MS = 5 * 60 * 1000;
 
 export type SessionUser = Pick<User, "id" | "login" | "fullName" | "role">;
@@ -52,14 +50,16 @@ export async function login(loginName: string, password: string): Promise<LoginR
     return { ok: false, error: "Слишком много неудачных попыток. Попробуйте позже" };
   }
 
+  // Lockout and session lifetime follow the access policy in force (Настройки → Политики доступа).
+  const policy = await accessPolicy();
   if (!(await verifyPassword(password, user.passwordHash))) {
     const failed = user.failedLogins + 1;
-    const lock = failed >= MAX_FAILED_LOGINS && !isProtectedDemoLogin(user.login);
+    const lock = failed >= policy.maxFailedLogins && !isProtectedDemoLogin(user.login);
     await db.user.update({
       where: { id: user.id },
       data: {
         failedLogins: lock ? 0 : failed,
-        lockedUntil: lock ? new Date(Date.now() + LOCK_MINUTES * 60_000) : user.lockedUntil,
+        lockedUntil: lock ? new Date(Date.now() + policy.lockMinutes * 60_000) : user.lockedUntil,
       },
     });
     await audit({
@@ -73,7 +73,7 @@ export async function login(loginName: string, password: string): Promise<LoginR
   }
 
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_HOURS * 3_600_000);
+  const expiresAt = new Date(Date.now() + policy.sessionHours * 3_600_000);
   await db.$transaction([
     db.session.create({
       data: { tokenHash: hashToken(token), userId: user.id, expiresAt, ip: meta.ip, userAgent: meta.userAgent },

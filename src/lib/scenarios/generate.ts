@@ -9,7 +9,7 @@
  */
 import { z } from "zod";
 import type { IncidentType, Prisma } from "@prisma/client";
-import { chatJson } from "../ai/provider";
+import { chatJson, llmConfigured } from "../ai/provider";
 import { db } from "../db";
 import type { CallerPersona, IncidentAddress, IncidentFlags } from "../incident/types";
 import { statusOfRole } from "../op112/facts";
@@ -285,7 +285,7 @@ export async function generateScenarioDraft(
   if (hints.extracted) {
     extracted = hints.extracted;
     usedModel = Boolean(hints.usedModel);
-  } else if (process.env.LLM_BASE_URL) {
+  } else if (llmConfigured()) {
     try {
       const parsed = await chatJson(
         [

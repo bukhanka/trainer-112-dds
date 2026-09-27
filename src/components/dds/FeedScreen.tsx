@@ -351,6 +351,7 @@ function EmptyFeed({ filtered }: { filtered: boolean }) {
   let text = "Карточек пока нет.";
   if (filtered) text = "Ничего не найдено — измените поиск или нажмите «сбросить».";
   else if (state.flow?.noScenarios) text = "Нет одобренных сценариев для этого занятия — карточки не приходят. Обратитесь к преподавателю.";
+  else if (state.flow?.paused) text = "Карточек пока нет: администратор приостановил поток новых карточек.";
   else if (state.flow?.running && next != null) text = `Карточек пока нет. Первая придёт через ${fmtDuration(next)}.`;
   return <div className="mt-6 text-center text-[14px] text-white/85">{text}</div>;
 }
@@ -404,11 +405,13 @@ function SeatStrip() {
       <span className="text-white/80">
         {flow?.noScenarios
           ? "Нет одобренных сценариев."
-          : next != null
-            ? `Следующая карточка через ${fmtDuration(next)}.`
-            : flow && flow.queue >= flow.maxQueue
-              ? "Очередь заполнена: закройте карточку, чтобы пришла новая."
-              : ""}
+          : flow?.paused
+            ? "Новые карточки приостановлены администратором."
+            : next != null
+              ? `Следующая карточка через ${fmtDuration(next)}.`
+              : flow && flow.queue >= flow.maxQueue
+                ? "Очередь заполнена: закройте карточку, чтобы пришла новая."
+                : ""}
       </span>
       {seat.practice ? (
         <button onClick={finish} disabled={busy} className="ml-auto border border-white/60 px-2 py-0.5 hover:bg-white/10 disabled:opacity-50">

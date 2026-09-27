@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { modelName } from "@/lib/ai/model-name";
-import { aiMode, chatJson } from "@/lib/ai/provider";
+import { aiMode, aiSwitchedOff, chatJson } from "@/lib/ai/provider";
 import { callerSchema, jsonSectionSchema, SECTIONS, type SectionKey } from "./sections";
 
 export type RegenerateResult = { ok: true; value: Record<string, unknown>; model: string } | { ok: false; mock: boolean; error: string };
@@ -19,7 +19,9 @@ export async function regenerateSection(
     return {
       ok: false,
       mock: true,
-      error: "Модель ИИ не подключена (режим заглушки), поэтому перегенерировать раздел нельзя. Замечание сохранено в заметке преподавателя — исправьте раздел вручную или подключите модель в .env (LLM_BASE_URL).",
+      error: aiSwitchedOff()
+        ? "Модели ИИ выключены администратором, поэтому перегенерировать раздел нельзя. Замечание сохранено в заметке преподавателя — исправьте раздел вручную или попросите администратора включить модели."
+        : "Модель ИИ не подключена (режим заглушки), поэтому перегенерировать раздел нельзя. Замечание сохранено в заметке преподавателя — исправьте раздел вручную или подключите модель в .env (LLM_BASE_URL).",
     };
   }
   const meta = SECTIONS.find((s) => s.key === section)!;

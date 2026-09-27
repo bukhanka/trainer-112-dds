@@ -6,6 +6,7 @@ import type { Role } from "@prisma/client";
 import { audit } from "@/lib/audit";
 import { hashPassword, passwordProblem } from "@/lib/auth/password";
 import { isProtectedDemoLogin } from "@/lib/auth/demo";
+import { accessPolicy } from "@/lib/auth/policy";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
@@ -23,7 +24,7 @@ export async function createUser(_prev: ActionState, form: FormData): Promise<Ac
   const admin = await requireUser(["ADMIN"]);
   const parsed = createSchema.safeParse(Object.fromEntries(form));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
-  const problem = passwordProblem(parsed.data.password);
+  const problem = passwordProblem(parsed.data.password, (await accessPolicy()).minPasswordLength);
   if (problem) return { error: problem };
   if (await db.user.findUnique({ where: { login: parsed.data.login } })) return { error: "Такой логин уже есть" };
   const groupId = parsed.data.role === "STUDENT" ? parsed.data.groupId?.trim() : "";
@@ -92,7 +93,7 @@ export async function resetPassword(userId: string, password: string): Promise<A
   const user = await db.user.findUnique({ where: { id: userId } });
   if (!user) return { error: "Пользователь не найден" };
   if (isProtectedDemoLogin(user.login)) return { error: "Демо-учётку на стенде менять нельзя" };
-  const problem = passwordProblem(password);
+  const problem = passwordProblem(password, (await accessPolicy()).minPasswordLength);
   if (problem) return { error: problem };
 
   await db.$transaction([

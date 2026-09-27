@@ -1,12 +1,12 @@
 import os from "node:os";
 import { statfs } from "node:fs/promises";
-import { aiMode } from "../ai/provider";
+import { aiConfig } from "../ai/provider";
 import { db } from "../db";
 
 export type Health = {
   at: string;
   db: { ok: boolean; ms: number };
-  ai: ReturnType<typeof aiMode>;
+  ai: ReturnType<typeof aiConfig>;
   load: number[];
   cpus: number;
   memory: { usedMb: number; totalMb: number; processMb: number };
@@ -42,7 +42,7 @@ export async function collectHealth(): Promise<Health> {
   return {
     at: new Date().toISOString(),
     db: { ok: dbOk, ms: dbMs },
-    ai: aiMode(),
+    ai: aiConfig(),
     load: os.loadavg().map((n) => +n.toFixed(2)),
     cpus: os.cpus().length,
     memory: {

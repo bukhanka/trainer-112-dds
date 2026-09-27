@@ -8,7 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { chatJson, llmConfigured, type ChatMessage } from "@/lib/ai/provider";
+import { aiOffNote, chatJson, llmConfigured, type ChatMessage } from "@/lib/ai/provider";
 import { guidanceText, type CorrectionContext, type GuidanceRow } from "@/lib/review/corrections";
 import type { CriterionResult } from "@/lib/scoring/score";
 import type { JudgedComment } from "./clarity";
@@ -88,7 +88,7 @@ export function clarityFromReply(reply: z.infer<typeof replySchema>, input: Clar
 export async function evaluateDdsClarityAi(input: ClarityAiInput, ctx: CorrectionContext, guidance: GuidanceRow[]): Promise<CriterionResult> {
   const basis = clarityBasis(input.comments);
   if (!input.comments.length) return clarityAiUnavailable("Комментариев для проверки нет", basis);
-  if (!llmConfigured()) return clarityAiUnavailable("ИИ-проверка не выполнялась: модель не настроена", basis);
+  if (!llmConfigured()) return clarityAiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`, basis);
   try {
     const reply = await chatJson(clarityAiMessages(input, ctx, guidance), replySchema, { temperature: 0, maxTokens: 400 });
     return clarityFromReply(reply, input, guidance, basis);

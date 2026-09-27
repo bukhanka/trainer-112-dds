@@ -10,6 +10,7 @@
 import { z } from "zod";
 import type { CallerPersona } from "@/lib/incident/types";
 import { chat, chatJson, type ChatMessage } from "@/lib/ai/provider";
+import { countUsage } from "@/lib/admin/usage";
 import { askedTopics, bestFactByWords, evidenced, expandRevealed, factCards, low } from "./facts";
 import type { CallLine, FactCard, FactTopic } from "./types";
 
@@ -107,7 +108,10 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 /** The model's line, or null when the rules must answer (no model, a failure, a timeout). */
 async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () => string): Promise<CallerReply | null> {
-  if (Date.now() < modelDownUntil) return null;
+  if (Date.now() < modelDownUntil) {
+    countUsage("ai.rules");
+    return null;
+  }
   try {
     return clean(await withTimeout(chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, tier: "fast", mock }), REPLY_TIMEOUT_MS), cards);
   } catch (err) {
