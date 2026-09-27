@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { jsonError, op112User, ownCall, personaOfCall } from "@/lib/op112/access";
-import { callerOpening, genderOfName } from "@/lib/op112/caller";
+import { callerOpening } from "@/lib/op112/caller";
 import { operatorNumber } from "@/lib/op112/seat";
 import { armNumber, buildState } from "@/lib/op112/state";
 import type { CallLine } from "@/lib/op112/types";
@@ -22,8 +22,8 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/op112/calls/[i
   const cp = (call.counterpart ?? {}) as Counterpart;
   const persona = await personaOfCall(call);
   const opening: { text: string; revealed: string[]; noise?: CallLine["noise"] } = persona
-    ? await callerOpening(persona, genderOfName(user.fullName))
-    : { text: "Алло! Помогите!", revealed: [] };
+    ? await callerOpening(persona)
+    : { text: "Алло! Алло, это 112?", revealed: [] };
   const now = new Date();
   const line: CallLine = { role: "counterpart", text: opening.text, at: now.toISOString(), revealed: opening.revealed, ...(opening.noise ? { noise: opening.noise } : {}) };
 

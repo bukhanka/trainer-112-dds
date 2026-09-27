@@ -208,11 +208,11 @@ const RULES: [RegExp, (...m: string[]) => string][] = [
   [/(?<![\p{L}\p{N}])Б\/П(?![\p{L}])/giu, () => "без пострадавших"],
   [/(?<![\p{L}\p{N}])д\/р(?![\p{L}])/giu, () => "дата рождения"],
   // «03» is the ambulance; not inside a time, a date or a phone number.
-  [/(?<![\d:.\-/()+])\b0?3 не требуется/giu, () => "скорая не нужна"],
+  [/(?<![\d:.\-/()+])\b0?3 не требуется/giu, (...m) => capital(m, "скорая не нужна")],
   [/(?<![\p{L}\p{N}:.\-/()+])([Вв]) 03(?![\d:.\-/])/gu, (_m, v) => `${v} скорую`],
   [/(вызов\p{L}*|вызв\p{L}*|нужн\p{L}*|жд\p{L}*)\s03(?![\d:.\-/])/giu, (_m, w) => `${w} скорую`],
   // …but a door code or a flat «03» stays a number.
-  [/(?<![\p{L}\p{N}:.\-/()+])(?<!(?:код|номер|кв\.?|квартира|дом|д\.|этаж|эт\.|под\.|подъезд)\s?)03(?![\d:.\-/])/giu, () => "скорая"],
+  [/(?<![\p{L}\p{N}:.\-/()+])(?<!(?:код|номер|кв\.?|квартира|дом|д\.|этаж|эт\.|под\.|подъезд)\s?)03(?![\d:.\-/])/giu, (...m) => capital(m, "скорая")],
   [/№\s?/gu, () => "номер "],
   // Units after a number.
   [new RegExp(`(\\d+(?:[.,]\\d+)?)\\s?(?:кв\\.\\s?м|м²)${UNIT_DOT}(?![\\p{L}\\d])`, "gu"), (_m, n) => `${n} ${plural(n, "квадратный метр", "квадратных метра", "квадратных метров")}`],
@@ -244,6 +244,10 @@ function before(m: string[]): string {
 function after(m: string[]): string {
   const offset = m[m.length - 2] as unknown as number;
   return m[m.length - 1].slice(offset + m[0].length);
+}
+/** «…на кухне. 03 не требуется» → «…на кухне. Скорая не нужна»: a sentence starts with a capital. */
+function capital(m: string[], words: string): string {
+  return /(^|[.!?…]\s+)$/u.test(before(m)) ? words[0].toUpperCase() + words.slice(1) : words;
 }
 /** «МКАД, 73 км», «трасса М-2, 25 км» — a kilometre post, said «семьдесят третий километр». */
 function roadBefore(m: string[]): boolean {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callerOpening, genderOfName, lineTurn, mockOpening, mockReply, NOISE_TEXT, noiseLines, type Persona } from "./caller";
+import { callerOpening, genderOfName, greetingLine, lineTurn, mockOpening, mockReply, NOISE_TEXT, noiseLines, type Gender, type Persona } from "./caller";
 import { askedTopics, expectationOfFact, factCards, findAsked, speech, spokenFact, statusOfRole, topicsOfFact } from "./facts";
 import type { CallLine } from "./types";
 
@@ -23,12 +23,39 @@ const persona: Persona = {
 
 const at = "2026-09-26T10:00:00.000Z";
 const said = (text: string, revealed: string[]): CallLine => ({ role: "counterpart", text, at, revealed });
+const asked = (text: string): CallLine => ({ role: "trainee", text, at });
+/** The caller has picked up and told what happened. */
+const told = [said("Алло, здравствуйте…", []), asked("Служба 112, здравствуйте"), said("Горит балкон на тринадцатом этаже!", ["situation"])];
 
 describe("rule-based caller", () => {
-  it("opens with the situation only", () => {
-    const r = mockOpening(persona);
-    expect(r.revealed).toEqual(["situation"]);
-    expect(r.text).not.toContain("Грина");
+  it("picks up with a short «Алло…» and tells the story only after the operator's greeting", async () => {
+    const hello = mockOpening(persona);
+    expect(hello).toEqual({ text: "Алло, здравствуйте…", revealed: [] });
+    expect(await callerOpening(persona)).toEqual(hello);
+    expect(mockOpening({ ...persona, temper: "panic" }).text).toBe("Алло! Алло, это 112?!");
+    const story = mockReply(persona, [said(hello.text, [])], "Служба 112, здравствуйте");
+    expect(story.text).toBe("Горит балкон на тринадцатом этаже!");
+    expect(story.revealed).toContain("situation");
+  });
+
+  it("leads with what happened when the first question is about something else", () => {
+    const r = mockReply(persona, [said("Алло, здравствуйте…", [])], "Назовите адрес");
+    expect(r.text.startsWith("Горит балкон на тринадцатом этаже!")).toBe(true);
+    expect(r.text).toContain("библиотека");
+    expect(r.revealed).toEqual(expect.arrayContaining(["situation", "address"]));
+  });
+
+  it("does not retell what was said: the rest of the story, then «Я же говорю — …»", () => {
+    const more = mockReply(persona, told, "Что случилось?");
+    expect(more.text).toBe("Открытое пламя.");
+    const h = [...told, asked("Что случилось?"), said(more.text, more.revealed)];
+    expect(mockReply(persona, h, "Ещё раз, что случилось?").text).toBe("Я же говорю — горит балкон на тринадцатом этаже.");
+    expect(mockReply({ ...persona, temper: "panic" }, h, "Что случилось?").text).toBe("Я же говорю — горит балкон на тринадцатом этаже!");
+    const withAddress = [...h, asked("Адрес?"), said("Москва, улица Грина", ["address"])];
+    expect(mockReply({ ...persona, hiddenAddress: undefined }, withAddress, "Повторите адрес").text).toMatch(/^Повторяю: Москва, улица Грина/);
+    expect(mockReply(persona, [...withAddress, asked("Как вас зовут?"), said("Сидорова Анна Викторовна.", ["name"])], "Как вас зовут?").text).toBe(
+      "Повторяю: Сидорова Анна Викторовна.",
+    );
   });
 
   it("gives the visible address first and the exact one only on a clarifying question", () => {
@@ -64,15 +91,15 @@ describe("rule-based caller", () => {
   });
 
   it("says it does not know what is not in the ticket", () => {
-    const r = mockReply({ ...persona, facts: [] }, [], "Есть угроза людям?");
+    const r = mockReply({ ...persona, facts: [] }, told, "Есть угроза людям?");
     expect(r.revealed).toEqual([]);
     expect(r.text).toMatch(/не знаю/i);
   });
 
   it("thanks the operator when help is on the way and speaks in the persona's manner", () => {
-    expect(mockReply(persona, [], "Помощь выезжает, ожидайте").text).toMatch(/спасибо/i);
-    expect(mockOpening({ ...persona, temper: "panic" }).text).toMatch(/Быстрее/);
-    expect(mockOpening({ ...persona, temper: "elderly" }, "male").text).toMatch(/Сынок/);
+    expect(mockReply(persona, told, "Помощь выезжает, ожидайте").text).toMatch(/спасибо/i);
+    expect(mockReply({ ...persona, temper: "panic" }, [], "Служба 112").text).toMatch(/^Помогите! .*Быстрее/);
+    expect(mockReply({ ...persona, temper: "elderly" }, [], "Служба 112", "male").text).toMatch(/Сынок/);
   });
 });
 
@@ -119,7 +146,8 @@ describe("what counts as said", () => {
       facts: ["Дом 17 этажей, заявитель на 7-м, подъезд 3, домофон 68"],
     };
     const floors = factCards(p).find((c) => c.topic === "floors")!;
-    expect(open(p).revealed).not.toContain(floors.key);
+    expect(open(p).revealed).toEqual([]);
+    expect(mockReply(p, [], "Служба 112, слушаю").revealed).not.toContain(floors.key);
   });
 
   it("does not take «магазин» for gas or «строение» for people", () => {
@@ -200,14 +228,15 @@ describe("the caller without a model speaks like a person", () => {
   const reply = (text: string): CallLine => ({ role: "counterpart", text, at, revealed: [] });
 
   it("«сынок» / «дочка» and «дядя» / «тётя» only by the operator's gender, none when it is unknown", () => {
+    const story = (p: Persona, g: Gender = null) => mockReply(p, [reply(greetingLine(p))], "Служба 112, слушаю", g).text;
     const elderly: Persona = { ...persona, temper: "elderly", voice: "male" };
-    expect(mockOpening(elderly, "male").text).toContain("Сынок");
-    expect(mockOpening(elderly, "female").text).toContain("Дочка");
-    expect(mockOpening(elderly).text).not.toMatch(/Сынок|Дочка/);
+    expect(story(elderly, "male")).toContain("Сынок");
+    expect(story(elderly, "female")).toContain("Дочка");
+    expect(story(elderly)).not.toMatch(/Сынок|Дочка/);
     const child: Persona = { ...persona, temper: "child" };
-    expect(mockOpening(child, "male").text).toContain("Дядя");
-    expect(mockOpening(child, "female").text).toContain("Тётя");
-    expect(mockOpening(child).text).not.toMatch(/Дядя|Тётя/);
+    expect(story(child, "male")).toContain("Дядя");
+    expect(story(child, "female")).toContain("Тётя");
+    expect(story(child)).not.toMatch(/Дядя|Тётя/);
     expect(genderOfName("Морозов Павел Николаевич")).toBe("male");
     expect(genderOfName("Иванова Анна Сергеевна")).toBe("female");
     expect(genderOfName("Ким")).toBeNull();
@@ -215,15 +244,15 @@ describe("the caller without a model speaks like a person", () => {
 
   it("«Ой…» and «Быстрее!» come now and then, not before every line", () => {
     const elderly: Persona = { ...persona, temper: "elderly" };
-    const first = mockReply(elderly, [reply("Алло…")], "Назовите адрес");
+    const first = mockReply(elderly, told, "Назовите адрес");
     expect(first.text.startsWith("Ой…")).toBe(true);
-    const second = mockReply(elderly, [reply("Алло…"), op("Назовите адрес"), reply(first.text)], "Как вас зовут?");
+    const second = mockReply(elderly, [...told, op("Назовите адрес"), reply(first.text)], "Как вас зовут?");
     expect(second.text.startsWith("Ой…")).toBe(false);
     const panic: Persona = { ...persona, temper: "panic" };
-    const a = mockReply(panic, [reply("Алло!")], "Назовите адрес");
-    const b = mockReply(panic, [reply("Алло!"), op("Назовите адрес"), reply(a.text)], "Как вас зовут?");
-    expect(a.text).toMatch(/Быстрее!$/);
-    expect(b.text).not.toMatch(/Быстрее!/);
+    const a = mockReply(panic, told, "Назовите адрес");
+    const b = mockReply(panic, [...told, op("Назовите адрес"), reply(a.text)], "Как вас зовут?");
+    expect(a.text).not.toMatch(/Быстрее!/);
+    expect(b.text).toMatch(/Быстрее!$/);
   });
 
   it("the ticket's shorthand is spelt out: «03 не требуется», «а/м», «д/р»", () => {
@@ -233,9 +262,9 @@ describe("the caller without a model speaks like a person", () => {
     expect(speech("Соколова Ирина, д/р 20.05.1979")).toBe("Соколова Ирина, дата рождения 20.05.1979");
     expect(spokenFact("Пострадавших нет, 03 не требуется")).toBe("Пострадавших нет, скорая не нужна");
     const p: Persona = { ...persona, situation: "Свист от газовой трубы в квартире, на кухне. 03 не требуется", facts: [] };
-    const opening = mockOpening(p);
-    const what = mockReply(p, [{ role: "counterpart", text: opening.text, at, revealed: opening.revealed }], "Что случилось?");
+    const story = mockReply(p, [reply(greetingLine(p))], "Что случилось?");
+    const what = mockReply(p, [reply(greetingLine(p)), op("Что случилось?"), said(story.text, story.revealed)], "Что случилось?");
     expect(what.text).not.toContain("03");
-    expect(what.text).toContain("скорая не нужна");
+    expect(what.text).toBe("Скорая не нужна.");
   });
 });
