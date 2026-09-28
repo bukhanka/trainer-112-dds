@@ -11,12 +11,14 @@ import { inLocation, placeLabel, type LocationFilter } from "@/lib/scenarios/loc
 /** A scenario a lesson may deal. approved = false: only the caller is approved — it plays at 112 places only. */
 /**
  * approved — the scenario is approved (counted in the form as in «Сгенерировать по категории»);
- * dds — a ДДС place can deal it (approved and has a card for the ДДС place; tasks «только для места 112» have none).
+ * dds — a ДДС place can deal it (approved and has a card for the ДДС place; tasks «только для места 112» have none);
+ * op112 — a 112 place can deal it (not a variant with an error in the card, which plays at the ДДС place only).
  * Not approved: only the caller is approved — it plays at 112 places only.
  */
-export type CoverageScenario = { id: string; category: string; okrug: string | null; district: string | null; approved: boolean; dds?: boolean };
+export type CoverageScenario = { id: string; category: string; okrug: string | null; district: string | null; approved: boolean; dds?: boolean; op112?: boolean };
 
 const forDds = (s: CoverageScenario) => s.dds ?? s.approved;
+const for112 = (s: CoverageScenario) => s.op112 ?? true;
 
 export type CoverageSettings = {
   categories: string[];
@@ -33,7 +35,7 @@ export type Coverage = {
   counts: CategoryCount[];
   /** Chosen categories that give nothing (in the chosen location). */
   empty: string[];
-  /** Scenarios left for places without tasks: ДДС places take approved ones, 112 places also those with an approved caller. */
+  /** Scenarios left for places without tasks: ДДС places take approved ones, 112 places also those with an approved caller, but no card-error variants. */
   pool: { dds: number; op112: number };
   /** Some places draw from categories (no tasks by hand). */
   drawing: boolean;
@@ -58,7 +60,7 @@ export function lessonCoverage(scenarios: CoverageScenario[], settings: Coverage
     return { name, approved: approved.length, here: approved.filter((s) => inLocation(s, location)).length };
   });
   const usable = scenarios.filter((s) => inCategories(s) && inLocation(s, location));
-  const pool = { dds: usable.filter(forDds).length, op112: usable.length };
+  const pool = { dds: usable.filter(forDds).length, op112: usable.filter(for112).length };
 
   const drawingSeats = seats.filter((s) => !s.scenarioIds.length);
   const ddsDraw = settings.cardSource !== "students" && drawingSeats.some((s) => s.role === "DDS");

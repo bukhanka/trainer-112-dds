@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
 
   const waiting = seat.serviceId
     ? await db.incidentService.count({
-        where: { serviceId: seat.serviceId, status: { in: ["ADDED", "RECEIVED"] }, incident: seatFeedWhere(seat) },
+        where: { serviceId: seat.serviceId, status: { in: ["ADDED", "RECEIVED"] }, incident: seatFeedWhere(seat, settings) },
       })
     : 0;
 

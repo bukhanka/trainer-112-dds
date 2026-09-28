@@ -255,6 +255,14 @@ function cardErrorOf(raw: unknown): CardError | undefined {
   return { what: str(v.what) ?? "сведения", inCard: str(v.inCard) ?? "", onSite: str(v.onSite)!, report: str(v.report)!, mustSay };
 }
 
+/**
+ * The scenario plays an error in the card the system deals to a ДДС place (a variant of a ticket, «Б4-1-ош»). The error
+ * lives only in that card: for a 112 operator it is the same call as its ticket, so the 112 places never get it.
+ */
+export function hasCardError(raw: unknown): boolean {
+  return cardErrorOf(raw) !== undefined;
+}
+
 /** The right information of a card error is said in this text. */
 export function saysCardErrorRight(text: string, error: CardError): boolean {
   const t = text.toLowerCase().replace(/ё/g, "е");

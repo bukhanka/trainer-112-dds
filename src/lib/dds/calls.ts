@@ -166,7 +166,7 @@ export async function phoneTick(tx: Tx, seat: PhoneSeat, settings: LessonSetting
 
   const open = await tx.incident.findMany({
     where: {
-      AND: [seatFeedWhere(seat), { services: { some: { serviceId: seat.serviceId, status: { in: ["ACCEPTED", "STARTED", "ARRIVED", "WORKING"] } } } }],
+      AND: [seatFeedWhere(seat, settings), { services: { some: { serviceId: seat.serviceId, status: { in: ["ACCEPTED", "STARTED", "ARRIVED", "WORKING"] } } } }],
     },
     include: incidentInclude,
   });
@@ -297,7 +297,7 @@ export async function phoneBook(seat: DdsSeat): Promise<BookEntry[]> {
   const incidents = await db.incident.findMany({
     where: {
       AND: [
-        seatFeedWhere(seat),
+        seatFeedWhere(seat, settingsOf(seat.lesson.settings)),
         {
           services: {
             some: { serviceId: seat.serviceId, OR: [{ status: { notIn: ["FINISHED", "REFUSED"] } }, { addedAt: { gte: recent } }] },
@@ -331,7 +331,7 @@ export type CallResult = { ok: true; call: CallBrief } | { ok: false; error: str
 const fail = (error: string, code = 422): CallResult => ({ ok: false, error, code });
 
 async function feedIncidents(seat: DdsSeat) {
-  return db.incident.findMany({ where: seatFeedWhere(seat), include: incidentInclude, orderBy: { createdAt: "desc" }, take: 40 });
+  return db.incident.findMany({ where: seatFeedWhere(seat, settingsOf(seat.lesson.settings)), include: incidentInclude, orderBy: { createdAt: "desc" }, take: 40 });
 }
 
 async function reload(id: string): Promise<CallBrief> {
@@ -472,7 +472,7 @@ async function ownCall(seat: DdsSeat, callId: string) {
 
 async function incidentFor(seat: DdsSeat, incidentId: string | null): Promise<CallIncident | null> {
   if (!incidentId) return null;
-  return db.incident.findFirst({ where: { AND: [{ id: incidentId }, seatFeedWhere(seat)] }, include: incidentInclude });
+  return db.incident.findFirst({ where: { AND: [{ id: incidentId }, seatFeedWhere(seat, settingsOf(seat.lesson.settings))] }, include: incidentInclude });
 }
 
 /** Pick up an incoming call: the crew leader speaks first with the report. */

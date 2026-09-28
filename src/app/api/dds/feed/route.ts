@@ -4,7 +4,7 @@ import { practiceKey } from "@/lib/dds/api";
 import { db } from "@/lib/db";
 import { seatForUser } from "@/lib/dds/seat";
 import { feedRow, incidentInclude, typeInfos, type FeedRow } from "@/lib/dds/view";
-import { seatFeedWhere } from "@/lib/flow/dds-flow";
+import { seatFeedWhere, settingsOf } from "@/lib/flow/dds-flow";
 
 const SHOW: Record<string, (r: FeedRow) => boolean> = {
   all: () => true,
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
   const { seat } = access;
 
   const incidents = await db.incident.findMany({
-    where: seatFeedWhere(seat),
+    where: seatFeedWhere(seat, settingsOf(seat.lesson.settings)),
     include: incidentInclude,
     orderBy: [{ savedAt: "desc" }, { createdAt: "desc" }],
     take: 300,

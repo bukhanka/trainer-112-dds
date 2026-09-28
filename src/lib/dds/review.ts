@@ -240,15 +240,16 @@ export async function closeLessonCalls(lessonId: string, now = new Date()): Prom
  * (missed reports, statuses never set). Plates already reviewed finally or checked by the teacher are skipped,
  * so calling it on every poll of a finished lesson costs one query.
  *
- * A plate that never reached a place — the system answered it, or a card typed at 112 in a lesson of generated cards
- * only — is not the place's work unless the place acted on it: the same rule as the board (board/state.ts). Otherwise a
- * finished lesson opened later would get a review nobody earned, credited to the first place of the service.
+ * A plate that never reached a place — the system answered it (the demo lessons), or a card typed at 112 in a lesson of
+ * generated cards only, which the feed leaves out anyway — is not the place's work unless the place acted on it: the
+ * same rule as the board (board/state.ts). Otherwise a finished lesson opened later would get a review nobody earned,
+ * credited to the first place of the service.
  */
 export async function evaluateSeatPlates(seat: SeatRef & { lesson: { settings: unknown } }): Promise<number> {
   if (!seat.serviceId) return 0;
-  const lesson = { cardSource: settingsOf(seat.lesson.settings).cardSource };
+  const settings = settingsOf(seat.lesson.settings);
   const plates = await db.incidentService.findMany({
-    where: { serviceId: seat.serviceId, incident: seatFeedWhere(seat) },
+    where: { serviceId: seat.serviceId, incident: seatFeedWhere(seat, settings) },
     select: {
       id: true,
       incident: { select: { source: true } },
@@ -260,7 +261,7 @@ export async function evaluateSeatPlates(seat: SeatRef & { lesson: { settings: u
   // still waiting for the teacher.
   const due = plates.filter(
     (p) =>
-      (p.events.some((e) => e.seatId === seat.id) || reachesPlaces(p.incident, p, lesson)) &&
+      (p.events.some((e) => e.seatId === seat.id) || reachesPlaces(p.incident, p, settings)) &&
       p.attempts.every((a) => a.reviewStatus === "PENDING" && madeByPlace(a.aiDraft) && !(a.aiDraft as Draft)?.final),
   );
   for (const p of due) await evaluatePlate(p.id, new Date(), { final: true });

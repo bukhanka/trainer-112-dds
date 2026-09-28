@@ -6,7 +6,10 @@
  * card reaches the ДДС place, which accepts it. A second 112 place gets a silent line and closes it with «нет
  * контакта». The teacher watches the board, stops the lesson and gets the attempts.
  *
- *   pnpm exec tsx scripts/e2e-lesson.ts --base http://localhost:3100 [--keep]
+ *   pnpm exec tsx scripts/e2e-lesson.ts --base http://localhost:3100 [--source students|mixed|generated] [--keep]
+ *
+ * --source is the lesson's source of cards (students by default). With «mixed» the ДДС place also gets cards of its
+ * own flow; with «generated» the card of the 112 place must not reach the ДДС place at all.
  *
  * Needs a running server and the demo seed. The lesson is deleted at the end unless --keep.
  */
@@ -15,6 +18,10 @@ import { PrismaClient } from "@prisma/client";
 const args = process.argv.slice(2);
 const BASE = args[args.indexOf("--base") + 1] && args.includes("--base") ? args[args.indexOf("--base") + 1] : "http://localhost:3100";
 const KEEP = args.includes("--keep");
+const SOURCE = args.includes("--source") ? args[args.indexOf("--source") + 1] : "students";
+if (!["students", "mixed", "generated"].includes(SOURCE)) throw new Error(`--source: students, mixed или generated, а не «${SOURCE}»`);
+/** Cards saved at 112 places reach the ДДС places unless the lesson takes generated cards only. */
+const FROM_112 = SOURCE !== "generated";
 const db = new PrismaClient();
 
 type Res = { status: number; body: Record<string, unknown> };
@@ -76,9 +83,9 @@ async function main() {
 
   // 1. Lesson: a 112 place with ticket Б4-1 and a ДДС place of the district from the ticket's address.
   const created = await teacher.call("POST", "/api/teacher/lessons", {
-    title: "Проверка 112 → ДДС",
+    title: `Проверка 112 → ДДС (${SOURCE})`,
     groupId: group.id,
-    settings: { cardSource: "students", tempoSec: 60, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true },
+    settings: { cardSource: SOURCE, tempoSec: 60, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true },
     seats: [
       { studentId: s1.id, role: "OP112", scenarioIds: [scenario.id, repeat.id] },
       { studentId: s2.id, role: "DDS", serviceId: dds.id },
@@ -181,18 +188,24 @@ async function main() {
     const row2 = ((emptied.body.journal as { chips: string }[] | undefined) ?? [])[0];
     check(emptied.status === 200 && row2?.chips === "<Нет контакта>", "«нет контакта» → пустая карточка в журнале", row2?.chips ?? "");
 
-    // 4. The ДДС place gets the card and makes the first record at once: «Принята» with a text and a crew.
+    // 4. The ДДС place gets the card and makes the first record at once: «Принята» with a text and a crew. In a lesson of
+    // generated cards the 112 card stays at 112: it is not in the feed and its plate cannot be set from the ДДС place.
     await disp.call("GET", "/api/dds/state");
     const feed = await disp.call("GET", "/api/dds/feed");
     const rows = (feed.body.rows ?? feed.body.items ?? []) as { number: number; typeLabel?: string; address?: string }[];
     const row = rows.find((r) => r.number === incident!.number);
-    check(!!row, "карточка пришла в ленту ДДС", row ? `${row.address ?? ""}` : `в ленте ${rows.length} карточек, HTTP ${feed.status}`);
     const accepted = await disp.call("POST", `/api/dds/incidents/${incident!.number}/status`, {
       status: "ACCEPTED",
       crewNumber: "12",
       comment: "Принята, направлен дежурный наряд 12",
     });
-    check(accepted.status === 200, "ДДС поставила «Принята» с нарядом", `HTTP ${accepted.status} ${accepted.status === 200 ? "" : JSON.stringify(accepted.body).slice(0, 120)}`);
+    if (FROM_112) {
+      check(!!row, "карточка пришла в ленту ДДС", row ? `${row.address ?? ""}; в ленте карточек: ${rows.length}` : `в ленте ${rows.length} карточек, HTTP ${feed.status}`);
+      check(accepted.status === 200, "ДДС поставила «Принята» с нарядом", `HTTP ${accepted.status} ${accepted.status === 200 ? "" : JSON.stringify(accepted.body).slice(0, 120)}`);
+    } else {
+      check(feed.status === 200 && !row, "карточка места 112 в ленту ДДС не пришла", `в ленте карточек: ${rows.length}`);
+      check(accepted.status === 404, "статус чужой карточке 112 поставить нельзя", `HTTP ${accepted.status}`);
+    }
 
     // 5. The teacher: board, stop, attempts of both places.
     const board = await teacher.call("GET", `/api/teacher/lessons/${lessonId}/board`);
@@ -214,7 +227,12 @@ async function main() {
     check(link?.ok === true, "разбор повторного вызова: привязан к первой карточке, дубля нет", link?.evidence ?? "проверки нет");
     const empty = ((quiet112?.criteria ?? []) as { code: string; ok: boolean | null }[]).find((c) => c.code === "op112.empty.button");
     check(empty?.ok === true, "разбор второго места: пустой вызов закрыт верной кнопкой", `балл ${quiet112?.score ?? "—"}`);
-    check(byKind("DDS").length === 1, "попытка места ДДС создана", `балл ${byKind("DDS")[0]?.score ?? "—"}, проверок ${(byKind("DDS")[0]?.criteria as unknown[] | undefined)?.length ?? 0}`);
+    const dds112 = byKind("DDS").filter((a) => a.incidentId === incident!.id);
+    if (FROM_112) {
+      check(dds112.length === 1, "попытка места ДДС по карточке 112 создана", `балл ${dds112[0]?.score ?? "—"}, проверок ${(dds112[0]?.criteria as unknown[] | undefined)?.length ?? 0}; всего попыток ДДС: ${byKind("DDS").length}`);
+    } else {
+      check(dds112.length === 0, "попытки места ДДС по карточке 112 нет", `всего попыток ДДС: ${byKind("DDS").length}`);
+    }
   } finally {
     if (!KEEP && lessonId) await db.lesson.delete({ where: { id: lessonId } }).catch(() => undefined);
   }

@@ -4,7 +4,7 @@ import type { Seat } from "@prisma/client";
 // A ticket and its variant with an error in the card («Б4-1» / «Б4-1-ош», data/scenarios-card-errors.json) show the
 // same ДДС card and are the same call: a place drawing by itself gets only one of the two in a lesson.
 const store = vi.hoisted(() => ({
-  pool: [] as { id: string; ticketRef: string | null; difficulty: number; truth: unknown; ddsCard: unknown }[],
+  pool: [] as { id: string; ticketRef: string | null; difficulty: number; truth: unknown; ddsCard: unknown; ddsReference?: unknown }[],
   openInDds: [] as { scenarioId: string }[],
   used: [] as { scenarioId: string; _max: { createdAt: Date } }[],
 }));
@@ -108,4 +108,31 @@ describe("112 place: a ticket and its variant are the same call", () => {
     store.openInDds = [{ scenarioId: "b41err" }];
     expect((await nextScenario(seat({ adaptive: false })))?.id).toBe("b51");
   });
+
+  it("never rings with a variant with an error in the card: the error lives in the card of the ДДС place only", async () => {
+    const cardError = { what: "подъезд", inCard: "под. 3", onSite: "подъезд 5", report: "в карточке третий подъезд, а дымит в пятом", mustSay: [] };
+    const variant = { ...S("b41err", "Б4-1-ош"), difficulty: 1, ddsReference: { services: [], cardError } };
+    store.pool = [variant, S("b41", "Б4-1")];
+    for (const adaptive of [true, false]) {
+      for (const r of [0, 0.5, 0.99]) {
+        vi.spyOn(Math, "random").mockReturnValue(r);
+        expect((await nextScenario(seat({ adaptive })))?.id).toBe("b41");
+      }
+    }
+    // Not even as a task the teacher marked for the place; a ДДС place still gets it.
+    expect(await nextScenario(seat({}, ["b41err"]))).toBeNull();
+    const dds = { id: "seat", lessonId: "l1", studentId: "u1", serviceId: 191, scenarioIds: ["b41err"] } as unknown as Seat;
+    expect((await pickScenario(ddsTx(store.pool), dds, settings, false))?.id).toBe("b41err");
+  });
 });
+
+/** A transaction for the ДДС picker over a given pool, nothing in play and an empty feed. */
+function ddsTx(list: typeof store.pool) {
+  return {
+    scenario: { findMany: async ({ where }: { where: { id?: { in?: string[] } } }) => byIds(list, where) },
+    incident: { findMany: async () => [] },
+    call: { findMany: async () => [] },
+    attempt: { findMany: async () => [] },
+    service: { findUnique: async () => null, findMany: async () => [] },
+  } as never;
+}

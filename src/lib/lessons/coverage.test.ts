@@ -54,6 +54,11 @@ describe("will every place get cards", () => {
     expect(lessonCoverage(library, both, [op, dds]).empty).toEqual(["медицина"]);
   });
 
+  it("counts a variant with an error in the card for ДДС places only: for the 112 place it is the same call", () => {
+    const withVariant = [...library, { ...s("f1err", "пожар", "СЗАО", "Щукино"), op112: false }];
+    expect(lessonCoverage(withVariant, { categories: ["пожар"] }, [op, dds]).pool).toEqual({ dds: 3, op112: 2 });
+  });
+
   it("does not bother when every place has tasks, or ДДС places take cards from students only", () => {
     const settings = { categories: ["медицина"] };
     expect(lessonCoverage(library, settings, [{ role: "DDS", scenarioIds: ["f1"] }]).blocked).toBeNull();

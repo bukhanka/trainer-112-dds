@@ -7,6 +7,7 @@ import { pickAdaptive } from "@/lib/adaptive/pick";
 import { isPractice } from "@/lib/lessons/form";
 import { adaptiveChoice, lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
 import { inPlayAtDds, notRightAfter, preferNotInPlay } from "@/lib/lessons/in-play";
+import { hasCardError } from "@/lib/dds/scenario";
 import { withoutPairsOf, withPairs } from "@/lib/scenarios/pairs";
 import { inLessonLocation } from "@/lib/scenarios/place";
 
@@ -162,10 +163,10 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     : settings.categories.length
       ? { AND: [USABLE, { category: { in: settings.categories } }] }
       : USABLE;
-  const found = await withoutEarlyRepeats(
-    inLessonLocation(await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] }), seat, settings),
-    seat.lessonId,
-  );
+  const listed = await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] });
+  // A variant with an error in the card is played at the ДДС place only: for the operator it is the same call as its
+  // ticket (dds/scenario.ts). Not even when the teacher marked it for the place.
+  const found = await withoutEarlyRepeats(inLessonLocation(listed.filter((s) => !hasCardError(s.ddsReference)), seat, settings), seat.lessonId);
   if (!found.length) return null;
   const used = await db.incident.groupBy({
     by: ["scenarioId"],
@@ -173,15 +174,15 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
     _max: { createdAt: true },
   });
   const lastUse = new Map(used.flatMap((u) => (u.scenarioId ? [[u.scenarioId, u._max.createdAt?.getTime() ?? 0] as const] : [])));
-  // A place drawing by itself never rings with the other half of a pair it has had — a ticket and its variant with an
-  // error in the card are the same call (scenarios/pairs.ts); it does not ring with a situation open in a ДДС feed of
-  // the lesson (lessons/in-play.ts), and never with the same situation twice in a row while there is another.
+  // A place drawing by itself never rings with the other half of a pair it has had (scenarios/pairs.ts); it does not ring
+  // with a situation open in a ДДС feed of the lesson, a ticket whose variant with an error in the card is open there
+  // included (lessons/in-play.ts), and never with the same situation twice in a row while there is another.
   const had =
     seat.scenarioIds.length || !lastUse.size
       ? []
       : await db.scenario.findMany({ where: { id: { in: [...lastUse.keys()] } }, select: { id: true, ticketRef: true } });
   const drawn = seat.scenarioIds.length ? found : withoutPairsOf(found, had);
-  const free = seat.scenarioIds.length ? drawn : preferNotInPlay(drawn, withPairs(await inPlayAtDds(db, seat.lessonId), found));
+  const free = seat.scenarioIds.length ? drawn : preferNotInPlay(drawn, withPairs(await inPlayAtDds(db, seat.lessonId), listed));
   const last = [...lastUse.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   const pool = notRightAfter([free, drawn], last);
   if (!seat.scenarioIds.length && adaptiveChoice(seat.lesson.settings)) {

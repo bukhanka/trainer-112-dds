@@ -2,10 +2,10 @@
  * Situations in play at the other role's places of a lesson right now.
  *
  * A ДДС place that draws cards by itself must not get the ticket a 112 place of the same lesson is
- * talking through: the 112 card, once saved, comes to the ДДС feed as well, and the same situation
- * shows twice. The same holds the other way: a 112 place does not ring with a situation that is
- * open in a ДДС feed of the lesson. It is only a preference — when nothing else is left, the busy
- * scenario is dealt anyway.
+ * talking through: in a lesson that takes the students' cards the 112 card, once saved, comes to the ДДС
+ * feed as well, and in any lesson the class would see one situation at two places at once. The same holds
+ * the other way: a 112 place does not ring with a situation that is open in a ДДС feed of the lesson. It
+ * is only a preference — when nothing else is left, the busy scenario is dealt anyway.
  */
 import type { Prisma } from "@prisma/client";
 import { DONE_STATUSES } from "@/lib/dds/scope";

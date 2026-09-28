@@ -16,7 +16,7 @@ import { DDS_TX, isBusyError, SERVER_BUSY } from "./tx";
 /** Card of the place by its number, or null when the card is not in this place's feed. */
 export async function findSeatIncident(seat: DdsSeat, number: number) {
   if (!Number.isInteger(number)) return null;
-  return db.incident.findFirst({ where: { AND: [{ number }, seatFeedWhere(seat)] }, select: { id: true } });
+  return db.incident.findFirst({ where: { AND: [{ number }, seatFeedWhere(seat, settingsOf(seat.lesson.settings))] }, select: { id: true } });
 }
 
 /** «Получена службой»: set by the system the first time the dispatcher opens the card. */

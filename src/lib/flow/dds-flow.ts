@@ -48,7 +48,7 @@ export async function ensureDdsFlow(seatId: string, now = new Date()): Promise<F
       if (seat.lesson.status !== "RUNNING") return { ...idle, maxQueue: settings.maxQueue };
 
       const info = await maybeGenerate(tx, seat, settings, now, paused);
-      await advanceBots(tx, seat, now);
+      await advanceBots(tx, seat, settings, now);
       await phoneTick(tx, seat, settings, now);
       return info;
     },
@@ -56,10 +56,10 @@ export async function ensureDdsFlow(seatId: string, now = new Date()): Promise<F
   );
 }
 
-async function openCount(tx: Tx, seat: SeatRef): Promise<number> {
+async function openCount(tx: Tx, seat: SeatRef, settings: LessonSettings): Promise<number> {
   if (!seat.serviceId) return 0;
   return tx.incidentService.count({
-    where: { serviceId: seat.serviceId, status: { notIn: [...DONE_STATUSES] }, incident: seatFeedWhere(seat) },
+    where: { serviceId: seat.serviceId, status: { notIn: [...DONE_STATUSES] }, incident: seatFeedWhere(seat, settings) },
   });
 }
 
@@ -70,7 +70,7 @@ async function maybeGenerate(
   now: Date,
   paused = false,
 ): Promise<FlowInfo> {
-  const queue = await openCount(tx, seat);
+  const queue = await openCount(tx, seat, settings);
   const base: FlowInfo = { running: true, queue, maxQueue: settings.maxQueue, nextCardInSec: null, noScenarios: false };
   if (settings.cardSource === "students") return base;
   if (paused) return { ...base, paused: true };
@@ -122,7 +122,7 @@ export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings,
   const found = inLessonLocation(withCard, seat, settings);
   if (!found.length) return null;
   const feed = await tx.incident.findMany({
-    where: seatFeedWhere(seat),
+    where: seatFeedWhere(seat, settings),
     select: { scenarioId: true, createdAt: true, scenario: { select: { ticketRef: true } } },
   });
   // A place drawing by itself never gets the other half of a pair it has had in its feed (dealt to it or saved at a 112
@@ -219,7 +219,7 @@ async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Dat
 }
 
 /** Moves the plates of other services on the cards of this place (see bots.ts). */
-async function advanceBots(tx: Tx, seat: SeatRef, now: Date) {
+async function advanceBots(tx: Tx, seat: SeatRef, settings: LessonSettings, now: Date) {
   if (!seat.serviceId) return;
   // On shared cards from 112 places, plates of services that have their own ДДС place are live.
   const live = new Set(
@@ -229,7 +229,7 @@ async function advanceBots(tx: Tx, seat: SeatRef, now: Date) {
   );
   const plates = await tx.incidentService.findMany({
     where: {
-      incident: seatFeedWhere(seat),
+      incident: seatFeedWhere(seat, settings),
       serviceId: { not: seat.serviceId },
       status: { notIn: [...DONE_STATUSES] },
       addedAt: { gte: new Date(now.getTime() - 6 * 3_600_000) },
