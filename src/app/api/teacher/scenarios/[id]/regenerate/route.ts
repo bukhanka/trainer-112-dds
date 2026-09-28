@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { scenarioLockedBy } from "@/lib/scenarios/lock";
-import { settleTruth } from "@/lib/scenarios/generate";
+import { settleTruth, truthChoices } from "@/lib/scenarios/generate";
 import { regenerateSection } from "@/lib/scenarios/regenerate";
 import { nextApprovals, presentSections, sectionKeySchema, SECTIONS, statusFor } from "@/lib/scenarios/sections";
 import { auditBy, jsonError, readJson, teacherApi } from "@/lib/teacher/access";
@@ -27,7 +27,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/sce
   const stamp = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", dateStyle: "short", timeStyle: "short" });
   const teacherNote = [scenario.teacherNote, `${stamp}, ${user.fullName} — «${title}»: ${comment}`].filter(Boolean).join("\n");
 
-  const result = await regenerateSection(scenario, section, scenario[section], comment);
+  // The reference card: the model chooses its type from a short list of classifier leaves (generate.ts, truthChoices).
+  const extra = section === "truth" ? await truthChoices(scenario, comment) : undefined;
+  const result = await regenerateSection(scenario, section, scenario[section], comment, extra);
   if (!result.ok) {
     await db.scenario.update({ where: { id }, data: { teacherNote } });
     await auditBy(user, request, { action: "scenario.fix.requested", entity: "Scenario", entityId: id, after: { section, comment, generated: false } });
@@ -44,10 +46,13 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/sce
     ? { truth: settled.truth, ...(settled.changed.includes("ddsCard") ? { ddsCard: settled.ddsCard } : {}), ...(settled.changed.includes("ddsReference") ? { ddsReference: settled.ddsReference } : {}) }
     : { [section]: result.value };
   const approvedSections = nextApprovals(scenario.approvedSections, [section, ...(settled?.changed ?? [])], false);
+  // What the rules did with the teacher's words (a service the classifier cannot give, a contradicting type) — kept and shown.
+  const notes = settled?.notes ?? [];
+  const noteLine = notes.length ? `${teacherNote} → ${notes.join("; ")}.` : teacherNote;
   const status = statusFor(approvedSections, presentSections({ ...scenario, ...written }), scenario.status);
   const res = await db.scenario.updateMany({
     where: { id, updatedAt: scenario.updatedAt },
-    data: { ...(written as Prisma.ScenarioUpdateManyMutationInput), approvedSections, status, teacherNote, approvedById: status === "APPROVED" ? scenario.approvedById : null },
+    data: { ...(written as Prisma.ScenarioUpdateManyMutationInput), approvedSections, status, teacherNote: noteLine, approvedById: status === "APPROVED" ? scenario.approvedById : null },
   });
   if (!res.count) return jsonError("Сценарий изменили, пока ИИ работал. Обновите страницу и повторите.", 409);
   await auditBy(user, request, {
@@ -55,7 +60,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/sce
     entity: "Scenario",
     entityId: id,
     before: { [section]: (scenario[section] ?? null) as Prisma.InputJsonValue, status: scenario.status },
-    after: { ...(written as Record<string, Prisma.InputJsonValue>), status, comment, model: result.model },
+    after: { ...(written as Record<string, Prisma.InputJsonValue>), status, comment, model: result.model, notes },
   });
-  return Response.json({ ok: true, status, approvedSections });
+  return Response.json({ ok: true, status, approvedSections, notes });
 }

@@ -107,12 +107,14 @@ export function readByRules(text: string): Extracted {
   const house = streetMatch?.[2] ?? houseInText(t);
 
   const flags: IncidentFlags = {};
-  if (has(t, /пострадав|ранен|травм|без сознания|кров|ожог|задыха|не дышит|плохо|разбит[аы]? (голов|лиц|нос)/)) flags.victims = true;
+  // «Плохо» is a person feeling bad («ему плохо», «плохо с сердцем»), not «плохо слышит».
+  const unwell = /(^|[^а-яё])(стало|ему|ей|мне|им|человеку|мужчине|женщине|бабушке|дедушке|ребенку|ребёнку|прохожему|соседу|соседке) плохо|плохо с (сердцем|головой)|плохо себя чувству/;
+  if (has(t, /пострадав|ранен|травм|без сознания|кров|ожог|задыха|не дышит|разбит[аы]? (голов|лиц|нос)/) || has(t, unwell)) flags.victims = true;
   if (has(t, /угроз|остал(ся|ась|ись)|заперт|кричат|зовут на помощь|дет(и|ей)|ребён|ребен|люди внутри/)) flags.threat = true;
   if (has(t, /(^|[^а-яё])газ(?!ета|он)/)) flags.gas = true;
   if (has(t, /нет доступа|заперт|заблокир|не открыва|заж(ат|ало|али|ата)|не мо(жет|гут) выйти/)) flags.noAccess = true;
   if (has(t, /драк|дерут|дерет|дерёт|напал|угон|краж|избил|избива|угрожа|ограб|хулиган/)) flags.offense = true;
-  if (has(t, /скор(ая|ую)|медицин|без сознания|плохо|рожает/)) flags.med = true;
+  if (has(t, /скор(ая|ую)|медицин|без сознания|рожает/) || has(t, unwell)) flags.med = true;
   if (has(t, /эвакуац/)) flags.evac = true;
   if (has(t, /перекрыт|перекрыл|пробк|затор/)) flags.traffic = true;
 
@@ -156,7 +158,9 @@ export function readByRules(text: string): Extracted {
   else if (has(t, /лифт/) && has(t, /застрял|застряли|застрев/)) typeHint = "застревание в лифте";
   else if (fire) typeHint = `пожар: ${object ?? ""}`;
   else if (smoke) typeHint = `задымление: ${object ?? ""}`;
-  else if (flags.gas) typeHint = `запах бытового газа ${object === "кухне" ? "в кухне" : object === "частный дом" ? "в частном доме" : "в многоквартирном доме"}`;
+  // «Газ в доме есть» is a gasified house (the flag), not a gas leak: the type needs a smell or a leak of gas.
+  else if (flags.gas && has(t, /пахн[её]т газ|запах[а-я]* газ|газом пахн|утечк[а-я]* газ|шипит|газ (идёт|идет|шипит)/))
+    typeHint = `запах бытового газа ${object === "кухне" ? "в кухне" : object === "частный дом" ? "в частном доме" : "в многоквартирном доме"}`;
   else if (has(t, /драк|дерут|дерет|дерёт/))
     typeHint = has(t, /((1\d|[2-9]\d)\s*(человек|чел)|десят|толп|массов)/) ? "массовая драка" : has(t, /кварт/) ? "драка в квартире" : "драка на улице";
 
@@ -234,6 +238,12 @@ const CONCEPTS: [RegExp, string][] = [
   [/задыха|не дышит/, "задыхается"],
   [/без сознания|сознани[ея]|не отвечает|не реагирует|обморок/, "сознания"],
   [/(^|[^а-яё])кров(ь|и|ью)([^а-яё]|$)|окровавлен/, "крови"],
+  // A person behind a locked door who does not answer for days: the classifier calls it «открыть дверь».
+  [/не открыва[а-я]* двер|двер[а-я]* не открыва|не выходит на связь|не отвечает на звонки|не берёт трубку|не берет трубку|давно не видели/, "открыть дверь признаков жизни"],
+  [/трупн[а-я]* запах|запах трупа|мертвечин/, "трупный запах"],
+  [/(ребен|ребён|малыш|дет[иь]|сын|дочь)[а-яё ]{0,30}(заперт|закрыт|один дома|один в квартире)|(заперт|закрыт)[а-яё ]{0,20}(ребен|ребён|малыш)/, "открыть дверь ребенок закрыт квартире"],
+  [/прыгн|спрыгн|покончить с собой|суицид|самоубий|свести счёты|свести счеты/, "суицид приготовление"],
+  [/тонет|тонут|утопа|уносит течением|захлёб|захлеб/, "тонет человек"],
 ];
 
 /** Weak hints: they only break ties between leaves the text already points to («драка» — на улице, не в квартире). */
@@ -251,6 +261,10 @@ const GATES: [RegExp, RegExp][] = [
   // A lift, an explosion or a bomb threat is never guessed either: «остановка» is not a lift stopped between floors.
   [/лифт/, /лифт|кабин/],
   [/взрыв/, /взрыв|взорв|хлоп|бахн|рванул|бомб|заминир/],
+  // Gas, a bridge or a height are never guessed either: a smell from a flat is not gas until gas is said.
+  [/(^|[^а-я])газ(?!он|ет)/, /(^|[^а-я])газ(?!он|ет)/],
+  [/(^|[^а-я])мост/, /(^|[^а-я])мост/],
+  [/на высоте/, /высот|подоконник|окн|балкон|карниз/],
 ];
 
 /** Words that point to a group of the classifier: its leaves get a head start. */
@@ -260,21 +274,74 @@ const GROUP_CUES: Record<number, RegExp> = {
   13: /(^|[^а-я])газ(?!он|ет)/,
   14: /залива|затоп|течь|теч(ет|ёт)|прорыв|трубу|лифт|искрит|провод|электрощит|канализ|отоплен|батаре|нет света/,
   15: /драк|дерут|избива|напал|угрожа|краж|украл|ограб|угон|хулиган|скандал|шумят/,
-  17: /лежит|кричит|крики|тонет|упал с|суицид|прыгн|(^|[^а-яё])кров(ь|и|ью)([^а-яё]|$)/,
+  17: /лежит|кричит|крики|тонет|утопа|упал с|суицид|прыгн|(^|[^а-яё])кров(ь|и|ью)([^а-яё]|$)|не открыва[а-я]* двер|не выходит на связь|(заперт|закрыт)[а-яё ]{0,20}(ребен|ребён|малыш)/,
   22: /плохо|боль|болит|сердц|давлени|сознани|обморок|судорог|задыха|рожает|температур|отравил|кровотеч|травм|разбил голову/,
 };
 
+/** What the leaf's own words say about people: «нет угрозы» — nobody at risk, «с пострадавшими» — there are victims. */
+const NO_RISK = /нет угрозы|без пострадавш|\(без чп\)/i;
+const VICTIMS = /с пострадавш|пострадавшие|травм|мед\.? помощ|медицинск|признаков жизни|без сознания|заблокир|тонет|утонул|суицид/i;
+const NO_ACCESS = /заблокир|закрыт в|заперт|^открыть дверь/i;
+/** The leaf's name and its own signs (sign1 is the subgroup — «Открыть дверь, поднять с пола…» — and says nothing of this leaf). */
+const leafText = (row: Pick<TypeRow, "finalType" | "sign2" | "sign3">) => [row.finalType, row.sign2, row.sign3].filter(Boolean).join(" ");
+
 /**
- * Best classifier leaf for a type hint plus the situation text: token overlap, the hint weighs more,
- * everyday words mapped to the classifier's (CONCEPTS), leaves of the group the text points to first
- * (GROUP_CUES), railway, metro, air and water leaves only when the text names them (GATES).
+ * Does the leaf contradict the flags read from the text? «Дверь (нет угрозы)» with victims or a need for a doctor
+ * does, «ДТП с пострадавшими» with «пострадавших нет» does. Returns the contradictions in words, none — consistent.
  */
-export function matchType(types: TypeRow[], typeHint: string, text: string): TypeRow | null {
+export function flagConflicts(row: Pick<TypeRow, "finalType" | "sign2" | "sign3">, flags: IncidentFlags): string[] {
+  const text = leafText(row);
+  const out: string[] = [];
+  if (NO_RISK.test(text)) {
+    if (flags.victims) out.push("пострадавшие");
+    if (flags.med) out.push("нужна медпомощь");
+    if (flags.threat) out.push("угроза людям");
+  }
+  if (/с пострадавш/i.test(text) && flags.victims === false) out.push("пострадавших нет");
+  return out;
+}
+
+/**
+ * Flags that follow from the leaf itself, on top of what the text said: a medical leaf means a person needs a doctor,
+ * «открыть дверь» — no access, «нет угрозы» takes back victims, threat and the doctor. Returns the new flags and what changed.
+ */
+export function settleFlags(row: Pick<TypeRow, "groupId" | "finalType" | "sign2" | "sign3">, flags: IncidentFlags): { flags: IncidentFlags; changes: string[] } {
+  const text = leafText(row);
+  const next: IncidentFlags = { ...flags };
+  const changes: string[] = [];
+  const set = (key: keyof IncidentFlags, value: boolean, label: string) => {
+    if (Boolean(next[key]) === value) return;
+    next[key] = value as never;
+    changes.push(`${value ? "поставлен" : "снят"} признак «${label}»`);
+  };
+  if (NO_RISK.test(text)) {
+    set("victims", false, "пострадавшие");
+    set("med", false, "нужна медпомощь");
+    set("threat", false, "угроза людям");
+  } else {
+    if (row.groupId === 22) {
+      set("victims", true, "пострадавшие");
+      set("med", true, "нужна медпомощь");
+    } else if (VICTIMS.test(text)) set("victims", true, "пострадавшие");
+    if (NO_ACCESS.test(row.finalType)) set("noAccess", true, "нет доступа");
+  }
+  return { flags: next, changes };
+}
+
+type Ranked = { row: TypeRow; score: number };
+
+/**
+ * Classifier leaves ranked for a type hint plus the situation text: token overlap, the hint weighs more,
+ * everyday words mapped to the classifier's (CONCEPTS), leaves of the group the text points to first
+ * (GROUP_CUES), railway, metro, air, water, lift, gas and bridge leaves only when the text names them (GATES),
+ * leaves that contradict the flags read from the text last.
+ */
+export function rankTypes(types: TypeRow[], typeHint: string, text: string, flags: IncidentFlags = {}): Ranked[] {
   const all = `${typeHint} ${text}`.toLowerCase().replace(/ё/g, "е");
   const hint = [...new Set([...words(typeHint), ...CONCEPTS.filter(([re]) => re.test(all)).flatMap(([, w]) => words(w))])];
   const body = [...(typeHint === text ? [] : words(text)), ...WEAK.filter(([re]) => re.test(all)).flatMap(([, w]) => words(w))];
   const cued = new Set(Object.entries(GROUP_CUES).flatMap(([g, re]) => (re.test(all) ? [Number(g)] : [])));
-  let best: { row: TypeRow; score: number } | null = null;
+  const out: Ranked[] = [];
   for (const row of types) {
     if (row.hiddenFromOperator) continue;
     const leaf = `${row.finalType} ${row.sign1 ?? ""} ${row.sign2 ?? ""} ${row.sign3 ?? ""}`.toLowerCase().replace(/ё/g, "е");
@@ -287,9 +354,75 @@ export function matchType(types: TypeRow[], typeHint: string, text: string): Typ
     // Words of the name that the hint does not mention make the leaf more specific than asked.
     score -= 0.4 * final.filter((w) => !hint.some((h) => wordMatch(h, [w]) >= 0.8)).length;
     if (negated(typeHint) !== negated(row.finalType)) score -= 3;
-    if (!best || score > best.score) best = { row, score };
+    score -= 3 * flagConflicts(row, flags).length;
+    out.push({ row, score });
   }
+  return out.sort((a, b) => b.score - a.score || a.row.code - b.row.code);
+}
+
+/** Best classifier leaf by the rules, or null when nothing fits. */
+export function matchType(types: TypeRow[], typeHint: string, text: string, flags: IncidentFlags = {}): TypeRow | null {
+  const best = rankTypes(types, typeHint, text, flags)[0];
   return best && best.score > 0.5 ? best.row : null;
+}
+
+/**
+ * The short list the model chooses from: the best leaves by the rules, and the two best of every group the text
+ * points to, so that the right family is on the list even when its words differ from the text's.
+ */
+export function typeCandidates(types: TypeRow[], typeHint: string, text: string, flags: IncidentFlags = {}, limit = 8): TypeRow[] {
+  const ranked = rankTypes(types, typeHint, text, flags).filter((r) => r.score > 0);
+  const out = ranked.slice(0, limit).map((r) => r.row);
+  const all = `${typeHint} ${text}`.toLowerCase().replace(/ё/g, "е");
+  for (const [g, re] of Object.entries(GROUP_CUES)) {
+    if (!re.test(all)) continue;
+    for (const r of ranked.filter((x) => x.row.groupId === Number(g)).slice(0, 2)) if (!out.includes(r.row)) out.push(r.row);
+  }
+  return out.slice(0, limit + 4);
+}
+
+const choiceSchema = z.object({ code: z.coerce.number().int(), reason: z.string().min(3).max(400) });
+
+const CHOICE_PROMPT = `Ты старший оператор Системы 112 Москвы. Выбери тип происшествия для учебной карточки строго из списка классификатора.
+Смотри на смысл: кто в опасности, что нужно сделать (вскрыть дверь, тушить, спасать из воды, лечить, задержать), а не на отдельные слова.
+Тип не должен противоречить признакам: если есть пострадавшие или угроза людям, не выбирай «нет угрозы».
+Верни только JSON: {"code": код из списка, "reason": "одна фраза — почему этот тип"}.`;
+
+export type TypeChoice = { row: TypeRow; reason: string; byModel: boolean; candidates: TypeRow[] };
+
+/**
+ * The type: the rules pick a short list, the model (if connected) picks one leaf from it with a reason. A code that
+ * is not on the list or contradicts the flags is not taken — then the best consistent leaf by the rules is.
+ */
+export async function chooseType(types: TypeRow[], input: { text: string; typeHint: string; flags: IncidentFlags; remark?: string }): Promise<TypeChoice | null> {
+  const text = `${input.text} ${input.remark ?? ""}`.trim();
+  const candidates = typeCandidates(types, input.typeHint, text, input.flags);
+  const byRules = matchType(types, input.typeHint, text, input.flags);
+  if (candidates.length > 1 && llmConfigured()) {
+    try {
+      const list = candidates.map((c) => `${c.code} — ${c.finalType}${c.sign2 ? ` (${c.sign1}: ${c.sign2})` : ""}`).join("\n");
+      const flags = Object.entries(input.flags)
+        .filter(([, v]) => v)
+        .map(([k]) => k)
+        .join(", ");
+      const answer = await chatJson(
+        [
+          { role: "system", content: CHOICE_PROMPT },
+          {
+            role: "user",
+            content: `Ситуация: ${input.text}\n${input.remark ? `Указание преподавателя: ${input.remark}\n` : ""}Признаки из текста: ${flags || "нет"}\nКандидаты:\n${list}`,
+          },
+        ],
+        choiceSchema,
+        { temperature: 0, maxTokens: 300 },
+      );
+      const picked = candidates.find((c) => c.code === answer.code);
+      if (picked && !flagConflicts(picked, input.flags).length) return { row: picked, reason: answer.reason.trim().replace(/[.!\s]+$/, ""), byModel: true, candidates };
+    } catch {
+      // The model is not available or answered off the list — the rules decide.
+    }
+  }
+  return byRules ? { row: byRules, reason: "лучшее совпадение по словам текста и группе", byModel: false, candidates } : null;
 }
 
 // Questions the operator asks for every incident of a group, on top of the classifier's own «В:» notes.
@@ -381,7 +514,13 @@ export async function generateScenarioDraft(
   const types = await db.incidentType.findMany({
     select: { code: true, groupId: true, finalType: true, sign1: true, sign2: true, sign3: true, questions: true, hiddenFromOperator: true },
   });
-  const type = (hints.typeCode ? types.find((t) => t.code === hints.typeCode) : undefined) ?? matchType(types, extracted.typeHint, text);
+  const given = hints.typeCode ? types.find((t) => t.code === hints.typeCode) : undefined;
+  // The rules pick a short list of classifier leaves, the model (if connected) chooses one with a reason.
+  const choice = given ? null : await chooseType(types, { text, typeHint: extracted.typeHint, flags: extracted.flags });
+  const type = given ?? choice?.row ?? null;
+  // The flags follow the chosen leaf: «открыть дверь» — no access, medicine — a doctor, «нет угрозы» — nobody at risk.
+  const settledFlags = type && !given ? settleFlags(type, extracted.flags) : null;
+  if (settledFlags) extracted.flags = settledFlags.flags;
   const group = type ? await db.incidentGroup.findUnique({ where: { id: type.groupId } }) : null;
 
   // The address is exactly what was said. A ticket address counts only for the same house; otherwise the
@@ -459,7 +598,14 @@ export async function generateScenarioDraft(
       approvedSections: [],
       teacherNote:
         hints.note ??
-        `Создан по тексту${usedModel ? " (модель + правила)" : " (правила, без модели)"}: «${text.slice(0, 300)}». Проверьте тип, службы и адрес перед утверждением.`,
+        [
+          `Создан по тексту${usedModel ? " (модель + правила)" : " (правила, без модели)"}: «${text.slice(0, 300)}». Проверьте тип, службы и адрес перед утверждением.`,
+          choice &&
+            `Тип: «${choice.row.finalType}» (${choice.row.code}) — ${choice.byModel ? `выбран моделью из ${choice.candidates.length} кандидатов классификатора` : "по правилам"}: ${choice.reason}.`,
+          settledFlags?.changes.length && `Признаки по типу: ${settledFlags.changes.join(", ")}.`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
       createdById: actor.id,
     },
   });
@@ -475,36 +621,147 @@ function lineOf(a: IncidentAddress): string {
 }
 
 /**
- * After the model rewrote the reference 112 card: its incident type must be a real leaf of the
- * classifier (otherwise the nearest leaf by words, otherwise the old one), and everything that follows
- * from the type — the services, the card at the ДДС place, the ДДС reference — is rebuilt by the rules.
- * Returns the sections to write and which dependent sections changed (their approval is withdrawn).
+ * For «Исправь» of the reference card: the model gets a short list of classifier leaves — by its current type, the
+ * situation and the remark — and may only choose among them.
+ */
+export async function truthChoices(scenario: { truth: unknown; ddsCard: unknown; caller?: unknown; title?: string }, remark: string): Promise<string> {
+  const types = await db.incidentType.findMany({
+    select: { code: true, groupId: true, finalType: true, sign1: true, sign2: true, sign3: true, questions: true, hiddenFromOperator: true },
+  });
+  const truth = (scenario.truth && typeof scenario.truth === "object" ? scenario.truth : {}) as { finalType?: string; flags?: IncidentFlags };
+  const caller = (scenario.caller && typeof scenario.caller === "object" ? scenario.caller : {}) as { situation?: string };
+  const card = (scenario.ddsCard && typeof scenario.ddsCard === "object" ? scenario.ddsCard : {}) as { description?: string };
+  const situation = [scenario.title, caller.situation, card.description].filter(Boolean).join(" ");
+  const list = typeCandidates(types, remark, `${situation} ${remark}`, {}, 10);
+  if (truth.finalType) {
+    const now = types.find((t) => t.finalType === truth.finalType);
+    if (now && !list.includes(now)) list.push(now);
+  }
+  return (
+    "Тип происшествия (typeCodes, finalType) выбирай только из этого списка классификатора, код — название:\n" +
+    list.map((t) => `${t.code} — ${t.finalType}`).join("\n") +
+    "\nПризнаки (flags) не должны противоречить типу. Если преподаватель прямо называет службы, выбери тип, к которому их даёт классификатор; " +
+    "список служб в разделе всё равно пересчитают правила по типу, признакам и адресу."
+  );
+}
+
+/** Services a teacher names in a remark: «нужны 101 и 103», «скорая», «полиция для вскрытия»; «без полиции», «102 не нужна» — drop. */
+const SERVICE_WORDS: [RegExp, string][] = [
+  [/(^|[^\d])101([^\d]|$)|пожарн|спасател|мчс/i, "Служба 101"],
+  [/(^|[^\d])102([^\d]|$)|полици|участков/i, "Служба 102"],
+  [/(^|[^\d])103([^\d]|$)|скор(ая|ую|ой)|медпомощ/i, "Служба 103"],
+  [/(^|[^\d])104([^\d]|$)|газов(ая|ую|ой) служб|аварийн(ая|ую) газ/i, "Служба 104"],
+  [/цэмп/i, "ЦЭМП"],
+];
+const DROP = /не нужн|не надо|не требуется|лишн|убер|убрать|без (полиции|скорой|пожарных|спасателей|10\d)/i;
+
+export function serviceDemands(remark: string): { need: string[]; drop: string[] } {
+  const need = new Set<string>();
+  const drop = new Set<string>();
+  for (const clause of remark.split(/[.;!?\n,—–]/).filter((c) => c.trim())) {
+    const named = SERVICE_WORDS.filter(([re]) => re.test(clause)).map(([, name]) => name);
+    for (const n of named) (DROP.test(clause) ? drop : need).add(n);
+  }
+  for (const n of drop) need.delete(n);
+  return { need: [...need], drop: [...drop] };
+}
+
+/** Flags the teacher may lack for a service the classifier gives only with a sign: 103 with «пострадавшие» and the like. */
+const EXTRA_FLAGS: [keyof IncidentFlags, string][] = [
+  ["victims", "пострадавшие"],
+  ["med", "нужна медпомощь"],
+  ["noAccess", "нет доступа"],
+  ["threat", "угроза людям"],
+];
+
+/**
+ * After the model rewrote the reference 112 card: its incident type must be a real leaf of the classifier that does
+ * not contradict the flags; services named in the teacher's remark are brought by the classifier — through the type
+ * or a sign the type's routing knows — and only when the classifier cannot, they are added «по указанию
+ * преподавателя» with the reason in `notes`. Everything that follows from the type — the services, the card at the
+ * ДДС place, the ДДС reference — is rebuilt by the rules. Returns the sections to write, which dependent sections
+ * changed (their approval is withdrawn) and notes for the teacher.
  */
 export async function settleTruth(
-  scenario: { truth: unknown; ddsCard: unknown; ddsReference: unknown },
+  scenario: { truth: unknown; ddsCard: unknown; ddsReference: unknown; caller?: unknown; title?: string },
   next: Section,
   remark: string,
-): Promise<{ truth: Section; ddsCard: Section; ddsReference: Section | null; changed: ("ddsCard" | "ddsReference")[] }> {
+): Promise<{ truth: Section; ddsCard: Section; ddsReference: Section | null; changed: ("ddsCard" | "ddsReference")[]; notes: string[] }> {
   const types = await db.incidentType.findMany({
     select: { code: true, groupId: true, finalType: true, sign1: true, sign2: true, sign3: true, questions: true, hiddenFromOperator: true },
   });
   const byCode = new Map(types.map((t) => [t.code, t]));
   const real = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter((c) => byCode.has(c)) : []);
   const old = (scenario.truth ?? {}) as { typeCodes?: number[] };
-  const asked = real(next.typeCodes);
-  const guess = asked.length ? null : matchType(types, String(next.finalType ?? ""), `${String(next.finalType ?? "")} ${remark}`);
-  const codes = asked.length ? asked : guess ? [guess.code] : real(old.typeCodes);
-  const type = codes.length ? byCode.get(codes[0])! : null;
+  const notes: string[] = [];
 
-  const flags = Object.fromEntries(Object.entries((next.flags as Section) ?? {}).filter(([, v]) => typeof v === "boolean")) as IncidentFlags;
+  const flags0 = Object.fromEntries(Object.entries((next.flags as Section) ?? {}).filter(([, v]) => typeof v === "boolean")) as IncidentFlags;
   const given = (next.address && typeof next.address === "object" ? next.address : {}) as IncidentAddress;
   const street = given.district ? null : placeOfStreet(given.street);
   const address: IncidentAddress = { ...given, district: given.district ?? street?.district ?? undefined, okrug: given.okrug ?? street?.okrug ?? undefined };
-  const services = type ? await selectServicesFromDb({ typeCodes: codes, flags, district: address.district ?? null, okrug: address.okrug ?? null }) : [];
-  const names = new Map(
-    (await db.service.findMany({ where: { id: { in: services.map((s) => s.serviceId) } }, select: { id: true, shortName: true } })).map((s) => [s.id, s.shortName]),
+  const names = new Map((await db.service.findMany({ select: { id: true, shortName: true } })).map((s) => [s.id, s.shortName]));
+  const route = async (code: number, flags: IncidentFlags) =>
+    (await selectServicesFromDb({ typeCodes: [code], flags, district: address.district ?? null, okrug: address.okrug ?? null })).map((x) => ({
+      ...x,
+      shortName: names.get(x.serviceId) ?? String(x.serviceId),
+    }));
+
+  // Candidates: the model's leaf first, then the rules' short list for its name, the situation and the remark.
+  const caller = (scenario.caller && typeof scenario.caller === "object" ? scenario.caller : {}) as { situation?: string };
+  const card = (scenario.ddsCard && typeof scenario.ddsCard === "object" ? scenario.ddsCard : {}) as { description?: string };
+  const situation = [scenario.title, caller.situation, card.description].filter(Boolean).join(" ");
+  const asked = real(next.typeCodes);
+  // Without a real code the model's type name and the remark are matched by words; nothing matches — the old type stays.
+  const guess = asked.length ? null : matchType(types, String(next.finalType ?? ""), `${String(next.finalType ?? "")} ${remark}`, flags0);
+  const first = [...asked, ...(guess ? [guess.code] : []), ...real(old.typeCodes)].map((c) => byCode.get(c)!);
+  // Further candidates by the situation and the remark: for a type that contradicts the flags or lacks the named services.
+  // The names of services are taken out of the remark first: «газовая служба» must not bring gas leaves to a fight.
+  const plain = SERVICE_WORDS.reduce((t, [re]) => t.replace(new RegExp(re.source, "gi"), " "), remark);
+  const pool = [...first, ...typeCandidates(types, `${String(next.finalType ?? "")} ${plain}`, `${situation} ${plain}`, flags0, 6)].filter(
+    (t, i, all) => all.findIndex((x) => x.code === t.code) === i,
   );
-  const named = services.map((s) => ({ ...s, shortName: names.get(s.serviceId) ?? String(s.serviceId) }));
+  const consistent = pool.filter((t) => !flagConflicts(t, flags0).length);
+  if (first[0] && flagConflicts(first[0], flags0).length) {
+    notes.push(`тип «${first[0].finalType}» противоречит признакам (${flagConflicts(first[0], flags0).join(", ")}) — выбран другой`);
+  }
+
+  // The teacher's services: brought by the type as is, by the type with one more sign, or by another candidate.
+  const demands = serviceDemands(remark);
+  // Only named services move the type; a service to drop is never a reason to change it (see the note below).
+  const meets = (list: { shortName: string }[]) => demands.need.every((n) => list.some((x) => x.shortName === n));
+  let type: TypeRow | null = (first[0] && !flagConflicts(first[0], flags0).length ? first[0] : consistent[0]) ?? first[0] ?? null;
+  let flags = type ? settleFlags(type, flags0).flags : flags0;
+  let services = type ? await route(type.code, flags) : [];
+  if (type && demands.need.length && !meets(services)) {
+    let found = false;
+    for (const t of consistent) {
+      const base = settleFlags(t, flags0).flags;
+      const tries: [IncidentFlags, string | null][] = [[base, null], ...EXTRA_FLAGS.filter(([k]) => !base[k]).map(([k, label]): [IncidentFlags, string] => [{ ...base, [k]: true }, label])];
+      for (const [f, label] of tries) {
+        if (flagConflicts(t, f).length) continue;
+        const list = await route(t.code, f);
+        if (!meets(list)) continue;
+        if (t.code !== type.code) notes.push(`по указанию выбран тип «${t.finalType}»: классификатор даёт к нему ${demands.need.join(", ") || "нужные службы"}`);
+        if (label) notes.push(`поставлен признак «${label}» — с ним классификатор даёт ${demands.need.join(", ")}`);
+        [type, flags, services, found] = [t, f, list, true];
+        break;
+      }
+      if (found) break;
+    }
+    if (!found) {
+      const missing = demands.need.filter((n) => !services.some((x) => x.shortName === n));
+      const ids = new Map([...names].map(([id, name]) => [name, id]));
+      for (const n of missing) {
+        const id = ids.get(n);
+        if (id == null) continue;
+        services.push({ serviceId: id, shortName: n, isMain: false, reason: `по указанию преподавателя: классификатор не даёт её к типу «${type.finalType}»`, visible: true });
+      }
+      if (missing.length) notes.push(`${missing.join(", ")} — классификатор не даёт к типу «${type.finalType}» ни с одним признаком; добавлено по указанию преподавателя`);
+    }
+  }
+  const kept = type ? demands.drop.filter((n) => services.some((x) => x.shortName === n)) : [];
+  if (type && kept.length) notes.push(`${kept.join(", ")} классификатор ставит к типу «${type.finalType}» сам — убрать можно, только выбрав другой тип`);
+  const codes = type ? [type.code] : [];
   const addressLine = address.street ? lineOf(address) : String(next.addressLine ?? "");
   const finalType = type?.finalType ?? null;
   const tags = type ? [type.sign1, type.sign2, type.sign3].filter(Boolean) : [];
@@ -518,7 +775,7 @@ export async function settleTruth(
     flags,
     address,
     addressLine,
-    services: named.map((s) => ({ serviceId: s.serviceId, shortName: s.shortName, isMain: s.isMain, reason: s.reason })),
+    services: services.map((s) => ({ serviceId: s.serviceId, shortName: s.shortName, isMain: s.isMain, reason: s.reason })),
   };
   const prevCard = (scenario.ddsCard && typeof scenario.ddsCard === "object" ? scenario.ddsCard : {}) as Section;
   const ddsCard: Section = {
@@ -527,14 +784,14 @@ export async function settleTruth(
     tagsLine: tags.join(" · "),
     flags: { victims: !!flags.victims, refusedAmbulance: !!flags.refusedAmbulance, blocked: !!flags.noAccess },
     address: addressLine,
-    services: named.map((s) => s.shortName),
+    services: services.map((s) => s.shortName),
   };
   // The ДДС reference names decisions per service: kept only while the type and its services stay.
   const prevRef = (scenario.ddsReference && typeof scenario.ddsReference === "object" ? scenario.ddsReference : null) as { services?: { serviceId?: number }[] } | null;
-  const keep = prevRef && codes[0] === old.typeCodes?.[0] && (prevRef.services ?? []).every((s) => named.some((n) => n.serviceId === s.serviceId));
-  const ddsReference = keep ? (prevRef as Section) : (ddsReferenceFor(named, finalType ?? "происшествие") as unknown as Section);
+  const keep = prevRef && codes[0] === old.typeCodes?.[0] && (prevRef.services ?? []).every((s) => services.some((n) => n.serviceId === s.serviceId));
+  const ddsReference = keep ? (prevRef as Section) : (ddsReferenceFor(services, finalType ?? "происшествие") as unknown as Section);
   const changed: ("ddsCard" | "ddsReference")[] = [];
   if (JSON.stringify(ddsCard) !== JSON.stringify(prevCard)) changed.push("ddsCard");
   if (!keep) changed.push("ddsReference");
-  return { truth, ddsCard, ddsReference, changed };
+  return { truth, ddsCard, ddsReference, changed, notes };
 }

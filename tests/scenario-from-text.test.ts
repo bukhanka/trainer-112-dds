@@ -36,7 +36,7 @@ vi.mock("@/lib/ai/provider", () => ({
   chatJson: async (messages: { role: string; content: string }[], schema: { parse: (v: unknown) => unknown }) => schema.parse(store.model!(messages[1].content)),
 }));
 
-const { generateScenarioDraft, matchType, readByRules, settleTruth } = await import("@/lib/scenarios/generate");
+const { chooseType, flagConflicts, generateScenarioDraft, matchType, readByRules, serviceDemands, settleFlags, settleTruth, typeCandidates } = await import("@/lib/scenarios/generate");
 
 const code = (name: string) => types.find((t) => t.finalType === name)!.code;
 const byRules = (text: string) => {
@@ -230,3 +230,122 @@ describe("everyday words of the street: medicine and road accidents never become
   });
 });
 
+
+/**
+ * The jury's case: «у соседки 3-й день не открывают дверь, запах, 80 лет, одна» became «Посторонние вскрывают
+ * квартиру» with Служба 102 only, and «Исправить с ИИ» with «нужны 101 и 103» — «Дверь (нет угрозы)» with victims
+ * and no services but the district ones.
+ */
+describe("the type from the classifier by meaning, consistent with the flags, and the teacher's services", () => {
+  const JURY = "У соседки третий день не открывают дверь, из квартиры запах, ей 80 лет, живёт одна. Улица Рогова, 12, квартира 45.";
+  const row = (name: string) => types.find((t) => t.finalType === name)!;
+  const DOORS = ["Открыть дверь (не подает признаков жизни)", "Открыть дверь (трупный запах)", "Открыть дверь (требуется мед. помощь)"].map(code);
+
+  it("puts the door leaves on the short list and ranks them first; a smell is not gas until gas is said", () => {
+    const ex = readByRules(JURY);
+    const list = typeCandidates(types as never, ex.typeHint, JURY, ex.flags);
+    expect(list.some((t) => DOORS.includes(t.code))).toBe(true);
+    expect(DOORS).toContain(matchType(types as never, ex.typeHint, JURY, ex.flags)?.code);
+    expect(list.map((t) => t.finalType)).not.toContain("Запах газа из закрытой квартиры");
+    expect(list.map((t) => t.finalType)).not.toContain("Посторонние вскрывают квартиру");
+    // …and a smell of gas is gas.
+    expect(matchType(types as never, "запах газа", "Из квартиры соседки пахнет газом, дверь не открывают")?.groupId).not.toBe(15);
+  });
+
+  it("finds a child locked in, a man about to jump and a drowning man by meaning, not by stray words", () => {
+    const pick = (text: string) => {
+      const ex = readByRules(text);
+      return matchType(types as never, ex.typeHint, text, ex.flags)?.finalType;
+    };
+    expect(pick("Маленький ребёнок один заперт в квартире и плачет, родители ушли, ключей нет")).toBe("Открыть дверь (ребенок)");
+    expect(pick("Мужчина сидит на краю крыши девятиэтажки и говорит, что прыгнет")).toMatch(/суицид/i);
+    expect(pick("На Москве-реке тонет человек, его уносит течением")).toBe("Тонет человек");
+  });
+
+  it("calls a leaf that says «нет угрозы» inconsistent with victims and a doctor, and lets the leaf set the flags", () => {
+    const noThreat = row("Дверь (нет угрозы)");
+    expect(flagConflicts(noThreat as never, { victims: true, med: true })).toEqual(["пострадавшие", "нужна медпомощь"]);
+    expect(flagConflicts(row("Открыть дверь (не подает признаков жизни)") as never, { victims: true, med: true })).toEqual([]);
+    expect(settleFlags(noThreat as never, { victims: true, med: true, noAccess: true }).flags).toMatchObject({ victims: false, med: false });
+    const door = settleFlags(row("Открыть дверь (не подает признаков жизни)") as never, {});
+    expect(door.flags).toMatchObject({ victims: true, noAccess: true });
+    expect(door.changes).toEqual(["поставлен признак «пострадавшие»", "поставлен признак «нет доступа»"]);
+    expect(settleFlags(row("Плохо с сердцем") as never, {}).flags).toMatchObject({ victims: true, med: true });
+  });
+
+  it("takes the model's leaf only from the list and only if it agrees with the flags", async () => {
+    const ex = readByRules(JURY);
+    const list = typeCandidates(types as never, ex.typeHint, JURY, ex.flags);
+    const choose = (answer: unknown) => {
+      store.model = (content) => (content.startsWith("Ситуация:") ? answer : {});
+      return chooseType(types as never, { text: JURY, typeHint: ex.typeHint, flags: { ...ex.flags, victims: true } });
+    };
+    const good = list.find((t) => t.finalType === "Открыть дверь (не подает признаков жизни)")!;
+    expect(await choose({ code: good.code, reason: "одинокая пожилая не открывает три дня" })).toMatchObject({ byModel: true, row: { code: good.code } });
+    // Not on the list — the rules decide.
+    const off = await choose({ code: code("Посторонние вскрывают квартиру"), reason: "вскрывают" });
+    expect(off?.byModel).toBe(false);
+    expect(DOORS).toContain(off?.row.code);
+    // On the list, but «нет угрозы» against victims — the rules decide.
+    const noThreat = types.find((t) => t.finalType === "Дверь (нет угрозы)")!;
+    if (list.some((t) => t.code === noThreat.code)) expect((await choose({ code: noThreat.code, reason: "дверь" }))?.row.code).not.toBe(noThreat.code);
+  });
+
+  it("reads the services a teacher names, and the ones to drop", () => {
+    expect(serviceDemands("Это не посторонние вскрывают квартиру. Нужно вскрытие двери спасателями (101) и скорая (103), полиция для вскрытия.").need.sort()).toEqual([
+      "Служба 101",
+      "Служба 102",
+      "Служба 103",
+    ]);
+    expect(serviceDemands("102 не нужна, нужна скорая")).toEqual({ need: ["Служба 103"], drop: ["Служба 102"] });
+    expect(serviceDemands("исправь адрес на Рогова 14")).toEqual({ need: [], drop: [] });
+  });
+
+  const jurySection = {
+    title: "Дверь не открывают, неприятный запах из квартиры",
+    caller: { situation: "Соседка из 45-й квартиры уже третий день дверь не открывает, а из щели запах нехороший" },
+    truth: { typeCodes: [code("Посторонние вскрывают квартиру")], finalType: "Посторонние вскрывают квартиру", address: { street: "ул. Рогова", house: "12" } },
+    ddsCard: { classLabel: "Посторонние вскрывают квартиру", description: "Неприятный запах из кв. 45, дверь не открывают 3 дня. Внутри одинокая женщина 80 лет." },
+    ddsReference: { rules: [], services: [] },
+  };
+  const REMARK = "Это не посторонние вскрывают квартиру. Одинокая пожилая соседка три дня не открывает дверь, из квартиры запах — нужно вскрытие двери спасателями (101) и скорая (103), полиция для вскрытия.";
+
+  it("«Исправить с ИИ» with «нужны 101 и 103»: a «нет угрозы» leaf with victims is replaced by one the classifier sends them to", async () => {
+    // What the model returned for the jury: «Дверь (нет угрозы)» with victims and a need for a doctor.
+    const next = { typeCodes: [code("Дверь (нет угрозы)")], finalType: "Дверь (нет угрозы)", flags: { victims: true, med: true, noAccess: true }, address: { street: "ул. Рогова", house: "12" } };
+    const s = await settleTruth(jurySection, next, REMARK);
+    const names = (s.truth.services as { shortName: string }[]).map((x) => x.shortName);
+    expect(names).toEqual(expect.arrayContaining(["Служба 101", "Служба 102", "Служба 103"]));
+    expect(s.truth.finalType).not.toBe("Дверь (нет угрозы)");
+    expect(flagConflicts({ finalType: String(s.truth.finalType), sign2: null, sign3: null }, s.truth.flags as never)).toEqual([]);
+    expect(s.notes.join(" ")).toMatch(/противоречит признакам/);
+    expect(s.ddsCard.services).toEqual(names);
+  });
+
+  const fight = {
+    title: "Драка во дворе",
+    caller: { situation: "Во дворе дерутся трое, у одного нож" },
+    truth: { typeCodes: [code("Драка на улице")], finalType: "Драка на улице", address: {} },
+    ddsCard: { classLabel: "Драка на улице", description: "Драка во дворе, трое, у одного нож" },
+    ddsReference: null,
+  };
+
+  it("brings a named service through a sign the type's routing knows, before changing the type", async () => {
+    const s = await settleTruth(fight, { typeCodes: [code("Драка на улице")], finalType: "Драка на улице", flags: { offense: true } }, "Нужна скорая: у одного разбита голова");
+    expect(s.truth.finalType).toBe("Драка на улице");
+    expect((s.truth.services as { shortName: string }[]).map((x) => x.shortName)).toContain("Служба 103");
+    expect(s.truth.flags).toMatchObject({ victims: true });
+    expect(s.notes.join(" ")).toMatch(/поставлен признак «пострадавшие»/);
+  });
+
+  it("adds a service the classifier never gives only by the teacher's word — and says so", async () => {
+    const s = await settleTruth(fight, { typeCodes: [code("Драка на улице")], finalType: "Драка на улице", flags: { offense: true } }, "Добавь газовую службу, 104");
+    const gas = (s.truth.services as { shortName: string; reason: string }[]).find((x) => x.shortName === "Служба 104");
+    expect(gas?.reason).toMatch(/по указанию преподавателя/);
+    expect(s.notes.join(" ")).toMatch(/классификатор не даёт/);
+    // A service to drop never changes the type: the note says why it stays.
+    const d = await settleTruth(fight, { typeCodes: [code("Драка на улице")], finalType: "Драка на улице", flags: { offense: true } }, "102 не нужна");
+    expect(d.truth.finalType).toBe("Драка на улице");
+    expect(d.notes.join(" ")).toMatch(/Служба 102 классификатор ставит .* сам/);
+  });
+});
