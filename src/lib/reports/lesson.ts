@@ -42,7 +42,7 @@ export type StudentRow = {
   service: string | null;
   reviewed: number;
   pending: number;
-  timeLabel: string; // «набор карточки» / «ответ»
+  timeLabel: string; // «набор карточки» / «открытие карточки»
   avgTimeSec: number | null;
   normSec: number;
   deltaSec: number | null;
@@ -124,7 +124,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
       service: seat.serviceName,
       reviewed: mine.length,
       pending: input.attempts.filter((a) => a.seatId === seat.id && a.reviewStatus === "PENDING").length,
-      timeLabel: seat.role === "OP112" ? "набор карточки" : "ответ «Принята»",
+      timeLabel: seat.role === "OP112" ? "набор карточки" : "открытие карточки",
       avgTimeSec: avgTime,
       normSec,
       deltaSec: avgTime == null ? null : avgTime - normSec,
