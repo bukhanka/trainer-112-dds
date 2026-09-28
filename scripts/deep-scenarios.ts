@@ -44,7 +44,7 @@ const NO_REJECT_103 = "Служба 103 не ставит «Не принята�
  * does not serve the object says «Не принята» with the reason (p. 28), and «Не принята» is not to be feared (p. 29).
  * Where the materials do not say whether the service acts — an okrug prefecture, Мос.Без., Мосжилинспекция, a district
  * without a described role — the reference leaves the decision open: the time norms (the card opened within 30 s, the first
- * record — status and text — within 3 min, customer's answer of 27.09) and the comment are judged.
+ * record — status and text — within 3 min, the customer's norms) and the comment are judged.
  */
 const OPEN_NOTE =
   "Решение не оценивается: «Принята» — только если служба будет что-то делать, иначе «Не принята» с причиной (памятка ДДС); что делает эта служба в таком случае, в материалах нет. Оцениваются открытие за 30 с, первая запись за 3 мин и комментарий";

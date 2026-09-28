@@ -216,7 +216,7 @@ describe("scenarios from the tickets", () => {
     }
   });
 
-  it("approved: the reference names the ДДС norms of the customer's answer of 27.09 — open in 30 s, the first record in 3 min", () => {
+  it("approved: the reference names the customer's ДДС norms — open in 30 s, the first record in 3 min", () => {
     // The variants with an error in the card (data/scenarios-card-errors.json) go to the stand with the tickets.
     for (const s of [...approved, ...readDataJson<Scenario[]>("scenarios-card-errors.json")]) {
       const { rules, services } = s.ddsReference!;

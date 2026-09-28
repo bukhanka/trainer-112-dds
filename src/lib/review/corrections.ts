@@ -1,5 +1,5 @@
 /**
- * Teacher corrections — «учёт правок преподавателя» (дообучение, confirmed by the customer at Q&A).
+ * Teacher corrections — «учёт правок преподавателя» (дообучение, a customer requirement).
  *
  * When the teacher changes a check's verdict with a comment («ИИ неправ»), the decision is kept as a
  * correction: which check, the situation (place role, incident type and its classifier group, scenario),

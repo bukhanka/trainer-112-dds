@@ -9,7 +9,7 @@
  *   «Не завершено» — the lesson is over (or 48 h passed) and a service has not closed the card.
  * These three are shown in red, as on the controller's screen.
  *
- * Time norms of a ДДС place, by the customer's answer of 27.09: 30 s from «Добавлена» to opening the card and
+ * Time norms of a ДДС place, set by the customer: 30 s from «Добавлена» to opening the card and
  * 3 min to the first record — a status with a text. Statuses have no other norms: the works may take hours.
  */
 import { errorTitle } from "@/lib/scoring/errors";
