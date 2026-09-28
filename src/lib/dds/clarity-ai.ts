@@ -12,6 +12,7 @@ import { aiOffNote, chatJson, llmConfigured, type ChatMessage } from "@/lib/ai/p
 import { guidanceText, type CorrectionContext, type GuidanceRow } from "@/lib/review/corrections";
 import type { CriterionResult } from "@/lib/scoring/score";
 import type { JudgedComment } from "./clarity";
+import { saysCardErrorRight, type CardError } from "./scenario";
 import { STATUS_LABEL } from "./status";
 
 export const CLARITY_AI_CODE = "dds.ai.literacy";
@@ -22,6 +23,11 @@ export type ClarityAiInput = {
   /** What the card says: type, address, description — the context the next dispatcher also has. */
   card: string;
   comments: JudgedComment[];
+  /**
+   * The scenario's error in the card: what the crew found on site is right. Without it the model reads «корп. 5» in a
+   * comment on a card that says «корп. 6» as a muddle — the very thing the rule «Итоги — по верным сведениям» wants.
+   */
+  cardError?: CardError;
 };
 
 /** Fingerprint of the judged text: the same comments are not sent to the model twice. */
@@ -49,12 +55,20 @@ export function clarityAiMessages(input: ClarityAiInput, ctx: CorrectionContext,
     "Следующий диспетчер прочитает эти комментарии в карточке происшествия. Он должен понять без звонка: что сделано, чем закончилось, кому и почему передано.",
     "Непонятно: свои сокращения и обрывки слов, пропущенный итог, неясные «туда», «он», «как обычно», перепутанный порядок, слова в английской раскладке.",
     "Опечатки, которые не мешают понять смысл, ошибкой не считай. Общепринятые сокращения (ДДС, МЧС, ЦЭМП, ГБУ, ЖКХ, округа Москвы) допустимы.",
+    ...(input.cardError
+      ? [
+          "В этой карточке была ошибка, и наряд на месте нашёл, как на самом деле. Верные сведения — те, что с места: комментарий, где они написаны вместо сведений карточки, правильный; такое расхождение с карточкой ошибкой не считай.",
+        ]
+      : []),
     'Верни только JSON: {"clear": true или false, "fragment": "точная цитата самого непонятного места или пустая строка", "better": "как написать понятнее — одно предложение"}.',
     ...(lessons ? ["", lessons] : []),
   ];
   const user = [
     `Служба: ${input.service}`,
     `Карточка: ${input.card || "—"}`,
+    ...(input.cardError
+      ? [`Ошибка в карточке (доклад наряда с места): в карточке «${input.cardError.inCard || input.cardError.what}», на самом деле — ${input.cardError.onSite}. Верно — как на месте.`]
+      : []),
     "Комментарии диспетчера:",
     ...input.comments.map((c) => `— ${STATUS_LABEL[c.status]}: «${c.text || "(пусто)"}»`),
   ];
@@ -71,6 +85,20 @@ export function clarityFromReply(reply: z.infer<typeof replySchema>, input: Clar
   const fragment = reply.fragment.trim();
   const quoted = fragment && input.comments.some((c) => squash(c.text).includes(squash(fragment))) ? fragment : "";
   const better = reply.better.trim();
+  // The model held the right information of the card error against the card: the rule has checked exactly this
+  // («Итоги — по верным сведениям»), so the model's verdict does not count rather than contradict it.
+  if (!reply.clear && input.cardError && fragment && saysCardErrorRight(fragment, input.cardError)) {
+    return {
+      code: CLARITY_AI_CODE,
+      group: "literacy",
+      title: TITLE,
+      ok: null,
+      evidence: `ИИ счёл непонятным «${fragment}», хотя это верные сведения с места (в карточке была ошибка: ${input.cardError.inCard || input.cardError.what}) — проверка не учитывается`,
+      source: "ai",
+      learned: guidance.map((g) => g.id),
+      basis,
+    };
+  }
   return {
     code: CLARITY_AI_CODE,
     group: "literacy",

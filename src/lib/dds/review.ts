@@ -19,7 +19,8 @@ import { endHold, readHolds } from "./hold";
 import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarityAi } from "./clarity-ai";
 import { dispatchOf } from "./crew";
 import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
-import { referenceFor } from "./scenario";
+import { mentionsCardNumber } from "./personas";
+import { cardErrorFrom, referenceFor, saysCardErrorRight } from "./scenario";
 import { seatFeedWhere, settingsOf, type SeatRef } from "./scope";
 import { awaitsAnswer, rulesFor } from "./status";
 import { DDS_TX } from "./tx";
@@ -113,12 +114,27 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
   const reports = crewCalls.flatMap((c) => (cp(c).reports ?? []).map((r) => ({ status: r.status, at: new Date(r.at) })));
   const incoming = calls.filter((c) => c.kind === "BRIGADE_IN" && c.status !== "RINGING");
-  // Calls to 112 about the card: made from the card, or from the keypad with its number said.
-  const loose = await db.call.findMany({ where: { seatId, incidentId: null, kind: "SERVICE_OUT" } });
-  const to112 = [...calls, ...loose]
+  const reference = referenceFor(incident.scenario?.ddsReference, plate.service);
+  // Calls to 112 about the card: made from it, naming its number (from the feed or another card), or from the keypad
+  // with the right information of its error said.
+  const phone112 = await db.call.findMany({ where: { seatId, kind: "SERVICE_OUT" } });
+  const to112 = phone112
     .filter((c) => cp(c).kind === "operator112")
-    .map((c) => ({ at: c.startedAt, lines: ((c.messages ?? []) as { role: string; text: string }[]).filter((m) => m.role === "trainee").map((m) => m.text) }))
-    .filter((c) => c.lines.length);
+    .map((c) => ({
+      at: c.startedAt,
+      incidentId: c.incidentId,
+      lines: ((c.messages ?? []) as { role: string; text: string }[]).filter((m) => m.role === "trainee").map((m) => m.text),
+    }))
+    .filter((c) => {
+      if (!c.lines.length) return false;
+      const text = c.lines.join(" ");
+      return (
+        c.incidentId === incident.id ||
+        mentionsCardNumber(text, incident.number) ||
+        (!c.incidentId && !!reference?.cardError && saysCardErrorRight(text, reference.cardError))
+      );
+    })
+    .map(({ at, lines }) => ({ at, lines }));
 
   const end = lesson.status === "FINISHED" && lesson.finishedAt ? lesson.finishedAt : now;
   const rules: CriterionResult[] = evaluateDdsPlate({
@@ -128,7 +144,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     rules: rulesFor(plate.service),
     ackSec: settings.ackSec,
     workSec: settings.workSec,
-    reference: referenceFor(incident.scenario?.ddsReference, plate.service),
+    reference,
     dispatch: dispatchOf(plate.events, phoneDispatch),
     reports,
     crewCalls: { rang: incoming.length, missed: incoming.filter((c) => c.status === "MISSED").length },
@@ -193,6 +209,7 @@ export async function runClarityCheck(attemptId: string, basis: string): Promise
       aiDraft: true,
       incident: { select: { address: true, description: true } },
       incidentService: { select: { id: true, service: { select: { shortName: true } }, events: { orderBy: { at: "asc" }, select: { status: true, comment: true } } } },
+      scenario: { select: { ddsReference: true } },
     },
   });
   const plate = a?.incidentService;
@@ -204,7 +221,9 @@ export async function runClarityCheck(attemptId: string, basis: string): Promise
   const ctx = situation ?? { scenarioId: null, typeCode: null, typeGroupId: null, category: null };
   const guidance = await loadGuidance(CLARITY_AI_CODE, ctx);
   const card = [situation?.typeName, formatAddress(a.incident?.address), a.incident?.description].filter(Boolean).join(" · ").slice(0, 400);
-  const check = await evaluateDdsClarityAi({ service: plate.service.shortName, card, comments: judged }, ctx, guidance);
+  // An error in the card: the right information is what the crew found on site — the model must not hold it against the card.
+  const cardError = cardErrorFrom(a.scenario?.ddsReference);
+  const check = await evaluateDdsClarityAi({ service: plate.service.shortName, card, comments: judged, cardError }, ctx, guidance);
 
   await db.$transaction(async (tx) => {
     await lockScores(tx);

@@ -6,7 +6,7 @@ import { PushToTalk } from "@/components/voice/PushToTalk";
 import { TalkModeSwitch, useTalkMode, type TalkMode } from "@/components/voice/TalkMode";
 import { useVoice } from "@/components/voice/useVoice";
 import type { BookEntry, CallBrief, CallMessage } from "@/lib/dds/calls";
-import { fmtDuration, fmtHM } from "@/lib/dds/format";
+import { fmtDuration, fmtHM, redialNumber } from "@/lib/dds/format";
 import { heldSeconds, openHold, type HoldPeriod } from "@/lib/dds/hold";
 import { beep, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
@@ -104,15 +104,23 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
     return res.ok;
   }
 
+  /** Place a call; true when it went through. Without a card named by the caller the card open on the screen is its context. */
+  function placeCall(value: string, opts?: { incidentId?: string | null }) {
+    setOpen(true);
+    return run("/api/dds/calls", { number: value, incidentId: opts?.incidentId ?? cardIncidentId, cardNumber: cardNumber ? Number(cardNumber) : null });
+  }
+
   const api: SoftphoneApi = {
     canDial: live && !current,
     crews: phone?.crews ?? [],
-    dial: (value, opts) => {
-      setOpen(true);
-      // Without a card named by the caller the card open on the screen is the context of the call.
-      void run("/api/dds/calls", { number: value, incidentId: opts?.incidentId ?? cardIncidentId, cardNumber: cardNumber ? Number(cardNumber) : null });
-    },
+    dial: (value, opts) => void placeCall(value, opts),
   };
+
+  /** The keypad starts clean after a call: «112» typed after «15» must not become «15112». A number not found stays to be fixed. */
+  async function dialTyped() {
+    const value = number.trim();
+    if (value && (await placeCall(value))) setNumber("");
+  }
 
   async function sayLine(text: string) {
     if (!current || !text.trim()) return;
@@ -350,11 +358,18 @@ export function SoftphoneLayer({ children }: { children: React.ReactNode }) {
               </nav>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {tab === "dial" ? (
-                  <DialPad number={number} setNumber={setNumber} disabled={!api.canDial || busy} onDial={() => number.trim() && api.dial(number.trim())} context={cardNumber} />
+                  <DialPad number={number} setNumber={setNumber} disabled={!api.canDial || busy} onDial={() => void dialTyped()} context={cardNumber} />
                 ) : tab === "book" ? (
                   <PhoneBook entries={phone?.book ?? []} openCard={cardNumber} disabled={!api.canDial || busy} onDial={(e) => api.dial(e.phone, { incidentId: e.incidentId })} />
                 ) : (
-                  <CallLog calls={phone?.log ?? []} expanded={expanded} setExpanded={setExpanded} now={now} />
+                  <CallLog
+                    calls={phone?.log ?? []}
+                    expanded={expanded}
+                    setExpanded={setExpanded}
+                    now={now}
+                    canDial={api.canDial && !busy}
+                    onRedial={(c, value) => api.dial(value, { incidentId: c.incidentId ?? undefined })}
+                  />
                 )}
               </div>
             </div>
@@ -434,7 +449,15 @@ function PhoneBook({ entries, openCard, disabled, onDial }: { entries: BookEntry
   );
 }
 
-function CallLog({ calls, expanded, setExpanded, now }: { calls: CallBrief[]; expanded: string | null; setExpanded: (id: string | null) => void; now: number }) {
+function CallLog(props: {
+  calls: CallBrief[];
+  expanded: string | null;
+  setExpanded: (id: string | null) => void;
+  now: number;
+  canDial: boolean;
+  onRedial: (call: CallBrief, number: string) => void;
+}) {
+  const { calls, expanded, setExpanded, now } = props;
   if (!calls.length) return <p className="p-3 text-arm-desc">Звонков ещё не было.</p>;
   return (
     <div>
@@ -444,28 +467,42 @@ function CallLog({ calls, expanded, setExpanded, now }: { calls: CallBrief[]; ex
           c.status === "MISSED" ? "пропущен" : c.status === "RINGING" ? "звонит" : c.status === "ACTIVE" ? "идёт" : c.status === "HELD" ? "на удержании" : "завершён";
         const until = c.endedAt ? Date.parse(c.endedAt) : now;
         const waited = c.holds.length && until ? heldSeconds(c.holds, until) : 0;
+        const back = c.status === "MISSED" || c.status === "ENDED" ? redialNumber(c) : null;
         return (
           <div key={c.id} className="border-b border-arm-dark/10">
-            <button onClick={() => setExpanded(expanded === c.id ? null : c.id)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-arm-panel">
-              <span className={c.incoming ? "text-green-700" : "text-arm-blue"} title={c.incoming ? "Входящий" : "Исходящий"}>
-                {c.incoming ? "↙" : "↗"}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{c.name}</span>
-                <span className="block truncate text-[11px] text-arm-desc">
-                  {KIND_LABEL[c.kind]}
-                  {c.incidentNumber ? ` · карточка ${c.incidentNumber}` : ""}
+            <div className="flex items-center">
+              <button onClick={() => setExpanded(expanded === c.id ? null : c.id)} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left hover:bg-arm-panel">
+                <span className={c.incoming ? "text-green-700" : "text-arm-blue"} title={c.incoming ? "Входящий" : "Исходящий"}>
+                  {c.incoming ? "↙" : "↗"}
                 </span>
-              </span>
-              <span className="text-right text-[11px]">
-                <span className="block">{fmtHM(c.startedAt)}</span>
-                <span className={`block ${c.status === "MISSED" ? "font-semibold text-arm-late" : c.status === "HELD" ? "font-semibold text-amber-700" : "text-arm-desc"}`}>
-                  {status}
-                  {duration != null ? ` ${fmtDuration(duration)}` : ""}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{c.name}</span>
+                  <span className="block truncate text-[11px] text-arm-desc">
+                    {KIND_LABEL[c.kind]}
+                    {c.incidentNumber ? ` · карточка ${c.incidentNumber}` : ""}
+                  </span>
                 </span>
-                {waited ? <span className="block text-amber-700">удержание {fmtDuration(waited)}</span> : null}
-              </span>
-            </button>
+                <span className="text-right text-[11px]">
+                  <span className="block">{fmtHM(c.startedAt)}</span>
+                  <span className={`block ${c.status === "MISSED" ? "font-semibold text-arm-late" : c.status === "HELD" ? "font-semibold text-amber-700" : "text-arm-desc"}`}>
+                    {status}
+                    {duration != null ? ` ${fmtDuration(duration)}` : ""}
+                  </span>
+                  {waited ? <span className="block text-amber-700">удержание {fmtDuration(waited)}</span> : null}
+                </span>
+              </button>
+              {back ? (
+                <button
+                  disabled={!props.canDial}
+                  onClick={() => props.onRedial(c, back)}
+                  aria-label={`Перезвонить: ${c.name}`}
+                  title={`Перезвонить: ${c.name}, ${back}`}
+                  className="mr-2 grid h-8 w-8 shrink-0 place-items-center bg-green-600 text-white disabled:opacity-40"
+                >
+                  <Phone className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
             {expanded === c.id && c.messages.length ? (
               <div className="space-y-1 bg-arm-panel px-3 py-2 text-[12px]">
                 {transcript(c).map((item, i) =>

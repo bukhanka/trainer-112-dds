@@ -6,8 +6,8 @@
  *   stages   = the scenario's expected chain (Начало реагирования → Прибытие → … → Работы завершены),
  *              spread over CREW_PACE_SEC from the dispatch.
  *
- * The crew reports every stage it reaches by phone; the dispatcher is expected to set the matching
- * status soon after the report.
+ * The crew reports every stage it reaches by phone; the dispatcher sets the matching status by the report — there is
+ * no time norm for it (customer's answer of 27.09: only 30 s to open the card and 3 min to the first record).
  */
 import type { ServiceStatus } from "@prisma/client";
 import { crewChain, type CrewPlan, type DdsReferenceEntry } from "./scenario";
@@ -27,9 +27,6 @@ export const STAGE_SHARE: Partial<Record<ServiceStatus, number>> = {
   FINISHED: 1,
   REFUSED: 1,
 };
-
-/** A status set later than this after the crew's report counts as late. */
-export const REPORT_REACT_SEC = 60;
 
 export type CrewStep = { status: ServiceStatus; afterSec: number };
 

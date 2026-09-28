@@ -230,9 +230,10 @@ function PhoneField({ label, value, incidentId }: { label: string; value?: strin
         </button>
         <Chat className="h-4 w-4 text-arm-dark/60" />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col bg-arm-panel px-2 py-1">
+      <div className="@container flex min-w-0 flex-1 flex-col bg-arm-panel px-2 py-1" title={value ? `${label}: ${value}` : undefined}>
         <span className="text-[10px] text-arm-desc">{label}</span>
-        <span className="truncate text-[20px] text-arm-desc">{value ?? ""}</span>
+        {/* The whole number is always readable: the font follows the width of the field (the timer of the first record takes room on the strip). */}
+        <span className="truncate text-[length:min(20px,9.5cqw)] leading-snug text-arm-desc tabular-nums">{value ?? ""}</span>
       </div>
     </div>
   );

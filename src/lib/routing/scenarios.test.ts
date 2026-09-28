@@ -1,6 +1,7 @@
 /** Consistency of data/scenarios.json with the classifier, the services and the routing engine. */
 import type { ServiceStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
+import { cardErrorFrom, saysCardErrorRight } from "@/lib/dds/scenario";
 import { allowedNext, CLOSING, rulesFor } from "@/lib/dds/status";
 import { referenceLeaves } from "@/lib/op112/evaluate";
 import { selectServices } from "./engine";
@@ -224,6 +225,23 @@ describe("scenarios from the tickets", () => {
       // Before the answer the norm was «Принята / Не принята» within 30 s.
       const old = [...rules, ...services.flatMap((d) => d.traps)].filter((t) => /Принята».{0,30}30 секунд|ответ за 30/.test(t));
       expect(old, s.ticketRef).toEqual([]);
+    }
+  });
+
+  it("variants with an error in the card: the 112 operator can correct it, the crew's reports do not repeat it", () => {
+    for (const s of readDataJson<Scenario[]>("scenarios-card-errors.json")) {
+      const raw = s.ddsReference as unknown as { cardError: unknown; services: { brigadeReport: string; chain: string[] }[] };
+      const error = cardErrorFrom(raw)!;
+      expect(error, s.ticketRef).toBeDefined();
+      expect(error.fix, s.ticketRef).not.toBeNull(); // «Изменено оператором 112» changes the card, not only its journal
+      // The crew that went there reports what it found: its final report never says what the card got wrong.
+      for (const d of raw.services.filter((x) => x.chain.includes("ARRIVED"))) {
+        expect(d.brigadeReport.toLowerCase(), `${s.ticketRef}: ${d.brigadeReport}`).not.toContain(error.inCard.toLowerCase());
+      }
+      // The right information is read however it is written: «5-м подъезде», «пятом подъезде», «подъезд № 5».
+      if (error.what === "подъезд") for (const t of ["в 5-м подъезде", "в пятом подъезде", "подъезд № 5", "5 подъезд"]) expect(saysCardErrorRight(t, error), t).toBe(true);
+      if (error.what === "корпус") for (const t of ["в 5-м корпусе", "в пятом корпусе", "корп. 5", "корпус 5"]) expect(saysCardErrorRight(t, error), t).toBe(true);
+      expect(saysCardErrorRight(error.inCard, error), `${s.ticketRef}: the card's own words`).toBe(false);
     }
   });
 

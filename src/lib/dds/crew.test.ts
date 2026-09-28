@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { crewPlanFor, crewSchedule, dispatchOf, stageAt } from "./crew";
-import { callerMockReply, crewMockReply, crewRoster, mentionsCardNumber, operatorMockReply, reportLine, type CrewContext } from "./personas";
-import { referenceFor, saysCardErrorRight } from "./scenario";
+import {
+  callerMockReply,
+  claimsCardChange,
+  crewGreeting,
+  crewMockReply,
+  crewPrompt,
+  crewRoster,
+  mentionsCardError,
+  mentionsCardNumber,
+  operatorMockReply,
+  operatorPrompt,
+  owesCardError,
+  reportLine,
+  type CrewContext,
+} from "./personas";
+import { cardErrorFrom, referenceFor, saysCardErrorRight } from "./scenario";
 
 const at = (sec: number) => new Date(Date.UTC(2026, 8, 17, 8, 0, sec));
 
@@ -95,6 +109,9 @@ describe("personas", () => {
     expect(mentionsCardNumber("по карточке 36815003", 36815003)).toBe(true);
     expect(mentionsCardNumber("по карточке 15003", 36815003)).toBe(true);
     expect(mentionsCardNumber("дом 20, подъезд 1", 36815003)).toBe(false);
+    expect(mentionsCardNumber("по карточке 36 815 003", 36815003)).toBe(true); // as speech recognition writes it
+    expect(mentionsCardNumber("карточка 36-815-003, подъезд 5", 36815003)).toBe(true);
+    expect(mentionsCardNumber("телефон +7 916 126 34 71", 36815003)).toBe(false);
     expect(callerMockReply(c, "Карточка 36815003, что у вас?", 2)).toContain("номер");
     expect(callerMockReply(c, "А шум в трубе давно?", 4)).toBe("Шум в трубе слышен уже час.");
     expect(callerMockReply(c, "Добрый день", 1)).toContain("Да, звонила.");
@@ -102,12 +119,87 @@ describe("personas", () => {
 });
 
 describe("an error in the card on the phone", () => {
-  it("the crew tells it on arrival, the 112 operator takes the correction", () => {
-    const ctx: CrewContext = { crew: "23", leader: "Громов Сергей Иванович", title: "Аварийная бригада", address: "ул. Цюрупы, д. 12", what: "", plan: { cardError: "горит в корпусе 5" }, dispatched: true, stage: "ARRIVED" };
+  const ctx: CrewContext = {
+    crew: "23",
+    leader: "Громов Сергей Иванович",
+    title: "Аварийная бригада",
+    address: "ул. Цюрупы, д. 12, корп. 6",
+    what: "Горит окно",
+    plan: { cardError: "горит в корпусе 5", cardErrorSay: ["корп\\S*\\s*№?\\s*5(?!\\d)"], result: "пожар ликвидирован" },
+    dispatched: true,
+    stage: "ARRIVED",
+  };
+
+  it("the crew tells it on arrival, the 112 operator asks for the card number and the right information", () => {
     expect(reportLine("ARRIVED", ctx)).toMatch(/в карточке ошибка — горит в корпусе 5/);
+    expect(reportLine("ARRIVED", { ...ctx, errorTold: true })).toMatch(/в карточке ошибка/); // the arrival report always carries it
     expect(reportLine("ARRIVED", { ...ctx, plan: {} })).toMatch(/Осматриваемся/);
-    expect(operatorMockReply("В карточке ошибка, корпус не шестой", 1)).toMatch(/номер карточки/);
-    expect(operatorMockReply("Карточка 36815070 — ошибка, горит корпус 5", 1)).toMatch(/исправлю карточку/);
+    expect(operatorMockReply("В карточке ошибка, корпус не шестой", 1, { kind: "needNumber" })).toMatch(/номер карточки/);
+    expect(operatorMockReply("Карточка 36815070 — ошибка", 1, { kind: "needInfo", card: 36815070 })).toMatch(/Что в ней указать верно/);
+  });
+
+  it("a later report carries the error while the dispatcher has not heard one from the site (the arrival call was missed)", () => {
+    const finished = { ...ctx, stage: "FINISHED" as const };
+    expect(reportLine("FINISHED", finished)).toMatch(/Пожар ликвидирован\. Внимание, диспетчер: в карточке ошибка — горит в корпусе 5\. Возвращаемся на базу/);
+    expect(reportLine("FINISHED", { ...finished, errorTold: true })).not.toMatch(/ошибка/);
+    // corrected by 112: the card says what the crew sees
+    expect(reportLine("FINISHED", { ...finished, errorFixed: true })).not.toMatch(/ошибка/);
+    expect(reportLine("ARRIVED", { ...ctx, errorFixed: true })).toMatch(/Осматриваемся/);
+    expect(owesCardError(finished)).toBe(true);
+    expect(owesCardError({ ...finished, errorTold: true })).toBe(false);
+    expect(owesCardError({ ...ctx, stage: "STARTED" })).toBe(false); // on the way the crew does not know it yet
+  });
+
+  it("a call back after a missed report: the leader reports at once, the card error included", () => {
+    const working = { ...ctx, stage: "WORKING" as const, plan: { ...ctx.plan, work: "тушим" } };
+    expect(crewGreeting(working, true)).toMatch(/^Наряд 23, Громов, слушаю\. Докладываю: приступили к работам — тушим\. Внимание, диспетчер: в карточке ошибка — горит в корпусе 5\.$/);
+    expect(crewGreeting(working)).toBe("Наряд 23, Громов, слушаю.");
+    expect(crewGreeting({ ...working, dispatched: false, stage: null }, true)).toMatch(/Мы на базе/);
+  });
+
+  it("on site the crew answers about the address as it is there, not as the card says", () => {
+    const told = { ...ctx, stage: "FINISHED" as const, errorTold: true };
+    for (const q of ["Адрес в карточке совпал? Подъезд верный?", "Корпус правильный?", "Всё верно по адресу?"]) {
+      const reply = crewMockReply(told, q, 2);
+      expect(reply.text, q).toMatch(/в карточке ошибка — горит в корпусе 5/);
+      expect(reply.text, q).not.toMatch(/Всё верно/);
+    }
+    expect(crewMockReply({ ...told, errorFixed: true }, "Адрес верный?", 2).text).toBe("Работаем по адресу ул. Цюрупы, д. 12, корп. 6.");
+    expect(crewMockReply({ ...ctx, stage: "STARTED" }, "Когда вернётесь?", 2).text).not.toMatch(/ошибка/);
+    // The model is told the error on site and that it still owes it to the dispatcher.
+    expect(crewPrompt({ ...told, errorTold: false })).toMatch(/в карточке ошибка — горит в корпусе 5.+отвечай так, как на месте[\s\S]+ещё не знает: обязательно скажи/);
+    expect(crewPrompt({ ...ctx, stage: "STARTED" })).not.toMatch(/ошибка/);
+    expect(mentionsCardError("Горит корпус 5, а не шестой", told)).toBe(true);
+    expect(mentionsCardError("Работы закончили", told)).toBe(false);
+  });
+
+  it("speaks of time at the pace of the training crew: no «минут через десять»", () => {
+    const started = { ...ctx, stage: "STARTED" as const, plan: {} };
+    expect(reportLine("STARTED", started)).toMatch(/скоро будем\.$/);
+    expect(reportLine("STARTED", started)).not.toMatch(/минут/);
+    expect(crewMockReply(started, "Когда будете?", 2).text).toBe("Скоро будем — доложу, как прибудем.");
+    expect(crewMockReply({ ...ctx, stage: "WORKING", plan: {} }, "Долго ещё?", 2).text).toBe("Скоро закончим — доложу сразу.");
+    // «Во сколько прибыли?» — by the clock of the place
+    const timed = { ...ctx, stage: "FINISHED" as const, plan: {}, timeline: "выехали в 08:12, прибыли в 08:13, закончили в 08:14" };
+    expect(crewMockReply(timed, "Во сколько прибыли на место?", 2).text).toBe("По часам: выехали в 08:12, прибыли в 08:13, закончили в 08:14.");
+    expect(crewPrompt(timed)).toMatch(/Время этапов по часам: выехали в 08:12/);
+    expect(crewPrompt(timed)).toMatch(/Сроки не называй в минутах/);
+  });
+
+  it("the 112 operator says the card is corrected only when it has been", () => {
+    const fixed = operatorMockReply("Карточка 36815070, горит корпус 5", 2, { kind: "fixed", card: 36815070, label: "корпус 5" });
+    expect(fixed).toMatch(/В карточке 36815070 исправил: корпус 5/);
+    expect(operatorMockReply("…", 3, { kind: "already", card: 36815070, label: "корпус 5" })).toMatch(/уже внесено: корпус 5/);
+    for (const state of [{ kind: "none" as const, card: 36815070 }, { kind: "needNumber" as const }, { kind: "needInfo" as const, card: 36815070 }]) {
+      const line = operatorMockReply("Карточка 36815070, улица Цюрупы, дом 12: обстановка изменилась", 2, state);
+      expect(claimsCardChange(line), `${state.kind}: ${line}`).toBe(false);
+      expect(operatorPrompt("Служба 101", state)).toMatch(/не говори, что исправил/i);
+    }
+    expect(operatorPrompt("Служба 101", { kind: "fixed", card: 36815070, label: "корпус 5" })).toMatch(/Ты только что исправил карточку 36815070: корпус 5/);
+    // the jury heard «данные обновил, службы переоповестил» while the card still said «под. 3»
+    expect(claimsCardChange("Принято, данные обновил, службы переоповестил. Всего доброго.")).toBe(true);
+    expect(claimsCardChange("Карточка исправлена")).toBe(true);
+    expect(claimsCardChange("Принял, исправлю и оповещу службы")).toBe(false);
   });
 
   it("the reference carries the error to every service and reads the right information", () => {
@@ -118,7 +210,20 @@ describe("an error in the card on the phone", () => {
     const ref = referenceFor(raw, { id: 1, shortName: "Служба 101" })!;
     expect(ref.cardError?.mustSay).toHaveLength(1); // a broken pattern is left out
     expect(ref.crew.cardError).toBe("горит в корпусе 5");
+    expect(ref.crew.cardErrorSay).toEqual(ref.cardError?.mustSay);
     expect(saysCardErrorRight("горит корпус 5", ref.cardError!)).toBe(true);
     expect(saysCardErrorRight("горит корпус 56", ref.cardError!)).toBe(false);
+    // Without `fix` the usual errors are read from their words: the part of the address and its right number, victims.
+    expect(ref.cardError?.fix).toEqual({ address: { building: "5" }, flags: {} });
+    const error = (v: Record<string, unknown>) => cardErrorFrom({ cardError: { report: "…", ...v } })!;
+    expect(error({ what: "подъезд", onSite: "подъезд 5 (в третьем чисто)" }).fix).toEqual({ address: { entrance: "5" }, flags: {} });
+    expect(error({ what: "пострадавшие", onSite: "есть пострадавший — мужчина с ожогами рук" }).fix).toEqual({ address: {}, flags: { victims: true } });
+    expect(error({ what: "пострадавшие", onSite: "пострадавших нет" }).fix).toEqual({ address: {}, flags: { victims: false } });
+    expect(error({ what: "запах", onSite: "пахнет у соседей" }).fix).toBeNull();
+    // An explicit fix wins; only known parts and flags are read, null clears a part.
+    expect(error({ what: "подъезд", onSite: "подъезд 5", fix: { address: { entrance: 5, code: null, street: "x" }, flags: { victims: "yes", med: true } } }).fix).toEqual({
+      address: { entrance: "5", code: null },
+      flags: { med: true },
+    });
   });
 });
