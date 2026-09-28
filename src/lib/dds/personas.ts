@@ -185,7 +185,8 @@ const ACK_WORDS = /(принят|понял|поняла|хорошо|спаси
 const CARD_WORDS = /(адрес|подъезд|корпус|дом(?![а-яё]*ой)|пострадав|ошиб|совпа|верн(ый|ая|ое|ые|о)(?![а-яё])|правильн)/i;
 /** «Во сколько прибыли?» — a stage already behind: the crew tells the time by the clock. */
 const PAST_TIME = /(во сколько|в какое время|время (прибыт|выезд|начал|оконч|заверш)|когда (прибыл|выехал|начал|закончил))/i;
-const TIME_WORDS = /(сколько|когда|долго|время|скоро)/i;
+/** «Когда будете?», «Долго ещё?» — not «Сколько пострадавших?». */
+const TIME_WORDS = /(сколько (ещё|еще|времени|минут|нужно|надо)|когда|долго|время|скоро)/i;
 
 /** The dispatcher sends a free crew to the card in words («выезжайте на…»). */
 export function isDispatchOrder(text: string): boolean {
@@ -219,7 +220,7 @@ export function crewMockReply(ctx: CrewContext, said: string, turn: number): Cre
   if (ACK_WORDS.test(said) && !said.includes("?")) return { text: "Понял. Будут изменения — доложу.", reported: null, dispatch: false };
   if (PAST_TIME.test(said) && ctx.timeline) return { text: `По часам: ${ctx.timeline}.`, reported: null, dispatch: false };
   // «Адрес в карточке совпал?» — on site the crew answers as it is there, not as the card says.
-  if (CARD_WORDS.test(said) && knowsCardError(ctx)) return { text: `Нет. ${cardErrorLine(ctx)}`, reported: ctx.stage, dispatch: false };
+  if (CARD_WORDS.test(said) && knowsCardError(ctx)) return { text: `По карточке — ${ctx.address}. ${cardErrorLine(ctx)}`, reported: ctx.stage, dispatch: false };
   if (turn === 1 || PROGRESS_WORDS.test(said)) return { text: reportLine(ctx.stage, ctx), reported: ctx.stage ?? "DISPATCHED", dispatch: false };
   if (/адрес/i.test(said)) return { text: `Работаем по адресу ${ctx.address}.`, reported: null, dispatch: false };
   if (TIME_WORDS.test(said)) return { text: timeAnswer(ctx), reported: null, dispatch: false };

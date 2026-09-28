@@ -179,6 +179,8 @@ describe("an error in the card on the phone", () => {
     expect(reportLine("STARTED", started)).not.toMatch(/минут/);
     expect(crewMockReply(started, "Когда будете?", 2).text).toBe("Скоро будем — доложу, как прибудем.");
     expect(crewMockReply({ ...ctx, stage: "WORKING", plan: {} }, "Долго ещё?", 2).text).toBe("Скоро закончим — доложу сразу.");
+    expect(crewMockReply({ ...ctx, stage: "WORKING", plan: {} }, "Сколько ещё ждать?", 2).text).toBe("Скоро закончим — доложу сразу.");
+    expect(crewMockReply({ ...ctx, stage: "WORKING", plan: {} }, "Сколько пострадавших?", 2).text).not.toMatch(/Скоро/);
     // «Во сколько прибыли?» — by the clock of the place
     const timed = { ...ctx, stage: "FINISHED" as const, plan: {}, timeline: "выехали в 08:12, прибыли в 08:13, закончили в 08:14" };
     expect(crewMockReply(timed, "Во сколько прибыли на место?", 2).text).toBe("По часам: выехали в 08:12, прибыли в 08:13, закончили в 08:14.");
