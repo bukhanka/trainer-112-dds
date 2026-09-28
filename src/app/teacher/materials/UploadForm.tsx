@@ -82,13 +82,11 @@ export function UploadForm({ lessons, maxMb, accept, kinds }: { lessons: LessonO
       <div className="grid gap-3 md:grid-cols-2">
         <label className="flex flex-col gap-1">
           Файл
-          <input
-            type="file"
-            accept={accept}
-            required
-            onChange={(e) => pick(e.currentTarget.files?.[0] ?? null)}
-            className="block w-full text-sm file:mr-3 file:h-10 file:rounded file:border file:border-arm-gray file:bg-white file:px-3 file:text-sm file:font-medium hover:file:bg-arm-panel"
-          />
+          <span className="flex flex-wrap items-center gap-2">
+            <input type="file" accept={accept} onChange={(e) => pick(e.currentTarget.files?.[0] ?? null)} className="peer sr-only" />
+            <span className={`${buttonClass("secondary")} cursor-pointer peer-focus-visible:ring-2 peer-focus-visible:ring-arm-blue/50`}>Выбрать файл</span>
+            <span className="min-w-0 break-all text-arm-desc">{file ? file.name : "файл не выбран"}</span>
+          </span>
           <span className="text-xs text-arm-desc">
             {kinds}, до {maxMb} МБ
           </span>

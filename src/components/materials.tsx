@@ -24,7 +24,8 @@ export function MaterialCard({ m, children }: { m: MaterialItem; children?: Reac
       <span className={`inline-flex h-10 w-12 shrink-0 items-center justify-center rounded border text-xs font-bold ${style.cls}`} title={m.kindLabel}>
         {style.text}
       </span>
-      <div className="min-w-0 flex-1">
+      {/* The text keeps at least 14rem: on a phone the buttons move under it instead of squeezing it. */}
+      <div className="min-w-0 flex-[1_1_14rem]">
         <div className="break-words font-medium">{m.title}</div>
         <div className="break-words text-xs text-arm-desc">
           {m.fileName} · {m.size} · {m.ownerName}
