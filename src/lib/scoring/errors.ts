@@ -12,11 +12,11 @@ const BY_CODE: Record<string, string> = {
   "dds.first_record_in_time": "Первая запись (статус и текст) позже норматива",
   "dds.card_error_reported": "Об ошибке в карточке не сообщено в 112",
   "dds.card_error_in_comment": "В итогах не исправлена ошибка карточки",
-  // Checks of reviews made before the norms became «open in 30 s, first record in 3 min»
+  // Checks of reviews made before the customer's answer of 27.09 on the norms (statuses have no time norms since)
   "dds.ack_in_time": "Нет ответа «Принята / Не принята» в норматив",
   "dds.crew_in_time": "Наряд не направлен в пределах отработки",
-  "dds.crew_calls_answered": "Пропущены звонки наряда",
   "dds.status_after_report": "Статус не поставлен сразу после доклада наряда",
+  "dds.crew_calls_answered": "Пропущены звонки наряда",
   "dds.refusal_reason": "В «Не принята» / «Отказ» не указана причина",
   "dds.transfer_named": "Не указано, кому передана информация",
   "dds.final_comment": "Итоговый комментарий без итогов работ",

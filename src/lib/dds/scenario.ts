@@ -212,14 +212,29 @@ export type CrewPlan = {
   result?: string; // summary for «Работы завершены» (the reference's brigadeReport)
   refuse?: string; // why the right closing is «Отказ от выполнения работ»
   cardError?: string; // what the crew finds on arrival that differs from the card
+  cardErrorSay?: string[]; // patterns of the right information (CardError.mustSay): did the crew's words carry it
+};
+
+/** Address parts and flags the 112 operator corrects on the dispatcher's call. */
+const FIX_ADDRESS = ["house", "building", "structure", "entrance", "floor", "flat", "code"] as const;
+const FIX_FLAGS = ["victims", "refusedAmbulance", "noAccess", "threat", "med"] as const;
+
+/**
+ * What the 112 operator changes in the card when the dispatcher reports the error: address parts (null clears the
+ * part — the intercom code of the wrong entrance) and flags.
+ */
+export type CardFix = {
+  address: Partial<Record<(typeof FIX_ADDRESS)[number], string | null>>;
+  flags: Partial<Record<(typeof FIX_FLAGS)[number], boolean>>;
 };
 
 /**
  * An error in the card the 112 operator saved (customer's answer of 27.09): the crew finds it on arrival and
  * tells the dispatcher, who does not edit the 112 fields but phones 112 with the card number and the right
- * information. `mustSay` — patterns of the right information (regular expressions, any one will do).
+ * information. `mustSay` — patterns of the right information (regular expressions, any one will do); `fix` — what
+ * the 112 operator corrects in the card on that call (null: only a line in the card's journal).
  */
-export type CardError = { what: string; inCard: string; onSite: string; report: string; mustSay: string[] };
+export type CardError = { what: string; inCard: string; onSite: string; report: string; mustSay: string[]; fix: CardFix | null };
 
 export type DdsContact = { name: string; phone: string };
 
@@ -241,7 +256,44 @@ export type DdsReferenceEntry = {
   cardError?: CardError;
 };
 
-function cardErrorOf(raw: unknown): CardError | undefined {
+function fixOf(raw: unknown): CardFix | null {
+  if (!isObj(raw)) return null;
+  const fix: CardFix = { address: {}, flags: {} };
+  const address = isObj(raw.address) ? raw.address : {};
+  for (const key of FIX_ADDRESS) {
+    const v = address[key];
+    if (v === null) fix.address[key] = null;
+    else if ((typeof v === "string" && v.trim()) || typeof v === "number") fix.address[key] = String(v).trim();
+  }
+  const flags = isObj(raw.flags) ? raw.flags : {};
+  for (const key of FIX_FLAGS) if (typeof flags[key] === "boolean") fix.flags[key] = flags[key] as boolean;
+  return Object.keys(fix.address).length || Object.keys(fix.flags).length ? fix : null;
+}
+
+/** A reference written without `fix`: the usual errors — a wrong part of the address, victims — read from its words. */
+function derivedFix(what: string, onSite: string): CardFix | null {
+  const w = what.toLowerCase();
+  const part = /подъезд/.test(w)
+    ? "entrance"
+    : /корпус/.test(w)
+      ? "building"
+      : /строени/.test(w)
+        ? "structure"
+        : /этаж/.test(w)
+          ? "floor"
+          : /квартир/.test(w)
+            ? "flat"
+            : /дом/.test(w)
+              ? "house"
+              : null;
+  const value = /\d+[а-яё]?/i.exec(onSite)?.[0];
+  if (part && value) return { address: { [part]: value }, flags: {} };
+  if (/пострадав/.test(w)) return { address: {}, flags: { victims: !/^\s*(пострадавших\s+)?нет(?![а-яё])/i.test(onSite) } };
+  return null;
+}
+
+/** The card error of a scenario's ДДС reference, or undefined when the scenario plays none. */
+export function cardErrorFrom(raw: unknown): CardError | undefined {
   const v = isObj(raw) && isObj(raw.cardError) ? raw.cardError : null;
   if (!v || !str(v.report) || !str(v.onSite)) return undefined;
   const mustSay = strList(v.mustSay).filter((src) => {
@@ -252,7 +304,9 @@ function cardErrorOf(raw: unknown): CardError | undefined {
       return false;
     }
   });
-  return { what: str(v.what) ?? "сведения", inCard: str(v.inCard) ?? "", onSite: str(v.onSite)!, report: str(v.report)!, mustSay };
+  const what = str(v.what) ?? "сведения";
+  const onSite = str(v.onSite)!;
+  return { what, inCard: str(v.inCard) ?? "", onSite, report: str(v.report)!, mustSay, fix: fixOf(v.fix) ?? derivedFix(what, onSite) };
 }
 
 /**
@@ -260,7 +314,7 @@ function cardErrorOf(raw: unknown): CardError | undefined {
  * lives only in that card: for a 112 operator it is the same call as its ticket, so the 112 places never get it.
  */
 export function hasCardError(raw: unknown): boolean {
-  return cardErrorOf(raw) !== undefined;
+  return cardErrorFrom(raw) !== undefined;
 }
 
 /** The right information of a card error is said in this text. */
@@ -336,8 +390,8 @@ function openEntry(why: string): DdsReferenceEntry {
  */
 export function referenceFor(raw: unknown, service: { id: number; shortName: string }): DdsReferenceEntry | null {
   const entry = ownReference(raw, service) ?? (territorialLevel(service.shortName) ? openEntry(NO_ENTRY_FOR_LEVEL) : null);
-  const cardError = cardErrorOf(raw);
-  return entry && cardError ? { ...entry, cardError, crew: { ...entry.crew, cardError: cardError.report } } : entry;
+  const cardError = cardErrorFrom(raw);
+  return entry && cardError ? { ...entry, cardError, crew: { ...entry.crew, cardError: cardError.report, cardErrorSay: cardError.mustSay } } : entry;
 }
 
 /** Whether the reference has its own entry for the place: by service, by its territorial level, or a default one. */

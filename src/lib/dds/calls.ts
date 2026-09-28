@@ -12,33 +12,41 @@ import { db } from "@/lib/db";
 import { sayable } from "@/lib/speech/sayable";
 import type { CallerPersona, IncidentAddress, IncidentCaller } from "@/lib/incident/types";
 import type { LessonSettings } from "@/lib/lessons/settings";
+import { cardErrorFixed, correctedCard, fixLabel } from "./card-fix";
 import { CREW_PACE_SEC, crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
-import { addressShort } from "./format";
+import { addressShort, BOOK_112_GROUP, fmtHM } from "./format";
 import { endHold, openHold, readHolds, resumeLine, startHold, type HoldPeriod } from "./hold";
 import {
+  atSite,
   callerGreeting,
   callerMockReply,
   callerPrompt,
+  cardErrorLine,
+  claimsCardChange,
   crewByNumber,
   crewGreeting,
   crewMockReply,
   crewNumberOf,
   crewPrompt,
   crewRoster,
+  mentionsCardError,
   mentionsCardNumber,
   OPERATOR_112,
   operatorGreeting,
   operatorMockReply,
   operatorPrompt,
+  owesCardError,
   reportLine,
+  reportsCardError,
   serviceGreeting,
   serviceMockReply,
   servicePhone,
   servicePrompt,
   type CrewContext,
   type CrewMember,
+  type OperatorState,
 } from "./personas";
-import { personaOf, referenceFor } from "./scenario";
+import { cardErrorFrom, personaOf, referenceFor, saysCardErrorRight, type CardError } from "./scenario";
 import { seatFeedWhere, settingsOf } from "./scope";
 import type { DdsSeat } from "./seat";
 import { DDS_TX as TX, isBusyError, SERVER_BUSY } from "./tx";
@@ -99,20 +107,45 @@ function phoneDispatches(calls: Pick<Call, "counterpart">[], incidentId: string)
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
 }
 
-type CrewState = { dispatch: Dispatch | null; stage: ServiceStatus | null; ctxFor: (member: CrewMember) => CrewContext };
+type CrewState = {
+  dispatch: Dispatch | null;
+  stage: ServiceStatus | null;
+  /** Stages the dispatcher has heard from the crew on this card (answered reports, calls to the crew). */
+  heard: Set<ServiceStatus | "DISPATCHED">;
+  ctxFor: (member: CrewMember) => CrewContext;
+};
+
+const STAGE_DONE: Partial<Record<ServiceStatus, string>> = {
+  STARTED: "выехали",
+  ARRIVED: "прибыли",
+  WORKING: "начали работы",
+  FINISHED: "закончили",
+  REFUSED: "закончили",
+};
 
 function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "counterpart">[], settings: LessonSettings, now: Date): CrewState {
   const own = incident.services.find((p) => p.serviceId === seat.serviceId);
   const dispatch = own ? dispatchOf(own.events, phoneDispatches(calls, incident.id)) : null;
   const ref = seat.service ? referenceFor(incident.scenario?.ddsReference, seat.service) : null;
   const { chain, plan } = crewPlanFor(ref);
-  let stage = dispatch ? stageAt(crewSchedule(chain, CREW_PACE_SEC), (now.getTime() - dispatch.at.getTime()) / 1000) : null;
+  const schedule = crewSchedule(chain, CREW_PACE_SEC);
+  const elapsed = dispatch ? (now.getTime() - dispatch.at.getTime()) / 1000 : 0;
+  let stage = dispatch ? stageAt(schedule, elapsed) : null;
   // Once the dispatcher closed the plate the crew is done as well.
   if (dispatch && own && (own.status === "FINISHED" || own.status === "REFUSED")) stage = own.status;
   const address = addressShort(incident.address as IncidentAddress | null);
+  const heard = new Set(calls.flatMap((c) => (cp(c).reports ?? []).map((r) => r.status)));
+  // «Во сколько прибыли?»: the moments of the stages already behind, by the clock of the place.
+  const timeline = dispatch
+    ? schedule
+        .filter((s) => s.afterSec <= elapsed && STAGE_DONE[s.status])
+        .map((s) => `${STAGE_DONE[s.status]} в ${fmtHM(new Date(dispatch.at.getTime() + s.afterSec * 1000))}`)
+        .join(", ")
+    : "";
   return {
     dispatch,
     stage,
+    heard,
     ctxFor: (member) => ({
       crew: member.crew,
       leader: member.leader,
@@ -122,6 +155,9 @@ function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "c
       plan,
       dispatched: dispatch?.crew === member.crew,
       stage: dispatch?.crew === member.crew ? stage : null,
+      errorTold: [...heard].some((s) => atSite(s)),
+      errorFixed: cardErrorFixed(incident.descriptionLog),
+      timeline: dispatch?.crew === member.crew ? timeline : "",
     }),
   };
 }
@@ -219,6 +255,8 @@ export type CallBrief = {
   name: string;
   role: string;
   phone: string | null;
+  /** Crew number of a crew call: the journal calls the crew back by it when the crew has no phone in the book. */
+  crew: string | null;
   /** Voice of the counterpart for speech synthesis. */
   voice: "male" | "female";
   /** Speaking manner: a crew leader reports briskly, the applicant keeps the persona's temper. */
@@ -254,7 +292,8 @@ function brief(call: Call & { incident: { number: number } | null }): CallBrief 
     incidentNumber: call.incident?.number ?? null,
     name: c.name ?? "",
     role: c.role ?? "",
-    phone: c.phone ?? null,
+    phone: c.phone || null,
+    crew: c.kind === "crew" ? (c.crew ?? null) : null,
     voice: c.voice ?? (c.kind === "crew" ? "male" : "female"),
     manner: c.kind === "crew" ? "brigade" : (c.temper ?? "calm"),
     startedAt: call.startedAt.toISOString(),
@@ -284,7 +323,10 @@ export async function phoneState(seat: DdsSeat): Promise<PhoneState> {
   };
 }
 
-/** The place's phone book: its crews, and for every open card the applicant, the other services and contacts. */
+/** The book entry of the 112 operator: the memo's call when the card has an error or the situation changed. */
+export const BOOK_112: BookEntry = { group: BOOK_112_GROUP, name: OPERATOR_112, role: "оператор: ошибка в карточке, изменилась обстановка", phone: "112" };
+
+/** The place's phone book: its crews, the 112 operator, and for every open card the applicant, the other services and contacts. */
 export async function phoneBook(seat: DdsSeat): Promise<BookEntry[]> {
   const entries: BookEntry[] = [];
   if (seat.service) {
@@ -292,6 +334,7 @@ export async function phoneBook(seat: DdsSeat): Promise<BookEntry[]> {
       entries.push({ group: `Наряды: ${seat.service.shortName}`, name: `Наряд ${c.crew} — ${c.title}`, role: `старший ${c.leader}`, phone: c.phone });
     }
   }
+  entries.push(BOOK_112);
   if (!seat.serviceId) return entries;
   const recent = new Date(Date.now() - 30 * 60_000);
   const incidents = await db.incident.findMany({
@@ -396,7 +439,11 @@ async function dialNumber(seat: DdsSeat, number: string, incidentId: string | nu
       return dispatchOf(own.events, phoneDispatches(calls, i.id))?.crew === member.crew && !["FINISHED", "REFUSED"].includes(own.status);
     });
     const where = busyOn ?? context ?? null;
-    const ctx = where ? crewState(seat, where, calls.filter((c) => c.incidentId === where.id), settings, now).ctxFor(member) : null;
+    const state = where ? crewState(seat, where, calls.filter((c) => c.incidentId === where.id), settings, now) : null;
+    const ctx = state?.ctxFor(member) ?? null;
+    // A stage the dispatcher has not heard (the report call was missed): the leader reports it on picking up,
+    // the card error included — as in the report itself.
+    const news = !!ctx?.dispatched && !!ctx.stage && !state!.heard.has(ctx.stage);
     const counterpart: Counterpart = {
       kind: "crew",
       crew: member.crew,
@@ -404,8 +451,9 @@ async function dialNumber(seat: DdsSeat, number: string, incidentId: string | nu
       role: `старший наряда ${member.crew}`,
       phone: member.phone,
       voice: member.voice,
+      ...(news ? { reports: [{ status: ctx!.stage!, at: now.toISOString() }] } : {}),
     };
-    const greeting = ctx ? crewGreeting(ctx) : `Наряд ${member.crew}, ${member.leader.split(" ")[0]}. Мы на базе, свободны. Куда выезжать?`;
+    const greeting = ctx ? crewGreeting(ctx, news) : `Наряд ${member.crew}, ${member.leader.split(" ")[0]}. Мы на базе, свободны. Куда выезжать?`;
     return startCall(seat, "BRIGADE_OUT", where?.id ?? null, counterpart, greeting, now);
   }
 
@@ -514,6 +562,43 @@ async function answerCall(seat: DdsSeat, callId: string, now: Date): Promise<Cal
 
 const ON_HOLD = "Разговор на удержании — сначала снимите его с удержания";
 
+/**
+ * The dispatcher's call to 112 about a card of the place (customer's answer of 27.09). When the words so far name a
+ * card with an error in it — by its number — and the right information, the operator corrects the card: the fields of
+ * the fix and a line «Изменено оператором 112» in its journal (card-fix.ts). The operator's words follow the result.
+ */
+async function operatorTurn(seat: DdsSeat, said: string, now: Date): Promise<OperatorState> {
+  const named = (await feedIncidents(seat)).filter((i) => mentionsCardNumber(said, i.number));
+  const withError = named.map((i) => ({ incident: i, error: cardErrorFrom(i.scenario?.ddsReference) })).filter((x): x is { incident: CallIncident; error: CardError } => !!x.error);
+  const told = withError.find((x) => saysCardErrorRight(said, x.error));
+  if (told) {
+    const { incident, error } = told;
+    const label = fixLabel(error);
+    if (cardErrorFixed(incident.descriptionLog)) return { kind: "already", card: incident.number, label };
+    const fixed = await db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-card-fix:${incident.id}`}))`;
+      const fresh = await tx.incident.findUnique({ where: { id: incident.id }, select: { address: true, flags: true, descriptionLog: true } });
+      if (!fresh || cardErrorFixed(fresh.descriptionLog)) return false;
+      const next = correctedCard(fresh, error, seat.service?.shortName ?? "ДДС", now);
+      await tx.incident.update({
+        where: { id: incident.id },
+        data: {
+          address: next.address as Prisma.InputJsonValue,
+          flags: next.flags as Prisma.InputJsonValue,
+          descriptionLog: next.descriptionLog as Prisma.InputJsonValue,
+        },
+      });
+      return true;
+    }, TX);
+    return { kind: fixed ? "fixed" : "already", card: incident.number, label };
+  }
+  if (reportsCardError(said)) {
+    if (withError.length) return { kind: "needInfo", card: withError[0].incident.number };
+    if (!named.length) return { kind: "needNumber" };
+  }
+  return { kind: "none", card: named[0]?.number ?? null };
+}
+
 /** Say a line in the current call and get the answer (model, or the offline lines). */
 async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): Promise<CallResult> {
   const call = await ownCall(seat, callId);
@@ -530,6 +615,8 @@ async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): 
 
   let prompt: string;
   let fallback: string;
+  /** Checks the model's line against the facts: a line that breaks them is replaced or completed. */
+  let settle = (text: string) => text;
   if (c.kind === "crew" && seat.service) {
     const member = crewByNumber(seat.service, c.crew ?? "");
     const calls = incident ? await db.call.findMany({ where: { seatId: seat.id, incidentId: incident.id, kind: { in: ["BRIGADE_IN", "BRIGADE_OUT"] } } }) : [];
@@ -548,12 +635,20 @@ async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): 
     // A free crew sent to a card by phone starts its trip now (only one crew per card).
     if (reply.dispatch && incident && !state?.dispatch) c.dispatch = { incidentId: incident.id, at: now.toISOString() };
     if (reply.dispatch && !incident) reply.text = "Назовите адрес и что случилось — без этого не выедем.";
-    if (reply.reported) c.reports = [...(c.reports ?? []), { status: reply.reported, at: now.toISOString() }];
+    // The crew on site still owes the dispatcher the error in the card: this line carries it, whatever the model
+    // says, and counts as a report from the site.
+    const owes = owesCardError(ctx);
+    const reported = reply.reported ?? (owes ? ctx.stage : null);
+    if (reported) c.reports = [...(c.reports ?? []), { status: reported, at: now.toISOString() }];
     prompt = crewPrompt(ctx);
     fallback = reply.text;
+    if (owes) settle = (text) => (mentionsCardError(text, ctx) ? text : `${text.replace(/\s+$/, "")} ${cardErrorLine(ctx)}`);
   } else if (c.kind === "operator112") {
-    prompt = operatorPrompt(seat.service?.shortName ?? "");
-    fallback = operatorMockReply(line, turn);
+    const state = await operatorTurn(seat, [...history.filter((m) => m.role === "trainee").map((m) => m.text), line].join(" "), now);
+    prompt = operatorPrompt(seat.service?.shortName ?? "", state);
+    fallback = operatorMockReply(line, turn, state);
+    // The operator claims a correction only when the card has really been corrected.
+    if (state.kind !== "fixed" && state.kind !== "already") settle = (text) => (claimsCardChange(text) ? fallback : text);
   } else if (c.kind === "caller" && incident) {
     const persona = callerPersona(incident);
     if (mentionsCardNumber(line, incident.number)) c.namedCardNumber = true;
@@ -573,7 +668,7 @@ async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): 
     fallback = serviceMockReply(ctx, line, turn);
   }
 
-  const answerText = await speakAs(prompt, history, line, fallback);
+  const answerText = settle(await speakAs(prompt, history, line, fallback));
   const said: CallMessage[] = [
     { role: "trainee", text: line, at: now.toISOString() },
     // The counterpart's words as they sound: no «ул.», «д.», «03» in speech (src/lib/speech/sayable.ts).

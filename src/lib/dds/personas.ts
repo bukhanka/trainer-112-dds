@@ -97,43 +97,113 @@ export type CrewContext = {
   dispatched: boolean;
   /** The last stage the crew has reached; null right after dispatch. */
   stage: ServiceStatus | null;
+  /** The dispatcher has already heard a report of this crew from the site — the card error was told then. */
+  errorTold?: boolean;
+  /** The 112 operator has already corrected the card: it says what the crew sees on site. */
+  errorFixed?: boolean;
+  /** When the crew reached its stages, by the clock: «выехали в 08:12, прибыли в 08:13». */
+  timeline?: string;
 };
+
+/** Stages the crew spends on site: from there it sees what differs from the card. */
+const AT_SITE: readonly ServiceStatus[] = ["ARRIVED", "WORKING", "FINISHED", "REFUSED"];
+
+export function atSite(stage: ServiceStatus | "DISPATCHED" | null | undefined): boolean {
+  return !!stage && stage !== "DISPATCHED" && AT_SITE.includes(stage);
+}
+
+/** The crew on site knows about the error in the card while the 112 operator has not corrected it. */
+function knowsCardError(ctx: CrewContext): boolean {
+  return !!ctx.plan.cardError && atSite(ctx.stage) && !ctx.errorFixed;
+}
+
+/** The error in the card as the crew says it. */
+export function cardErrorLine(ctx: CrewContext): string {
+  return ctx.plan.cardError ? `Внимание, диспетчер: в карточке ошибка — ${clean(ctx.plan.cardError)}.` : "";
+}
+
+/**
+ * The card error in a report from the site: always on arrival — as in the report the customer described — and in a
+ * later report until the dispatcher has heard one from the site (the arrival call was missed).
+ */
+function errorNote(stage: ServiceStatus | null, ctx: CrewContext): string {
+  if (!ctx.plan.cardError || !atSite(stage) || ctx.errorFixed) return "";
+  return stage === "ARRIVED" || !ctx.errorTold ? ` ${cardErrorLine(ctx)}` : "";
+}
+
+/** What the crew has to tell about a stage, without the name of the crew. */
+function stageNews(stage: ServiceStatus | null, ctx: CrewContext): string {
+  switch (stage) {
+    case "STARTED":
+      // The training crew is fast: minutes would not match its pace (crew.ts), so no «минут через десять».
+      return `выехали на ${ctx.address}, скоро будем.`;
+    case "ARRIVED":
+      return `прибыли на место, ${ctx.address}.${errorNote(stage, ctx) || " Осматриваемся."}`;
+    case "WORKING":
+      return `приступили к работам — ${clean(ctx.plan.work ?? "работаем на месте")}.${errorNote(stage, ctx)}`;
+    case "FINISHED":
+      return `работы закончили. ${cap(clean(ctx.plan.result ?? "всё устранили"))}.${errorNote(stage, ctx)} Возвращаемся на базу.`;
+    case "REFUSED":
+      return `на месте выяснили — ${clean(ctx.plan.refuse ?? "работы не по нашей части")}. Работы проводить не будем.${errorNote(stage, ctx)}`;
+    default:
+      return `вызов приняли, собираемся, скоро выезжаем на ${ctx.address}.`;
+  }
+}
 
 /** What the leader says about a stage — these lines are the «доклады» the dispatcher turns into statuses. */
 export function reportLine(stage: ServiceStatus | null, ctx: CrewContext): string {
   const who = `наряд ${ctx.crew}`;
   switch (stage) {
     case "STARTED":
-      return `Диспетчер, ${who}, ${surname(ctx.leader)}. Выехали на ${ctx.address}, будем минут через десять.`;
+      return `Диспетчер, ${who}, ${surname(ctx.leader)}. ${cap(stageNews(stage, ctx))}`;
     case "ARRIVED":
       // A card error shows on arrival: the crew tells the dispatcher what differs from the card.
-      return ctx.plan.cardError
-        ? `${cap(who)} прибыл на место, ${ctx.address}. Внимание, диспетчер: в карточке ошибка — ${clean(ctx.plan.cardError)}.`
-        : `${cap(who)} прибыл на место, ${ctx.address}. Осматриваемся.`;
+      return `${cap(who)} прибыл на место, ${ctx.address}.${errorNote(stage, ctx) || " Осматриваемся."}`;
     case "WORKING":
-      return `${cap(who)}: приступили к работам — ${clean(ctx.plan.work ?? "работаем на месте")}.`;
     case "FINISHED":
-      return `${cap(who)}: работы закончили. ${cap(clean(ctx.plan.result ?? "всё устранили"))}. Возвращаемся на базу.`;
     case "REFUSED":
-      return `${cap(who)}: на месте выяснили — ${clean(ctx.plan.refuse ?? "работы не по нашей части")}. Работы проводить не будем.`;
+      return `${cap(who)}: ${stageNews(stage, ctx)}`;
     default:
-      return `${cap(who)}, ${surname(ctx.leader)}. Вызов приняли, собираемся, скоро выезжаем на ${ctx.address}.`;
+      return `${cap(who)}, ${surname(ctx.leader)}. ${cap(stageNews(null, ctx))}`;
   }
 }
 
-export function crewGreeting(ctx: CrewContext): string {
-  return ctx.dispatched
-    ? `${cap(`наряд ${ctx.crew}`)}, ${surname(ctx.leader)}, слушаю.`
-    : `${cap(`наряд ${ctx.crew}`)}, ${surname(ctx.leader)}. Мы на базе, свободны. Куда выезжать?`;
+/**
+ * The leader picks up the dispatcher's call. With `news` — a stage the dispatcher has not heard yet (the report
+ * call was missed) — the leader reports it at once, the card error included, as in the report itself.
+ */
+export function crewGreeting(ctx: CrewContext, news = false): string {
+  const hello = `${cap(`наряд ${ctx.crew}`)}, ${surname(ctx.leader)}`;
+  if (!ctx.dispatched) return `${hello}. Мы на базе, свободны. Куда выезжать?`;
+  return news && ctx.stage ? `${hello}, слушаю. Докладываю: ${stageNews(ctx.stage, ctx)}` : `${hello}, слушаю.`;
 }
 
 const DISPATCH_WORDS = /(выезж|выезд|направ|отправ|поезжа|езжай|езжайте|срочно|адрес|работ[ау] по)/i;
 const PROGRESS_WORDS = /(как|что там|обстанов|ход|доклад|доложи|статус|где вы|сделал|на месте|прибыл|выехал|закончил|работ)/i;
 const ACK_WORDS = /(принят|понял|поняла|хорошо|спасибо|ясно|добро|отлично|записал|записала)/i;
+/** A question about what the card says: the address, the entrance, the building, victims, an error. */
+const CARD_WORDS = /(адрес|подъезд|корпус|дом(?![а-яё]*ой)|пострадав|ошиб|совпа|верн(ый|ая|ое|ые|о)(?![а-яё])|правильн)/i;
+/** «Во сколько прибыли?» — a stage already behind: the crew tells the time by the clock. */
+const PAST_TIME = /(во сколько|в какое время|время (прибыт|выезд|начал|оконч|заверш)|когда (прибыл|выехал|начал|закончил))/i;
+/** «Когда будете?», «Долго ещё?» — not «Сколько пострадавших?». */
+const TIME_WORDS = /(сколько (ещё|еще|времени|минут|нужно|надо)|когда|долго|время|скоро)/i;
 
 /** The dispatcher sends a free crew to the card in words («выезжайте на…»). */
 export function isDispatchOrder(text: string): boolean {
   return DISPATCH_WORDS.test(text);
+}
+
+/** The crew's words mention the error in the card (the model's line is checked with it). */
+export function mentionsCardError(text: string, ctx: CrewContext): boolean {
+  if (/(ошиб|неверн|не тот|не т[ао](?![а-яё])|на самом деле)/i.test(text)) return true;
+  const t = text.toLowerCase().replace(/ё/g, "е");
+  return (ctx.plan.cardErrorSay ?? []).some((src) => new RegExp(src, "i").test(t));
+}
+
+/** «Когда будете?» in words that fit the crew's fast training pace — no minutes. */
+function timeAnswer(ctx: CrewContext): string {
+  if (ctx.stage === "FINISHED" || ctx.stage === "REFUSED") return "Уже закончили, возвращаемся на базу.";
+  return atSite(ctx.stage) ? "Скоро закончим — доложу сразу." : "Скоро будем — доложу, как прибудем.";
 }
 
 export type CrewReply = { text: string; reported: ServiceStatus | "DISPATCHED" | null; dispatch: boolean };
@@ -148,24 +218,40 @@ export function crewMockReply(ctx: CrewContext, said: string, turn: number): Cre
   }
   // «Принято» after a report is an acknowledgement, not a question.
   if (ACK_WORDS.test(said) && !said.includes("?")) return { text: "Понял. Будут изменения — доложу.", reported: null, dispatch: false };
+  if (PAST_TIME.test(said) && ctx.timeline) return { text: `По часам: ${ctx.timeline}.`, reported: null, dispatch: false };
+  // «Адрес в карточке совпал?» — on site the crew answers as it is there, not as the card says.
+  if (CARD_WORDS.test(said) && knowsCardError(ctx)) return { text: `По карточке — ${ctx.address}. ${cardErrorLine(ctx)}`, reported: ctx.stage, dispatch: false };
   if (turn === 1 || PROGRESS_WORDS.test(said)) return { text: reportLine(ctx.stage, ctx), reported: ctx.stage ?? "DISPATCHED", dispatch: false };
   if (/адрес/i.test(said)) return { text: `Работаем по адресу ${ctx.address}.`, reported: null, dispatch: false };
-  if (/(сколько|когда|долго|время)/i.test(said)) return { text: "Думаю, минут за двадцать управимся.", reported: null, dispatch: false };
+  if (TIME_WORDS.test(said)) return { text: timeAnswer(ctx), reported: null, dispatch: false };
   return { text: "Понял вас.", reported: null, dispatch: false };
 }
 
+/** The crew still has to tell the dispatcher about the error in the card: on site, not told, not corrected yet. */
+export function owesCardError(ctx: CrewContext): boolean {
+  return knowsCardError(ctx) && !ctx.errorTold;
+}
+
 export function crewPrompt(ctx: CrewContext): string {
+  const error = ctx.plan.cardError && atSite(ctx.stage) ? clean(ctx.plan.cardError) : "";
   const facts = ctx.dispatched
     ? [
-        `Твой наряд работает по происшествию: ${ctx.what}. Адрес: ${ctx.address}.`,
+        `Твой наряд работает по происшествию: ${ctx.what}. Адрес по карточке: ${ctx.address}.`,
         `Где вы сейчас и что сделано: ${reportLine(ctx.stage, ctx)}`,
         ctx.plan.work ? `Работы на месте: ${ctx.plan.work}.` : "",
+        ctx.timeline ? `Время этапов по часам: ${ctx.timeline}. Если спрашивают, во сколько — называй это время.` : "",
+        error && !ctx.errorFixed
+          ? `Важно: в карточке ошибка — ${error}. На вопросы про адрес, подъезд, корпус, пострадавших отвечай так, как на месте, а не как в карточке.`
+          : "",
+        error && ctx.errorFixed ? `В карточке была ошибка — ${error}; оператор 112 её уже исправил, карточка теперь верная.` : "",
+        owesCardError(ctx) ? "Диспетчер об ошибке в карточке ещё не знает: обязательно скажи о ней в этом ответе." : "",
       ]
     : ["Сейчас твой наряд на базе и свободен. Если диспетчер называет адрес и задачу — подтверди, что выезжаете."];
   return [
     `Ты — ${ctx.leader}, старший наряда ${ctx.crew} (${ctx.title}). Говоришь по телефону с диспетчером своей дежурной службы.`,
     ...facts,
     "Отвечай одной-двумя короткими фразами, как на смене по рабочему телефону. Называй только эти факты; чего не знаешь — «уточню и перезвоню».",
+    "Сроки не называй в минутах и часах: учебный наряд работает быстро — говори «скоро будем», «скоро закончим».",
     "Не выдумывай пострадавших, адреса и номера. Не говори, что ты программа. Без списков и пояснений — только твоя реплика.",
   ]
     .filter(Boolean)
@@ -179,8 +265,10 @@ export type CallerContext = { persona: CallerPersona; cardNumber: number };
 /** The dispatcher named the card number — the memo says not to (the applicant does not know it). */
 export function mentionsCardNumber(said: string, cardNumber: number): boolean {
   const num = String(cardNumber);
+  // Speech recognition may split the number into groups («36 815 072»): digits apart by a space or a dash are one run.
+  const joined = said.replace(/(\d)[\s.-](?=\d)/g, "$1");
   // Any run of five or more digits that is the number or its ending («…15003»).
-  return (said.match(/\d{5,}/g) ?? []).some((run) => run.includes(num) || num.endsWith(run));
+  return (joined.match(/\d{5,}/g) ?? []).some((run) => run.includes(num) || num.endsWith(run));
 }
 
 export function callerGreeting(persona: CallerPersona): string {
@@ -299,29 +387,74 @@ export function operatorGreeting(): string {
   return "Служба 112, оператор слушает. Представьтесь, пожалуйста.";
 }
 
-/** Offline 112 operator: wants the address, the card number and what changed, then takes the information. */
-const CORRECTION = /(ошиб|неверн|неправильн|не тот|не та\b|не то\b|исправ|на самом деле|фактическ|перепута)/i;
+/** Words of a reported error in the card. */
+const CORRECTION = /(ошиб|неверн|неправильн|не тот|не т[ао](?![а-яё])|исправ|на самом деле|фактическ|перепута)/i;
 
-export function operatorMockReply(said: string, turn: number): string {
-  const hasPlace = /(адрес|улиц|дом|пос\.|посёл|посел|мкр|д\.\s*\d)/i.test(said);
-  const hasCard = /(карточ|кп)\D{0,12}\d{5,}/i.test(said) || /\d{8}/.test(said);
-  // An error in the card: the 112 operator corrects the card the dispatcher cannot edit.
-  if (CORRECTION.test(said)) {
-    return hasCard
-      ? "Принял: исправлю карточку и сообщу всем службам по ней. Кто передал?"
-      : "Понял, в карточке ошибка. Назовите номер карточки и что указать верно.";
+/**
+ * Where the dispatcher's call to 112 stands. The operator's words follow what the system has really done
+ * (card-fix.ts): the card is corrected only when its number and the right information are named.
+ *   fixed      — corrected on this line;       already  — corrected before;
+ *   needInfo   — the card with an error named, the right information not yet;
+ *   needNumber — an error reported, no card number;  none — anything else (the situation changed).
+ */
+export type OperatorState =
+  | { kind: "fixed" | "already"; card: number; label: string }
+  | { kind: "needInfo"; card: number }
+  | { kind: "needNumber" }
+  | { kind: "none"; card: number | null };
+
+/** The trainee's words so far report an error in the card. */
+export function reportsCardError(said: string): boolean {
+  return CORRECTION.test(said);
+}
+
+/** Offline 112 operator: wants the card number and what is right, corrects the card; else takes the information. */
+export function operatorMockReply(said: string, turn: number, state: OperatorState = { kind: "none", card: null }): string {
+  switch (state.kind) {
+    case "fixed":
+      return `Принято. В карточке ${state.card} исправил: ${state.label}. В журнале карточки есть отметка, службы по карточке видят изменение.`;
+    case "already":
+      return `По карточке ${state.card} исправление уже внесено: ${state.label}.`;
+    case "needInfo":
+      return `Карточку ${state.card} вижу. Что в ней указать верно?`;
+    case "needNumber":
+      return "Понял, в карточке ошибка. Назовите номер карточки и что указать верно.";
   }
-  if (hasPlace && hasCard) return "Информацию принял: дополню карточку и оповещу нужные службы. Что-то ещё?";
+  const hasPlace = /(адрес|улиц|дом|пос\.|посёл|посел|мкр|д\.\s*\d)/i.test(said);
+  const hasCard = state.card !== null || /(карточ|кп)\D{0,12}\d{5,}/i.test(said) || /\d{8}/.test(said);
+  if (reportsCardError(said)) return hasCard ? "Что именно указать в карточке верно?" : "Понял, в карточке ошибка. Назовите номер карточки и что указать верно.";
+  // Nothing in the card changes on such a call: the operator takes the information, it does not claim a correction.
+  if (hasPlace && hasCard) return "Информацию принял, передам старшему смены 112. Что-то ещё?";
   if (turn >= 3 && (hasPlace || hasCard)) return "Принял, передам старшему смены. Спасибо.";
   if (!hasPlace) return "Назовите адрес происшествия и что изменилось на месте.";
   return "Назовите номер карточки, по которой вы работаете.";
 }
 
-export function operatorPrompt(ownService: string): string {
+/** «Исправил», «обновил», «оповестил», «внесено» — a claim that something was done in the card. */
+const DONE_WORDS =
+  /(исправил|исправлен|обновил|обновлен|обновлён|внесл|внёс|внес(?![а-яё])|внесен|внесён|изменил|изменен|изменён|дополнил|дополнен|оповестил|оповещен|оповещён|скорректировал|поправил)/i;
+
+/** The model's line claims a change in the card that was not made: the operator must not say it. */
+export function claimsCardChange(text: string): boolean {
+  return DONE_WORDS.test(text);
+}
+
+export function operatorPrompt(ownService: string, state: OperatorState = { kind: "none", card: null }): string {
+  const now =
+    state.kind === "fixed"
+      ? `Ты только что исправил карточку ${state.card}: ${state.label}; в журнале карточки запись «Изменено оператором 112». Подтверди коротко, что исправил, — службы по карточке видят изменение.`
+      : state.kind === "already"
+        ? `Карточку ${state.card} ты уже исправил раньше: ${state.label}. Скажи, что исправление уже внесено.`
+        : state.kind === "needInfo"
+          ? `Диспетчер назвал карточку ${state.card}, но ещё не сказал, что указать верно: спроси. Карточку ты пока не менял — не говори, что исправил, обновил или оповестил.`
+          : state.kind === "needNumber"
+            ? "Номер карточки ещё не назван: попроси его. Карточку ты пока не менял — не говори, что исправил, обновил или оповестил."
+            : "В карточке ты сейчас ничего не меняешь: прими информацию и скажи, что передашь старшему смены. Не говори, что исправил, обновил, дополнил карточку или оповестил службы.";
   return [
     `Ты — оператор ${OPERATOR_112}. Тебе звонит диспетчер ДДС «${ownService}»: обстановка на месте изменилась или в карточке ошибка.`,
     "Как по памятке: попроси представиться, назвать адрес, повод, номер карточки, по которой работает служба, и что изменилось.",
-    "Если диспетчер сообщает об ошибке в карточке (адрес, подъезд, пострадавшие и т. п.) — попроси номер карточки и верные сведения: поля карточки 112 исправляешь ты, диспетчер ДДС их не правит.",
-    "Когда всё названо — подтверди, что дополнишь или исправишь карточку и оповестишь службы. Одна-две короткие фразы, не говори, что ты программа.",
+    "Если диспетчер сообщает об ошибке в карточке (адрес, подъезд, пострадавшие и т. п.) — нужны номер карточки и верные сведения: поля карточки 112 исправляешь ты, диспетчер ДДС их не правит.",
+    `Сейчас: ${now}`,
+    "Одна-две короткие фразы, не говори, что ты программа.",
   ].join("\n");
 }

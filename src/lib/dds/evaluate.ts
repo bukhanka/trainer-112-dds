@@ -3,12 +3,13 @@
  * Each check becomes a CriterionResult of a weight group; «не применимо» is ok: null and does not count.
  *
  *   timeliness   — the card opened within ackSec (30 s) and its first record — status and text — within workSec
- *                  (3 min), both from «Добавлена» (customer's answer of 27.09); crew calls answered; status after a report
+ *                  (3 min), both from «Добавлена» (customer's answer of 27.09: statuses have no other time norms);
+ *                  crew calls answered
  *   comments     — reason and «кому передано» for Не принята / Отказ; meaningful final comment
  *   statusOrder  — progress statuses not skipped; statuses by the facts of reports; status matches its meaning;
  *                  the card closed with the right status
  *   services     — the decision matches the scenario's reference for this service
- *   completeness — callback to the applicant without the card number (#740)
+ *   completeness — callback to the applicant without the card number (#740); an error in the card reported to 112
  *   literacy     — comments are clear to the next dispatcher: rules here (clarity.ts); with a model
  *                  configured the review adds the model's own check (clarity-ai.ts)
  */
@@ -18,9 +19,9 @@ import { errorTitle } from "@/lib/scoring/errors";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import { describeTemplates, matchTemplate, parseTemplates, templateProblem } from "@/lib/scoring/template";
 import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
-import { CREW_PACE_SEC, crewPlanFor, crewSchedule, REPORT_REACT_SEC, stageAt, type Dispatch } from "./crew";
+import { CREW_PACE_SEC, crewPlanFor, crewSchedule, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
-import { mentionsCardNumber } from "./personas";
+import { atSite, mentionsCardNumber } from "./personas";
 import { saysCardErrorRight, type DdsReferenceEntry } from "./scenario";
 import { awaitsAnswer, isRecord, NO_CREW_COMMENT, PROGRESS, STATUS_LABEL, type ServiceRules } from "./status";
 
@@ -77,6 +78,7 @@ const TRANSFER = /(переда[нл]|передаю|сообщ(ено|ил|ил
 const REFUSAL_WORDS = /(не обслужива|не наш(?:а|е|и|его|ей|у|ему|им)?(?![а-яё])|не в компетенц|не относится|нет договора|не будем|работы не провод|не проводил)/i;
 const GENERIC_FINAL = /^(работы завершены|завершено|выполнено|готово|ок|сделано|всё|все|закрыто)[.!]?$/i;
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const quote = (s: string | null) => (s ? `«${s.length > 120 ? `${s.slice(0, 117)}…` : s}»` : "без комментария");
 const secBetween = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 1000;
 
@@ -94,12 +96,19 @@ export function decisionOf(events: PlateEvent[], rules: ServiceRules): { decisio
 
 const STOP_WORD = /^(что|кто|как|где|когда|какой|какая|какие|чем|если|или|для|при|после|через|итог|итоги|время|причина|кому|есть|было|были|этот|также|сделано)$/;
 
+/** «Кто направлен (обслуживающая организация)», «кто выезжал от района»: the reference asks who went there… */
+const WHO_WENT = /^кто\s+(выезжал|выехал|направлен|проверил|прибыл|работал)/;
+/** …and a named organisation, crew or person answers it: «сотрудник ГБУ «Жилищник»», «представитель управы». */
+const ACTOR =
+  /(гбу|жилищник|управ[аыуе](?![а-яё])|префектур|ук(?![а-яё])|управляющ|ооо|«[^»]+»|"[^"]+"|сотрудник|представител|мастер|инженер|техник|бригад|наряд|отделени|псч|электрик|сантехник|участков|полици)/i;
+
 /** A must-have of the reference («что сделано: перекрыт кран») is covered when a stem of its words is in the comment. */
 export function phraseCovered(comment: string, phrase: string): boolean {
   const text = comment.toLowerCase().replace(/ё/g, "е");
   const p = phrase.toLowerCase().replace(/ё/g, "е");
   if (/время/.test(p) && /\b\d{1,2}[:.]\d{2}\b/.test(text)) return true;
   if (/(кому|передан)/.test(p) && TRANSFER.test(comment)) return true;
+  if (WHO_WENT.test(p) && ACTOR.test(text)) return true;
   const words = (p.match(/[а-я]{4,}/g) ?? []).filter((w) => !STOP_WORD.test(w));
   if (!words.length) return text.trim().length > 0;
   return words.some((w) => text.includes(w.slice(0, Math.max(4, Math.min(6, w.length - 2)))));
@@ -194,38 +203,8 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     });
   }
 
-  // The first report of each stage counts; the crew may repeat itself when asked again.
-  const reports = [...f.reports]
-    .filter((r): r is { status: ServiceStatus; at: Date } => r.status !== "DISPATCHED")
-    .sort((a, b) => a.at.getTime() - b.at.getTime())
-    .filter((r, i, all) => all.findIndex((x) => x.status === r.status) === i);
-  if (reports.length) {
-    const late: string[] = [];
-    let judged = 0;
-    for (const r of reports) {
-      const done = own.find((e) => RANK[e.status] >= RANK[r.status] && e.status !== "REJECTED" && e.at.getTime() >= r.at.getTime() - 5_000);
-      const before = own.find((e) => RANK[e.status] >= RANK[r.status] && e.status !== "REJECTED" && e.at < r.at);
-      if (before) continue; // already set earlier (checked by «по факту докладов»)
-      if (!done && secBetween(r.at, f.now) <= REPORT_REACT_SEC) continue; // the report came just before the end
-      judged++;
-      if (!done || secBetween(r.at, done.at) > REPORT_REACT_SEC) {
-        late.push(`доклад «${STATUS_LABEL[r.status]}» в ${fmtDateTime(r.at).slice(11)} — ${done ? `статус через ${fmtDuration(secBetween(r.at, done.at))}` : "статус не поставлен"}`);
-      }
-    }
-    out.push({
-      code: "dds.status_after_report",
-      group: "timeliness",
-      title: "Статус поставлен сразу после доклада наряда",
-      ok: judged === 0 ? null : late.length === 0,
-      evidence: late.length
-        ? late.join("; ")
-        : judged
-          ? `Все доклады (${judged}) отражены статусами в течение ${REPORT_REACT_SEC} с`
-          : "Доклад пришёл перед самым концом — время на статус ещё было",
-      expected: `Не позже ${REPORT_REACT_SEC} с после доклада поставить соответствующий статус с комментарием`,
-      source: "rule",
-    });
-  }
+  // No «status within N seconds of the report»: statuses have no time norms (customer's answer of 27.09) — a status
+  // missing altogether is «Статусы хода работ проставлены», a status ahead of the report — «по факту».
 
   // ── comments ──
   const refusals = own.filter((e) => e.status === "REJECTED" || e.status === "REFUSED");
@@ -427,42 +406,61 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
     });
   }
 
-  // ── an error in the card: the crew reports it, the dispatcher phones 112 (customer's answer of 27.09) ──
+  // ── an error in the card: the crew finds it on site, the dispatcher phones 112 (customer's answer of 27.09) ──
+  // Judged in every scenario with such an error, by the fact of the call: whatever the dispatcher learnt it from.
   const error = ref?.cardError;
-  if (error && decision === "accept" && !noCrewClose) {
-    const heard = [...f.reports].filter((r) => r.status === "ARRIVED").sort((a, b) => a.at.getTime() - b.at.getTime())[0] ?? null;
-    if (heard) {
-      const after = (f.calls112 ?? []).filter((c) => c.at.getTime() >= heard.at.getTime() - 5_000);
-      const good = after.find((c) => {
-        const text = c.lines.join(" ");
-        return (f.cardNumber == null || mentionsCardNumber(text, f.cardNumber)) && saysCardErrorRight(text, error);
-      });
-      const quoteCall = (c: { at: Date; lines: string[] }) => `звонок в 112 в ${fmtDateTime(c.at).slice(11)}: ${quote(c.lines.join(" "))}`;
+  if (error) {
+    // The crew tells the error in its first report from the site; a crew that got there rang to tell it even when
+    // the dispatcher did not pick up — the arrival by its schedule, up to the closing of the plate.
+    const told = f.reports.filter((r) => atSite(r.status)).sort((a, b) => a.at.getTime() - b.at.getTime())[0] ?? null;
+    const siteStep = f.dispatch ? crewSchedule(chain, CREW_PACE_SEC).find((s) => atSite(s.status)) : undefined;
+    const reachedAt = f.dispatch && siteStep ? new Date(f.dispatch.at.getTime() + siteStep.afterSec * 1000) : null;
+    const arrived = told?.at ?? (reachedAt && reachedAt <= (closing?.at ?? f.now) ? reachedAt : null);
+    const calls = (f.calls112 ?? []).map((c) => {
+      const text = c.lines.join(" ");
+      return { ...c, text, number: f.cardNumber == null || mentionsCardNumber(text, f.cardNumber), right: saysCardErrorRight(text, error) };
+    });
+    const good = calls.find((c) => c.number && c.right);
+    const near = good ?? calls.find((c) => c.number || c.right) ?? calls[0];
+    const onSiteVsCard = `в карточке ${error.inCard || error.what}, на месте ${error.onSite}`;
+    const how = told
+      ? `Наряд доложил об ошибке в ${hms(told.at)}`
+      : arrived
+        ? `Наряд прибыл на место около ${hms(arrived)}, доклад с места не принят`
+        : "";
+    const quoteCall = (c: { at: Date; text: string }) => `звонок в 112 в ${hms(c.at)}: ${quote(c.text)}`;
+    const missing = (c: { number: boolean; right: boolean }) =>
+      !c.number && !c.right ? "не названы номер карточки и верные сведения" : !c.number ? "не назван номер карточки" : `не названы верные сведения (${error.onSite})`;
+    out.push({
+      code: "dds.card_error_reported",
+      group: "completeness",
+      title: "Об ошибке в карточке сообщено в 112",
+      ok: good ? true : arrived ? false : null,
+      evidence: good
+        ? cap([how, quoteCall(good)].filter(Boolean).join("; "))
+        : arrived
+          ? near
+            ? `${how}; ${quoteCall(near)} — ${missing(near)}`
+            : `${how} (${onSiteVsCard}), в 112 не звонили`
+          : near
+            ? `${cap(quoteCall(near))} — ${missing(near)}; наряд до места ещё не доехал`
+            : f.dispatch
+              ? `Наряд до места не доехал — об ошибке в карточке (${onSiteVsCard}) ещё не было известно`
+              : `Наряд не направляли — ошибку в карточке (${onSiteVsCard}) некому было обнаружить`,
+      expected: `Позвонить в 112 (набор «112»), назвать номер карточки и верные сведения: ${error.onSite}. Поля, заполненные службой 112, диспетчер ДДС не правит`,
+      source: "rule",
+    });
+    if (closing && (arrived || good)) {
+      const right = saysCardErrorRight(closing.comment ?? "", error);
       out.push({
-        code: "dds.card_error_reported",
-        group: "completeness",
-        title: "Об ошибке в карточке сообщено в 112",
-        ok: !!good,
-        evidence: good
-          ? `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)}; ${quoteCall(good)}`
-          : after.length
-            ? `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)}; ${quoteCall(after[0])} — не названы номер карточки и верные сведения`
-            : `Наряд доложил об ошибке в ${fmtDateTime(heard.at).slice(11)} (в карточке ${error.inCard || error.what}, на месте ${error.onSite}), в 112 не звонили`,
-        expected: `Позвонить в 112 (набор «112»), назвать номер карточки и верные сведения: ${error.onSite}. Поля, заполненные службой 112, диспетчер ДДС не правит`,
+        code: "dds.card_error_in_comment",
+        group: "comments",
+        title: "Итоги — по верным сведениям, а не по ошибке карточки",
+        ok: right,
+        evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}${right ? "" : ` — нет верных сведений (на месте ${error.onSite})`}`,
+        expected: `В итоговом комментарии — как на самом деле: ${error.onSite}`,
         source: "rule",
       });
-      if (closing) {
-        const right = saysCardErrorRight(closing.comment ?? "", error);
-        out.push({
-          code: "dds.card_error_in_comment",
-          group: "comments",
-          title: "Итоги — по верным сведениям, а не по ошибке карточки",
-          ok: right,
-          evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}${right ? "" : ` — нет верных сведений (на месте ${error.onSite})`}`,
-          expected: `В итоговом комментарии — как на самом деле: ${error.onSite}`,
-          source: "rule",
-        });
-      }
     }
   }
 

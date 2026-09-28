@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressFeed, addressTitle, classLine, fmtDateTime, fmtDuration, fmtLongDate, plateCaption, plateCaptionClass, shortName, tagsLine } from "./format";
+import { addressFeed, addressTitle, classLine, fmtDateTime, fmtDuration, fmtLongDate, plateCaption, plateCaptionClass, redialNumber, shortName, tagsLine } from "./format";
 
 describe("format", () => {
   it("prints dates in Moscow time like the customer's system", () => {
@@ -48,5 +48,12 @@ describe("plate caption", () => {
     expect(plateCaptionClass("Мосжилинспекция")).toContain("text-[10px]");
     expect(plateCaptionClass("Служба 101")).toBe("text-[13px]");
     expect(plateCaptionClass("Северное Бутово")).toBe("text-[11.5px]");
+  });
+
+  it("calls a counterpart back from the journal by its phone, a crew without one — by its number", () => {
+    expect(redialNumber({ phone: "+7 (916) 000-23-01", crew: "23" })).toBe("+7 (916) 000-23-01");
+    expect(redialNumber({ phone: null, crew: "15" })).toBe("15"); // a crew typed by hand, not in the book
+    expect(redialNumber({ phone: "112", crew: null })).toBe("112");
+    expect(redialNumber({ phone: null, crew: null })).toBeNull();
   });
 });

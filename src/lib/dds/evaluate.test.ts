@@ -191,9 +191,28 @@ describe("evaluateDdsPlate", () => {
     );
     expect(list["dds.crew_calls_answered"].ok).toBe(false);
     expect(list["dds.status_by_facts"].ok).toBe(false); // «Начало реагирования» 4 s after sending the crew
-    expect(list["dds.status_after_report"].ok).toBe(false); // «Прибытие» 105 s after the report
-    expect(list["dds.status_after_report"].evidence?.match(/доклад/g)?.length).toBe(1); // a repeated report counts once
     expect(list["dds.callback_rules"].ok).toBe(false);
+  });
+
+  it("has no time norm for a status after a crew report: only 30 s to open and 3 min to the first record (customer, 27.09)", () => {
+    // «Прибытие» 105 s after the report, «Проведение работ» never reported late: none of it is a mistake of time.
+    const list = evaluateDdsPlate(
+      facts({
+        status: "WORKING",
+        events: [ev("ADDED", 0), ev("RECEIVED", 5), ev("ACCEPTED", 10, "Направлен наряд", "23"), ev("STARTED", 40, "Выехали"), ev("ARRIVED", 200, "На месте"), ev("WORKING", 600, "Работают")],
+        dispatch: { crew: "23", at: at(10), via: "status" },
+        reports: [
+          { status: "STARTED", at: at(38) },
+          { status: "ARRIVED", at: at(95) },
+          { status: "WORKING", at: at(130) },
+        ],
+        crewCalls: { rang: 3, missed: 0 },
+        now: at(900),
+      }),
+    );
+    expect(list.map((c) => c.code)).not.toContain("dds.status_after_report");
+    expect(list.filter((c) => c.group === "timeliness").map((c) => c.code)).toEqual(["dds.open_in_time", "dds.first_record_in_time", "dds.crew_calls_answered"]);
+    expect(list.filter((c) => c.group === "timeliness").every((c) => c.ok)).toBe(true);
   });
 
   it("wants «Отказ» where the reference closes with a refusal", () => {
@@ -222,6 +241,16 @@ describe("phraseCovered", () => {
     expect(phraseCovered(c, "время")).toBe(true);
     expect(phraseCovered("Работы завершены", "площадь пожара")).toBe(false);
     expect(phraseCovered("Не обслуживаем, передано в ООО «Практика»", "кому передано (ООО «Практика»)")).toBe(true);
+  });
+
+  it("reads «кто направлен / кто выезжал» as covered by a named organisation, crew or person", () => {
+    // The comment of the jury's run: the organisation is named, the words «направлен» and «организация» are not.
+    const c = "Задымление мусоропровода в 5-м подъезде: камера очищена сотрудником «Жилищника», клапан исправен. Работы завершены в 08:20.";
+    expect(phraseCovered(c, "кто направлен (обслуживающая организация)")).toBe(true);
+    expect(phraseCovered("Представитель управы на месте, семье предложено размещение", "кто выезжал от района")).toBe(true);
+    expect(phraseCovered("Камера очищена, клапан исправен", "кто направлен (обслуживающая организация)")).toBe(false);
+    // Other «кто …» phrases keep matching by their words.
+    expect(phraseCovered("Наряд на месте, всё спокойно", "кто кричал и почему")).toBe(false);
   });
 
   it("wants every must-have of the reference in the final comment", () => {
@@ -286,7 +315,7 @@ describe("end of the lesson", () => {
         }),
       ),
     );
-    expect(reported["dds.status_after_report"].ok).toBeNull();
+    expect(reported["dds.status_after_report"]).toBeUndefined();
   });
 
   it("does not read «не нашли» as a refusal", () => {
@@ -370,9 +399,11 @@ describe("an error in the card (customer's answer of 27.09)", () => {
     inCard: "под. 3",
     onSite: "подъезд 5",
     report: "в третьем подъезде чисто, дымит в пятом",
-    mustSay: ["(под\\.?|подъезд\\S*)\\s*№?\\s*5(?!\\d)", "пят\\S*\\s+подъезд"],
+    mustSay: ["(под\\.?|подъезд\\S*)\\s*№?\\s*5(?!\\d)", "(?<!\\d)5\\s*-?\\s*(й|ый|ом|м|го|ого)?\\s*подъезд", "пят\\S*\\s+подъезд"],
+    fix: { address: { entrance: "5" }, flags: {} },
   };
   const withError = { ...pipeRef, cardError: error };
+  // crew 23 sent at +12 s: on site at +93 s by its pace (crew.ts)
   const base = {
     reference: withError,
     status: "FINISHED" as const,
@@ -387,21 +418,58 @@ describe("an error in the card (customer's answer of 27.09)", () => {
       evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт, течь устранена, подъезд 5"), calls112: [{ at: at(130), lines: ["Карточка 36815070: ошибка, не третий, а подъезд 5"] }] })),
     );
     expect(good["dds.card_error_reported"].ok).toBe(true);
-    expect(good["dds.card_error_reported"].evidence).toMatch(/звонок в 112 в/);
+    expect(good["dds.card_error_reported"].evidence).toMatch(/^Наряд доложил об ошибке в .+; звонок в 112 в/);
     expect(good["dds.card_error_in_comment"].ok).toBe(true);
 
     const noNumber = byCode(evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт, течь устранена"), calls112: [{ at: at(130), lines: ["В карточке ошибка, подъезд 5"] }] })));
     expect(noNumber["dds.card_error_reported"].ok).toBe(false);
-    expect(noNumber["dds.card_error_reported"].evidence).toMatch(/не названы номер карточки/);
+    expect(noNumber["dds.card_error_reported"].evidence).toMatch(/не назван номер карточки$/);
     expect(noNumber["dds.card_error_in_comment"].ok).toBe(false);
 
+    const noInfo = byCode(evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт"), calls112: [{ at: at(130), lines: ["Карточка 36815070, в карточке ошибка"] }] })));
+    expect(noInfo["dds.card_error_reported"].evidence).toMatch(/не названы верные сведения \(подъезд 5\)$/);
+
     const silent = byCode(evaluateDdsPlate(facts({ ...base, events: events("Стояк перекрыт"), calls112: [] })));
+    expect(silent["dds.card_error_reported"].ok).toBe(false);
     expect(silent["dds.card_error_reported"].evidence).toMatch(/в 112 не звонили/);
   });
 
-  it("does not judge the call before the crew arrived, nor a card without an error", () => {
-    const early = byCode(evaluateDdsPlate(facts({ ...base, reports: [], events: events("Стояк перекрыт") })));
-    expect(early["dds.card_error_reported"]).toBeUndefined();
+  it("stays in the review when the arrival report was missed: the call to 112 counts by its fact", () => {
+    // The dispatcher did not pick up on arrival and heard the crew only at the end — the 112 call is judged all the same.
+    const missed = { ...base, reports: [{ status: "FINISHED" as const, at: at(200) }] };
+    const called = byCode(
+      evaluateDdsPlate(
+        facts({
+          ...missed,
+          events: events("Задымление мусоропровода в 5-м подъезде устранено"),
+          calls112: [{ at: at(210), lines: ["ДДС, Кузнецов. По карточке 36815070 в карточке третий подъезд, а задымление в пятом подъезде"] }],
+        }),
+      ),
+    );
+    expect(called["dds.card_error_reported"].ok).toBe(true);
+    expect(called["dds.card_error_reported"].evidence).toMatch(/^Наряд доложил об ошибке в/); // the first report from the site told it
+    expect(called["dds.card_error_in_comment"].ok).toBe(true); // «5-м подъезде» is the right entrance
+
+    // No report heard at all: the crew still got there by its pace and rang — not calling 112 is a mistake.
+    const deaf = byCode(evaluateDdsPlate(facts({ ...base, reports: [], events: events("Стояк перекрыт"), calls112: [] })));
+    expect(deaf["dds.card_error_reported"].ok).toBe(false);
+    expect(deaf["dds.card_error_reported"].evidence).toMatch(/^Наряд прибыл на место около .+доклад с места не принят .+в 112 не звонили/);
+    expect(deaf["dds.card_error_in_comment"].ok).toBe(false);
+  });
+
+  it("is «не применимо» while nobody could know the error, and a card without an error has no such check", () => {
+    // The plate closed before the crew got there, nobody phoned 112.
+    const early = byCode(evaluateDdsPlate(facts({ ...base, reports: [], events: [ev("ADDED", 0), ev("RECEIVED", 5), ev("ACCEPTED", 12, "Направлена бригада", "23"), ev("FINISHED", 40, "Стояк перекрыт")] })));
+    expect(early["dds.card_error_reported"].ok).toBeNull();
+    expect(early["dds.card_error_reported"].evidence).toMatch(/не доехал/);
+    expect(early["dds.card_error_in_comment"]).toBeUndefined();
+    // No crew sent at all.
+    const noCrew = byCode(evaluateDdsPlate(facts({ ...base, status: "ACCEPTED", dispatch: null, reports: [], events: [ev("ADDED", 0), ev("RECEIVED", 5), ev("ACCEPTED", 12, "Принята")] })));
+    expect(noCrew["dds.card_error_reported"].ok).toBeNull();
+    expect(noCrew["dds.card_error_reported"].evidence).toMatch(/Наряд не направляли/);
+    // Knowing the error before the crew said it still counts by the fact of the call.
+    const ahead = byCode(evaluateDdsPlate(facts({ ...base, reports: [], dispatch: null, status: "ACCEPTED", events: [ev("ADDED", 0), ev("ACCEPTED", 12, "Принята")], calls112: [{ at: at(20), lines: ["Карточка 36815070, дым в пятом подъезде"] }] })));
+    expect(ahead["dds.card_error_reported"].ok).toBe(true);
     const plain = byCode(evaluateDdsPlate(facts({ ...base, reference: pipeRef, events: events("Стояк перекрыт") })));
     expect(plain["dds.card_error_reported"]).toBeUndefined();
   });

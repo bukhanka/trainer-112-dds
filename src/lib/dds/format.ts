@@ -101,6 +101,14 @@ export function plateCaptionClass(caption: string): string {
   return longest > 11 || caption.length > 11 ? "text-[11.5px]" : "text-[13px]";
 }
 
+/** Section of the phone book with the 112 operator: shown on top of the book. */
+export const BOOK_112_GROUP = "Служба 112";
+
+/** The number that calls a counterpart back from the journal: its phone, or the crew number of a crew without one. */
+export function redialNumber(c: { phone: string | null; crew: string | null }): string | null {
+  return c.phone || c.crew || null;
+}
+
 /** «0:42», «12:05» */
 export function fmtDuration(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
