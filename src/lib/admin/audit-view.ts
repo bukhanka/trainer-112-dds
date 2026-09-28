@@ -203,6 +203,8 @@ const FIELD: Record<string, string> = {
   changes: "Исправлены проверки",
   settings: "Настройки",
   teacherNote: "Заметка преподавателя",
+  callsEnded: "Разговоров на местах 112 завершено",
+  callsMissed: "Вызовов на местах 112 пропущено",
 };
 
 /** Keys that repeat what the object already says, or ids that mean nothing to a person. */

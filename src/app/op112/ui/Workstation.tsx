@@ -14,7 +14,8 @@ export type Notify = (text: string) => void;
 export function Workstation() {
   const { data: state, mutate, error } = useSWR<StateWithClock>("/api/op112/state", fetchState, {
     revalidateOnFocus: false,
-    refreshInterval: (d) => (d && d.seat && !d.incident ? 5000 : 0),
+    // Waiting for a call, or talking: the teacher may end the lesson, and the server then ends the conversation.
+    refreshInterval: (d) => (d && d.seat && (!d.incident || d.call?.status === "ACTIVE") ? 5000 : 0),
   });
   const [review, setReview] = useState<{ id: string; number: number | null; next: boolean } | null>(null);
   const [toast, setToast] = useState<string | null>(null);

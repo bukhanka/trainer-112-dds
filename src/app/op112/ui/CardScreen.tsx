@@ -93,6 +93,21 @@ export function CardScreen(p: {
   const tick = useNow();
   const now = tick ? tick + state.clockOffset : Date.parse(state.serverNow);
 
+  // The server ended the conversation while it was going on here: the teacher finished the lesson (or another tab
+  // hung up). The line goes quiet here too — adjusted while rendering, not in an effect; the card stays open to be saved.
+  const [heardCall, setHeardCall] = useState(p.call);
+  const [endedElsewhere, setEndedElsewhere] = useState<string | null>(null);
+  if (p.call !== heardCall) {
+    setHeardCall(p.call);
+    if (p.call && p.call.status !== "ACTIVE" && call?.id === p.call.id && call.status === "ACTIVE") {
+      setCall({ ...call, status: p.call.status, endedAt: p.call.endedAt ?? call.endedAt });
+      setEndedElsewhere(state.lesson?.finished ? "Преподаватель завершил занятие — разговор закрыт. Допишите карточку и сохраните её." : "Разговор завершён");
+    }
+  }
+  useEffect(() => {
+    if (endedElsewhere) notify(endedElsewhere);
+  }, [endedElsewhere, notify]);
+
   // Autosave of the draft, so a reload or a teacher's screen sees the card as it is being filled.
   const { refresh } = p;
   useEffect(() => {
