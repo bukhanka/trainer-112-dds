@@ -48,7 +48,7 @@ export default async function ScenariosPage(props: PageProps<"/teacher/scenarios
               Сгенерировать по категории
             </Link>
             <Link href="/teacher/scenarios/new" className={buttonClass("primary")}>
-              + Сценарий из текста
+              + Сценарий из текста или билета
             </Link>
           </>
         }

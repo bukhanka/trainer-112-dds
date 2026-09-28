@@ -29,7 +29,9 @@
 | Caddy | HTTPS и собственный центр сертификации | Apache 2.0 |
 | PostgreSQL 16 | база данных | PostgreSQL License |
 
-## Библиотеки приложения (102)
+## Библиотеки приложения (103)
+
+Пакет `unpdf` включает сборку PDF.js (Mozilla, Apache 2.0): ею читается текст PDF-файла билета в «Сценарии из текста». Файлы DOCX тренажёр читает своим кодом, без библиотек.
 
 | Пакет | Версия | Лицензия |
 |---|---|---|
@@ -131,6 +133,7 @@
 | tslib | 2.8.1 | 0BSD |
 | typescript | 5.9.3 | Apache-2.0 |
 | undici-types | 6.21.0 | MIT |
+| unpdf | 1.8.1 | MIT |
 | update-browserslist-db | 1.3.3 | MIT |
 | use-sync-external-store | 1.7.0 | MIT |
 | yallist | 3.1.1 | ISC |

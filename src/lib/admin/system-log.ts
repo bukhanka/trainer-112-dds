@@ -75,10 +75,10 @@ export function systemDetails(row: Row): string {
       return [services.length ? `запущены: ${services.join(", ")}` : "", a.policies ? "политики доступа — по умолчанию" : ""].filter(Boolean).join("; ");
     }
     case "demo.reset":
-      return `удалено занятий ${String(a.lessons ?? 0)}, сценариев ${String(a.scenarios ?? 0)}, групп ${String(a.groups ?? 0)}, пользователей ${String(a.users ?? 0)}; демо-данные созданы заново`;
+      return `удалено занятий ${String(a.lessons ?? 0)}, сценариев ${String(a.scenarios ?? 0)}, групп ${String(a.groups ?? 0)}, пользователей ${String(a.users ?? 0)}${a.materials ? `, материалов ${String(a.materials)}` : ""}; демо-данные созданы заново`;
     case "backup.manual":
     case "backup.scheduled":
-      return "копия базы сделана — список в разделе «Резервные копии»";
+      return "копия базы и файлов материалов сделана — список в разделе «Резервные копии»";
     case "demo.reset.failed":
     case "backup.failed":
       return String(a.message ?? "");

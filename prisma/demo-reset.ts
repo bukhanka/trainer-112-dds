@@ -1,7 +1,7 @@
 /**
  * Nightly reset of the public demo stand (DEMO_MODE=true): whatever reviewers created or changed during
  * the day is removed, and the stand returns to its initial state — demo accounts, reference data,
- * ticket scenarios as delivered, default weights and norms, demo lessons; every service stopped by an
+ * ticket scenarios as delivered, default weights and norms, demo lessons and demo materials (uploads go); every service stopped by an
  * administrator runs again and the access policy returns to its defaults (.env).
  *
  *   node dist/demo-reset.js                 (in the Docker image; the scheduler runs it daily)
@@ -10,6 +10,7 @@
 import { PrismaClient } from "@prisma/client";
 import { DEFAULT_SETTINGS, DEFAULT_WEIGHTS, DEMO_ACCOUNTS, seedBase } from "./seed";
 import { disconnectDemo, seedDemo } from "./seed-demo";
+import { removeUploadedMaterials } from "./seed-materials";
 import { isEntry } from "./entry";
 
 const DEMO_GROUP = "Учебная группа № 1";
@@ -23,6 +24,8 @@ export async function resetDemo(db: PrismaClient) {
   const scenarios = await db.scenario.deleteMany({ where: { NOT: { source: { in: ["ticket", "instruction"] } } } });
   const groups = await db.group.deleteMany({ where: { NOT: { name: DEMO_GROUP } } });
   const users = await db.user.deleteMany({ where: { login: { notIn: demoLogins } } });
+  // Reviewers' uploads go with their files; the demo materials are rebuilt by seedDemo below.
+  const materials = await removeUploadedMaterials(db);
   await db.user.updateMany({
     where: { login: { in: demoLogins } },
     data: { isBlocked: false, failedLogins: 0, lockedUntil: null },
@@ -44,10 +47,10 @@ export async function resetDemo(db: PrismaClient) {
     data: {
       action: "demo.reset",
       actor: "system",
-      after: { lessons: lessons.count, scenarios: scenarios.count, groups: groups.count, users: users.count, switches: switches.count },
+      after: { lessons: lessons.count, scenarios: scenarios.count, groups: groups.count, users: users.count, materials, switches: switches.count },
     },
   });
-  console.log(`demo-reset: removed ${lessons.count} lessons, ${scenarios.count} scenarios, ${groups.count} groups, ${users.count} users; demo rebuilt`);
+  console.log(`demo-reset: removed ${lessons.count} lessons, ${scenarios.count} scenarios, ${groups.count} groups, ${users.count} users, ${materials} materials; demo rebuilt`);
 }
 
 if (isEntry("demo-reset")) {
