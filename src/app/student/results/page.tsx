@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { BarChart } from "@/components/charts";
 import { PassBadge } from "@/components/pass";
+import { PrintButton } from "@/components/PrintButton";
 import { Badge, Empty, PageHeader, Section, Stat } from "@/components/ui";
 import { getStudentForecast } from "@/lib/adaptive/student";
 import { requireUser } from "@/lib/auth/session";
 import { formatDate, formatDateTime } from "@/lib/format";
+import { studentCertificates } from "@/lib/reports/certificate";
 import { getStudentResults } from "@/lib/student/results";
 import { viewerSession } from "@/lib/student/viewer";
 import { MyTasksSection } from "../MyTasks";
@@ -14,17 +16,30 @@ import { MyReactionSection } from "./MyReaction";
 export default async function MyResultsPage() {
   const user = await requireUser(["STUDENT"]);
   const viewer = await viewerSession();
-  const [r, forecast] = await Promise.all([getStudentResults(user.id, viewer), getStudentForecast(user.id, viewer)]);
+  const [r, forecast, certificates] = await Promise.all([getStudentResults(user.id, viewer), getStudentForecast(user.id, viewer), studentCertificates(user.id)]);
   const s = r.summary;
   const trend = s.lastLesson != null && s.prevLesson != null ? s.lastLesson - s.prevLesson : null;
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-4">
-      <PageHeader title="Мои результаты" subtitle="Оценка появляется после проверки преподавателем. До этого попытка — «на проверке»." />
+    <div className="print-doc mx-auto flex max-w-5xl flex-col gap-4 print:gap-3">
+      <PageHeader
+        title="Мои результаты"
+        subtitle={
+          <>
+            <span className="hidden print:inline">
+              {user.fullName} · на {formatDateTime(new Date())}.{" "}
+            </span>
+            Оценка появляется после проверки преподавателем. До этого попытка — «на проверке».
+          </>
+        }
+        actions={<PrintButton label="🖨 Печать / PDF" />}
+      />
 
-      <MyTasksSection studentId={user.id} />
+      <div className="print:hidden">
+        <MyTasksSection studentId={user.id} />
+      </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4">
         <Stat
           label="Проверено попыток"
           value={s.reviewed}
@@ -43,6 +58,31 @@ export default async function MyResultsPage() {
       <MyForecast view={forecast} />
 
       <MyReactionSection studentId={user.id} viewer={viewer} />
+
+      <Section title="Сертификаты о прохождении занятий">
+        {certificates.length ? (
+          <ul className="divide-y divide-arm-gray/50 text-sm">
+            {certificates.map((c) => (
+              <li key={c.lessonId} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
+                <span className="min-w-0 flex-1">
+                  <span className="font-medium">«{c.title}»</span>
+                  <span className="block text-xs text-arm-desc">
+                    {formatDate(c.date)} · итоговый балл {c.score}
+                  </span>
+                </span>
+                <Link href={`/student/certificates/${c.lessonId}`} className="text-arm-blue hover:underline print:hidden">
+                  Открыть сертификат →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-arm-desc">
+            Сертификат о прохождении занятия появится здесь, когда занятие закончится, преподаватель проверит все ваши попытки на нём и все они будут
+            зачтены.
+          </p>
+        )}
+      </Section>
 
       <Section title="Прогресс по занятиям">
         {r.progress.length ? (
@@ -69,7 +109,7 @@ export default async function MyResultsPage() {
 
       <Section title="Что подтянуть">
         {r.recommendations.length ? (
-          <ul className="grid gap-3 md:grid-cols-3">
+          <ul className="grid gap-3 md:grid-cols-3 print:grid-cols-3">
             {r.recommendations.map((rec) => (
               <li key={rec.group} className="rounded border border-arm-gray/70 p-3 text-sm">
                 <div className="font-semibold">{rec.title}</div>

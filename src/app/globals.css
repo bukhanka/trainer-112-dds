@@ -26,3 +26,41 @@ body {
   background: #f4f5f6;
   color: #1f2326;
 }
+
+/*
+ * Print and «Сохранить как PDF» of the cabinet pages: A4, no cabinet frame (print:hidden), colours of charts and marks
+ * kept. A page may turn the paper (src/components/PrintPage.tsx). Inside .print-doc a block is not cut between pages
+ * and a table that scrolls on screen prints whole.
+ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+  html,
+  body {
+    height: auto;
+    background: #fff;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-doc a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .print-doc .overflow-x-auto {
+    overflow: visible;
+  }
+  .print-doc section,
+  .print-doc figure,
+  .print-doc tr,
+  .print-doc li {
+    break-inside: avoid;
+  }
+  .print-doc h1,
+  .print-doc h2 {
+    break-after: avoid;
+  }
+}

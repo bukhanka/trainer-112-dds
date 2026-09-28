@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BarChart, niceMax } from "@/components/charts";
+import { PrintButton } from "@/components/PrintButton";
+import { PrintPage } from "@/components/PrintPage";
 import { Badge, LinkButton, PageHeader, Section, Stat } from "@/components/ui";
 import { loadRatingAttempts, teacherLessons } from "@/lib/adaptive/levels";
 import { lessonLevels } from "@/lib/adaptive/report";
@@ -8,6 +10,7 @@ import { lessonForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDelta, formatDuration, plural, shortName } from "@/lib/format";
+import { certificateVerdict } from "@/lib/reports/certificate";
 import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
 import { describePassRules } from "@/lib/scoring/pass";
@@ -30,7 +33,10 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
   const { id } = await props.params;
   const lesson = await findLesson(user, id);
   if (!lesson) notFound();
-  const group = lesson.groupId ? await db.group.findUnique({ where: { id: lesson.groupId }, select: { name: true } }) : null;
+  const [group, teacher] = await Promise.all([
+    lesson.groupId ? db.group.findUnique({ where: { id: lesson.groupId }, select: { name: true } }) : null,
+    db.user.findUnique({ where: { id: lesson.teacherId }, select: { fullName: true } }),
+  ]);
   const input = await loadReportInput(lesson);
   const report = buildLessonReport(input);
   const forecast = await lessonForecast(lesson.id, input);
@@ -43,10 +49,15 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
   const s = report.summary;
   const duration = lesson.startedAt ? ((lesson.finishedAt ?? new Date()).getTime() - lesson.startedAt.getTime()) / 1000 : null;
   const withTime = report.students.filter((r) => r.avgTimeSec != null);
+  // «Сертификат о прохождении занятия»: every attempt of the student checked and «зачтено» (src/lib/reports/certificate.ts).
+  const certified = new Set(
+    input.seats.map((x) => x.studentId).filter((sid) => certificateVerdict(lesson, input.attempts.filter((a) => a.studentId === sid), report.pass).ok),
+  );
   const timeMax = niceMax(Math.max(0, ...withTime.map((r) => Math.max(r.avgTimeSec!, r.normSec))) * 1.1);
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4">
+    <div className="print-doc mx-auto flex max-w-7xl flex-col gap-4 print:gap-3">
+      <PrintPage landscape />
       <PageHeader
         back={{ href: `/teacher/lessons/${id}`, label: lesson.title }}
         title={`Отчёт занятия «${lesson.title}»`}
@@ -56,10 +67,15 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
             {duration != null && <> · длительность {formatDuration(duration)}</>}
             {lesson.status === "RUNNING" && " · занятие ещё идёт"}
             <> · зачёт: {describePassRules(report.pass)}</>
+            <span className="hidden print:inline">
+              {" "}
+              · преподаватель {teacher?.fullName ?? "—"} · отчёт сформирован {formatDateTime(new Date())}
+            </span>
           </>
         }
         actions={
           <>
+            <PrintButton label="🖨 Печать / PDF" />
             <LinkButton href={`/api/teacher/lessons/${id}/report/csv`} prefetch={false} variant="primary">
               ↓ CSV по ученикам
             </LinkButton>
@@ -76,11 +92,11 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
           <Link href={`/teacher/lessons/${id}/attempts?status=PENDING`} className="font-medium underline">
             проверить
           </Link>
-          .
+          <span className="print:hidden"> (черновики, с которыми вы согласны, можно утвердить списком)</span>.
         </p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 print:grid-cols-5">
         <Stat label="Учеников на местах" value={s.students} />
         <Stat label="Подтверждённых попыток" value={s.reviewed} hint={s.pending ? `ещё ${s.pending} на проверке` : "все проверены"} />
         <Stat label="Средний балл (0–100)" value={s.avgScore ?? "—"} />
@@ -96,7 +112,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         <p className="text-sm">{report.insight}</p>
       </Section>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 print:grid-cols-2">
         <Section title="Лидеры — и почему">
           {report.leaders.length ? (
             <ol className="flex flex-col gap-2 text-sm">
@@ -154,7 +170,14 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
             <tbody className="divide-y divide-arm-gray/50">
               {report.students.map((r) => (
                 <tr key={r.studentId}>
-                  <td className="py-1.5 pr-3 font-medium">{r.name}</td>
+                  <td className="py-1.5 pr-3 font-medium">
+                    {r.name}
+                    {certified.has(r.studentId) && (
+                      <Link href={`/teacher/lessons/${id}/certificate/${r.studentId}`} className="block text-xs font-normal text-arm-blue hover:underline print:hidden">
+                        сертификат
+                      </Link>
+                    )}
+                  </td>
                   <td className="py-1.5 pr-3">
                     {r.seat} · {r.role === "OP112" ? "112" : `ДДС${r.service ? `, ${r.service}` : ""}`}
                   </td>
@@ -244,7 +267,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         </p>
       </Section>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 print:grid-cols-2">
         <Section title="Средний балл по ученикам">
           <BarChart
             unit=""

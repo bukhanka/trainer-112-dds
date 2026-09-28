@@ -13,7 +13,7 @@ import { plural } from "@/lib/format";
 import { OP112_KEYS } from "@/lib/help/op112-keys";
 import { defaultTeacherSettings } from "@/lib/lessons/defaults";
 import { CRITICAL_CAP, WEIGHT_GROUPS } from "@/lib/scoring/score";
-import { PrintButton } from "./PrintButton";
+import { PrintButton } from "@/components/PrintButton";
 
 /** When each status is set, in the words of the dispatcher memo. */
 const WHEN: Record<ServiceStatus, { who: "система" | "вы"; when: string }> = {
