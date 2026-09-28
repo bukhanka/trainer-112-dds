@@ -23,7 +23,7 @@ RUN apk add --no-cache postgresql16-client tzdata su-exec \
  && npm install -g prisma@6.19.3 \
  && npm cache clean --force
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 BACKUP_DIR=/backups TZ=Europe/Moscow
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 BACKUP_DIR=/backups MATERIALS_DIR=/materials TZ=Europe/Moscow
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
@@ -31,13 +31,17 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/data ./data
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/scripts ./scripts
+# Files of the demo materials (prisma/seed-materials.ts): a guide, a screen and the documentation of this repository.
+COPY --from=build /app/docs/dds.md /app/docs/documentation.pdf ./docs/
+COPY --from=build /app/docs/img/02-dds-card.png ./docs/img/
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/bcryptjs ./node_modules/bcryptjs
 COPY docker-entrypoint.sh cluster.cjs ./
-# The server runs as the unprivileged «node» user (see docker-entrypoint.sh); it writes only backups and the Next.js cache.
-RUN mkdir -p /backups /app/.next/cache && chown -R node:node /backups /app/.next/cache
-VOLUME ["/backups"]
+# The server runs as the unprivileged «node» user (see docker-entrypoint.sh); it writes only backups, the files of the
+# library of materials and the Next.js cache.
+RUN mkdir -p /backups /materials /app/.next/cache && chown -R node:node /backups /materials /app/.next/cache
+VOLUME ["/backups", "/materials"]
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
 ENTRYPOINT ["./docker-entrypoint.sh"]

@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { buttonClass, fieldClass } from "@/components/ui";
 import { createFromText, type NewScenarioState } from "./actions";
+import { TicketFile } from "./TicketFile";
 
 const EXAMPLES = [
   "Горит квартира на 5 этаже, в квартире остался ребёнок. Звонит соседка снизу Петрова Анна Ивановна, ул. Грина, 11. Дом газифицирован.",
@@ -14,6 +15,7 @@ export function NewScenarioForm() {
   const [state, action, pending] = useActionState<NewScenarioState, FormData>(createFromText, {});
   return (
     <form action={action} className="flex flex-col gap-3">
+      <TicketFile />
       <label className="flex flex-col gap-1 text-sm">
         Что случилось — своими словами
         <textarea

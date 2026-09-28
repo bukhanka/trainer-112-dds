@@ -9,6 +9,7 @@
  *   backup      the latest successful backup is younger than BACKUP_MAX_AGE_HOURS, not empty and readable
  *               (pg_dump header, and `pg_restore --list` when the tool is installed)
  *   disk        free space on the backup and application disks is above integrity.minFreeGb
+ *   materials   every file of the library of materials is on disk with its size; how many are in the backup mirror
  *
  * The result is kept in the setting «integrity.last» (every server process and page sees it) and written to
  * the system journal; a failed check puts a red banner on the administrator's home page.
@@ -22,6 +23,8 @@ import { audit } from "../audit";
 import { db } from "../db";
 import { formatDateTime } from "../format";
 import { getSetting } from "../settings";
+import { formatBytes } from "../files/names";
+import { MATERIALS_DIR, MIRROR_FOLDER, storedPath } from "../materials/storage";
 import { BACKUP_DIR } from "./backup";
 import { localDay } from "./days";
 
@@ -30,7 +33,7 @@ const run = promisify(execFile);
 export const BACKUP_MAX_AGE_HOURS = 26;
 export const INTEGRITY_SETTING = "integrity.last";
 
-export type CheckCode = "db" | "migrations" | "reference" | "backup" | "disk";
+export type CheckCode = "db" | "migrations" | "reference" | "backup" | "disk" | "materials";
 export type Check = { code: CheckCode; title: string; ok: boolean; detail: string };
 export type IntegrityReport = {
   at: string;
@@ -49,6 +52,7 @@ export const CHECK_TITLES: Record<CheckCode, string> = {
   reference: "Справочники полные",
   backup: "Свежая читаемая резервная копия",
   disk: "Свободное место на диске",
+  materials: "Файлы материалов на месте",
 };
 
 const check = (code: CheckCode, ok: boolean, detail: string): Check => ({ code, title: CHECK_TITLES[code], ok, detail });
@@ -154,6 +158,24 @@ export function diskCheck(freeGb: number | null, minGb: number): Check {
   return check("disk", true, `Свободно ${freeGb.toFixed(1)} ГБ, порог ${minGb} ГБ`);
 }
 
+/** A file of the library: its row, the size on disk (null — no file) and whether the backup mirror has it. */
+export type MaterialFile = { title: string; sizeBytes: number; actual: number | null; mirrored: boolean };
+
+export function materialsCheck(files: MaterialFile[]): Check {
+  if (!files.length) return check("materials", true, "Материалов в библиотеке нет");
+  const missing = files.filter((f) => f.actual == null);
+  const changed = files.filter((f) => f.actual != null && f.actual !== f.sizeBytes);
+  const names = (list: MaterialFile[]) => `${list.slice(0, 3).map((f) => `«${f.title}»`).join(", ")}${list.length > 3 ? "…" : ""}`;
+  const problems = [
+    ...(missing.length ? [`нет файла у ${missing.length} из ${files.length}: ${names(missing)} — восстановите из резервной копии (scripts/restore.sh) или загрузите заново`] : []),
+    ...(changed.length ? [`размер файла не совпадает у ${changed.length}: ${names(changed)}`] : []),
+  ];
+  if (problems.length) return check("materials", false, capitalize(problems.join("; ")));
+  const total = files.reduce((sum, f) => sum + f.sizeBytes, 0);
+  const mirrored = files.filter((f) => f.mirrored).length;
+  return check("materials", true, `${files.length} файлов, ${formatBytes(total)}; в каталоге копий — ${mirrored} из ${files.length}${mirrored < files.length ? " (новые попадут в следующую копию)" : ""}`);
+}
+
 // ─── running the check ───────────────────────────────────────────────────────
 
 const ROOT = /*turbopackIgnore: true*/ process.cwd();
@@ -216,6 +238,25 @@ async function freeGb(): Promise<number | null> {
   return known.length ? Math.min(...known) : null;
 }
 
+async function materialFiles(): Promise<MaterialFile[]> {
+  const rows = await db.material.findMany({ select: { title: true, storedName: true, sizeBytes: true } });
+  const size = async (dir: string, name: string) => {
+    try {
+      return (await stat(/*turbopackIgnore: true*/ storedPath(name, dir))).size;
+    } catch {
+      return null;
+    }
+  };
+  return Promise.all(
+    rows.map(async (r) => ({
+      title: r.title,
+      sizeBytes: r.sizeBytes,
+      actual: await size(MATERIALS_DIR, r.storedName),
+      mirrored: (await size(path.join(/*turbopackIgnore: true*/ BACKUP_DIR, MIRROR_FOLDER), r.storedName)) === r.sizeBytes,
+    })),
+  );
+}
+
 async function collectChecks(now: Date): Promise<Check[]> {
   const checks: Check[] = [];
   const t0 = Date.now();
@@ -270,6 +311,7 @@ async function collectChecks(now: Date): Promise<Check[]> {
     checks.push(backupCheck(latest, lastOk, lastOk?.fileName ? await inspectDump(lastOk.fileName) : null, now));
   }
   checks.push(diskCheck(free, Number(minGb) || 2));
+  checks.push(dbOk ? await materialFiles().then(materialsCheck, () => check("materials", false, "Не удалось проверить файлы материалов")) : check("materials", false, "Не проверено: база недоступна"));
   return checks;
 }
 

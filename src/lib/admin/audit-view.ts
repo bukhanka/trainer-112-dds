@@ -93,6 +93,8 @@ export function auditObject(row: AuditRow, names: AuditNames): string {
       const person = personName(names, id) ?? (str(a.login) ? `${str(a.fullName) ?? ""} (${str(a.login)})`.trim() : null);
       return person ? `Пользователь ${person}` : "Пользователь (удалён)";
     }
+    case "Material":
+      return titleFromData ? `Материал ${quoted(titleFromData)}` : "Материал";
     case "TeacherCorrection": {
       const title = names.corrections.get(id);
       return title ? `Правка проверки ${quoted(title)}` : "Правка ИИ-проверки";
@@ -203,6 +205,13 @@ const FIELD: Record<string, string> = {
   changes: "Исправлены проверки",
   settings: "Настройки",
   teacherNote: "Заметка преподавателя",
+  file: "Файл",
+  type: "Тип файла",
+  size: "Размер",
+  access: "Кому виден",
+  lesson: "Занятие",
+  ticket: "Билет",
+  materials: "Удалено материалов",
 };
 
 /** Keys that repeat what the object already says, or ids that mean nothing to a person. */
@@ -239,7 +248,7 @@ const WORDS: Record<string, Record<string, string>> = {
   trigger: { manual: "вручную", scheduled: "по расписанию" },
   kind: { students: "по ученикам", attempts: "по попыткам" },
   source: { ai: "ИИ", rules: "правила" },
-  via: { category: "по категории и району" },
+  via: { category: "по категории и району", file: "из файла билета" },
   cardSource: { generated: "генерирует система", students: "от учеников на местах 112", mixed: "система и ученики" },
 };
 const SECTION_TITLES: Record<string, string> = Object.fromEntries(SECTIONS.map((s) => [s.key, s.title]));

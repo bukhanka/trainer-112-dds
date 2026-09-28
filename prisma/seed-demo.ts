@@ -23,6 +23,7 @@ import { pickAdaptive } from "../src/lib/adaptive/pick";
 import { computeRating, type RatingAttempt } from "../src/lib/adaptive/rating";
 import { saveLessonForecasts } from "../src/lib/adaptive/snapshot";
 import { isEntry } from "./entry";
+import { seedDemoMaterials } from "./seed-materials";
 
 const db = new PrismaClient();
 
@@ -1008,8 +1009,10 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   let snapshots = 0;
   for (const id of DEMO_IDS) snapshots += await saveLessonForecasts(id, { client: db });
 
+  const materials = await seedDemoMaterials(db);
+
   const counts = [...history, l1, l2].map((l) => l.attempts).join(", ");
-  console.log(`seed-demo: 6 finished lessons (attempts ${counts}), draft lesson 3${live ? ", live lesson" : ""}; forecast snapshots ${snapshots}`);
+  console.log(`seed-demo: 6 finished lessons (attempts ${counts}), draft lesson 3${live ? ", live lesson" : ""}; forecast snapshots ${snapshots}; materials ${materials}`);
 }
 
 export function disconnectDemo() {

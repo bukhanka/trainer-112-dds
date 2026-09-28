@@ -507,6 +507,33 @@ model TeacherCorrection {
   @@index([attemptId])
 }
 
+// ─── Library of materials ────────────────────────────────────────────────────
+
+/// A document of the training centre's library (ТЗ п. 88, 157, 181): methodology, instructions, tables, pictures.
+/// The file lives on disk in MATERIALS_DIR under `storedName` (src/lib/materials/storage.ts); the row says who sees it.
+/// lessonId and ownerId are plain ids, not relations: a deleted lesson leaves its material to the staff, never to
+/// every student, and a deleted account keeps its uploads with the name they were made under.
+model Material {
+  id         String   @id @default(cuid())
+  title      String
+  fileName   String // the uploaded name, cleaned: the name of the download
+  storedName String   @unique // «<uuid>.<ext>» in MATERIALS_DIR, never taken from the upload
+  kind       String // pdf | docx | xlsx | pptx | txt | png | jpg | gif | webp
+  mime       String // Content-Type the file is served with (a text — with its charset)
+  sizeBytes  Int
+  sha256     String
+  /// all — every student; lesson — the students of lessonId (place or group); staff — teachers and administrators
+  audience   String   @default("all")
+  lessonId   String?
+  ownerId    String?
+  ownerName  String
+  source     String   @default("upload") // upload | demo (the demo stand's own set, rebuilt by the demo seed)
+  createdAt  DateTime @default(now())
+
+  @@index([audience, createdAt])
+  @@index([lessonId])
+}
+
 // ─── Administration ──────────────────────────────────────────────────────────
 
 model SystemSetting {

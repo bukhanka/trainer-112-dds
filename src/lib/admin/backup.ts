@@ -4,13 +4,17 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { db } from "../db";
 import { audit } from "../audit";
+import { mirrorMaterials, pruneMaterialMirror } from "../materials/storage";
 
 const run = promisify(execFile);
 
 // Dumps live outside the traced server bundle.
 export const BACKUP_DIR = process.env.BACKUP_DIR ?? path.join(/*turbopackIgnore: true*/ process.cwd(), "backups");
 
-/** Database dump in pg_dump custom format. Restore: scripts/restore.sh <file> (see docs/admin.md). */
+/**
+ * Database dump in pg_dump custom format, plus the files of the library of materials mirrored into
+ * BACKUP_DIR/materials (the dump lists them, it does not hold them). Restore: scripts/restore.sh <file> (docs/admin.md).
+ */
 export async function runBackup(kind: "manual" | "scheduled", actor?: { id: string; login: string }) {
   await mkdir(/*turbopackIgnore: true*/ BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -23,6 +27,8 @@ export async function runBackup(kind: "manual" | "scheduled", actor?: { id: stri
       timeout: 10 * 60_000,
     });
     const { size } = await stat(/*turbopackIgnore: true*/ path.join(BACKUP_DIR, fileName));
+    const stored = await db.material.findMany({ select: { storedName: true } });
+    await mirrorMaterials(stored.map((m) => m.storedName), BACKUP_DIR);
     await db.backup.update({ where: { id: row.id }, data: { status: "ok", sizeBytes: BigInt(size) } });
     await audit({ action: kind === "manual" ? "backup.manual" : "backup.scheduled", actorId: actor?.id, actor: actor?.login ?? "system", entity: "Backup", entityId: row.id });
   } catch (err) {
@@ -33,7 +39,10 @@ export async function runBackup(kind: "manual" | "scheduled", actor?: { id: stri
   return db.backup.findUniqueOrThrow({ where: { id: row.id } });
 }
 
-/** Remove dump files and rows older than keepDays; returns how many of each went. */
+/**
+ * Remove dump files and rows older than keepDays; returns how many of each went. Mirror copies of deleted materials
+ * go too once no kept dump can list them (last seen alive by a backup before the cutoff); they count as files.
+ */
 export async function pruneBackups(keepDays: number): Promise<{ files: number; rows: number }> {
   const cutoff = Date.now() - keepDays * 86_400_000;
   const files = await readdir(/*turbopackIgnore: true*/ BACKUP_DIR).catch(() => [] as string[]);
@@ -49,6 +58,8 @@ export async function pruneBackups(keepDays: number): Promise<{ files: number; r
       if (gone) removed++;
     }
   }
+  const live = new Set((await db.material.findMany({ select: { storedName: true } })).map((m) => m.storedName));
+  removed += await pruneMaterialMirror(live, BACKUP_DIR, cutoff);
   const rows = await db.backup.deleteMany({ where: { createdAt: { lt: new Date(cutoff) } } });
   return { files: removed, rows: rows.count };
 }

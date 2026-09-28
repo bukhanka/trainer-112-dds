@@ -2,6 +2,7 @@ node_modules
 .next
 .git
 backups
+storage
 .env
 .env.*
 !.env.example

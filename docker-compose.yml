@@ -53,6 +53,8 @@ services:
       - "${APP_PUBLISH:-3000}:3000"
     volumes:
       - backups:/backups
+      # Files of the library of materials; the backup job mirrors them into the backups volume.
+      - materials:/materials
       - ${GOOGLE_KEY_FILE:-./deploy/no-google-key.json}:/run/secrets/google-sa.json:ro
 
   caddy:
@@ -75,4 +77,5 @@ services:
 volumes:
   db-data:
   backups:
+  materials:
   caddy-data:
