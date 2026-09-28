@@ -175,6 +175,9 @@ async function main() {
     });
     const worked3 = await op.call("POST", `/api/op112/incidents/${card3?.id}/worked`);
     check(worked3.status === 200, "повторная карточка отработана");
+    // Both tasks of the place have rung: no call comes a second time.
+    const ring4 = await op.call("POST", "/api/op112/ring");
+    check(ring4.status === 404 && ring4.body.error === "all_dealt", "новых вызовов нет: задания места закончились, по кругу не звонит", `HTTP ${ring4.status} ${JSON.stringify(ring4.body).slice(0, 80)}`);
 
     // 3b. The second 112 place: silence on the line → «нет контакта», an empty card without services.
     const ring2 = await quiet.call("POST", "/api/op112/ring");
@@ -199,6 +202,12 @@ async function main() {
       crewNumber: "12",
       comment: "Принята, направлен дежурный наряд 12",
     });
+    // Generated cards of the district ДДС are on its territory (dds/territory.ts).
+    const generated = rows.filter((r) => r.number !== incident!.number && r.number !== card3?.number);
+    if (SOURCE !== "students") {
+      const foreign = generated.filter((r) => !/Северное Бутово/.test(r.address ?? ""));
+      check(generated.length > 0 && !foreign.length, "сгенерированные карточки ДДС — в её районе", generated.map((r) => r.address).join(" | ").slice(0, 200));
+    }
     if (FROM_112) {
       check(!!row, "карточка пришла в ленту ДДС", row ? `${row.address ?? ""}; в ленте карточек: ${rows.length}` : `в ленте ${rows.length} карточек, HTTP ${feed.status}`);
       check(accepted.status === 200, "ДДС поставила «Принята» с нарядом", `HTTP ${accepted.status} ${accepted.status === 200 ? "" : JSON.stringify(accepted.body).slice(0, 120)}`);
@@ -210,6 +219,8 @@ async function main() {
     // 5. The teacher: board, stop, attempts of both places.
     const board = await teacher.call("GET", `/api/teacher/lessons/${lessonId}/board`);
     check(board.status === 200, "доска класса отвечает", `мест: ${((board.body.seats as unknown[]) ?? []).length}`);
+    const opTile = ((board.body.seats as { studentName: string; dealtOut?: boolean }[]) ?? []).find((t) => t.studentName === s1.fullName);
+    check(opTile?.dealtOut === true, "на доске: у места 112 задания закончились");
     const stopped = await teacher.call("POST", `/api/teacher/lessons/${lessonId}/stop`);
     check(stopped.status < 300, "занятие остановлено");
     const attempts = await db.attempt.findMany({

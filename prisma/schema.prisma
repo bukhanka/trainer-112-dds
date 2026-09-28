@@ -238,17 +238,19 @@ enum SeatRole {
 
 /// A student's place in a lesson. One account, two mini-roles: 112 operator or ДДС dispatcher.
 model Seat {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   lessonId    String
-  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  lesson      Lesson    @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   studentId   String
-  student     User     @relation(fields: [studentId], references: [id])
+  student     User      @relation(fields: [studentId], references: [id])
   role        SeatRole
   serviceId   Int? // ДДС profile: whose plates are «own»
-  service     Service? @relation(fields: [serviceId], references: [id])
+  service     Service?  @relation(fields: [serviceId], references: [id])
   scenarioIds String[] // tasks assigned to this place
   label       String? // «Место 1»
-  createdAt   DateTime @default(now())
+  /// When the place ran out of new tasks: every task and scenario it can get in this lesson has come (null — some are left)
+  dealtOutAt  DateTime?
+  createdAt   DateTime  @default(now())
 
   calls    Call[]
   attempts Attempt[]

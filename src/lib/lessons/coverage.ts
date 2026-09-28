@@ -45,6 +45,8 @@ export type Coverage = {
   few: number | null;
   /** Empty categories that have tasks, but only for the 112 place. */
   only112: string[];
+  /** Cards come from the 112 places only, and the lesson has ДДС places but no 112 place: the ДДС places get nothing. */
+  no112: boolean;
 };
 
 const quoted = (list: string[]) => list.map((c) => `«${c}»`).join(", ");
@@ -85,14 +87,20 @@ export function lessonCoverage(scenarios: CoverageScenario[], settings: Coverage
       "Утвердите сценарии в разделе «Сценарии», выберите другие категории или локацию либо отметьте задания местам вручную.";
   }
   const sizes = [...(ddsDraw ? [pool.dds] : []), ...(opDraw ? [pool.op112] : [])];
-  return { counts, empty, only112, pool, drawing, blocked, few: sizes.length ? Math.min(...sizes) : null };
+  const no112 = settings.cardSource === "students" && seats.some((s) => s.role === "DDS") && !seats.some((s) => s.role === "OP112");
+  return { counts, empty, only112, pool, drawing, blocked, few: sizes.length ? Math.min(...sizes) : null, no112 };
 }
 
 /** Fewer scenarios than this for the places without tasks — the cards will come round again and again. */
 export const FEW_SCENARIOS = 5;
 
+/** Cards typed at 112 places are the only source, and there is no 112 place: the ДДС places would sit empty. */
+export const NO_112_WARNING =
+  "Источник карточек — «Сформированные учениками», а мест 112 в занятии нет: местам ДДС карточки не придут. Сделайте кого-то оператором 112 или выберите источник «Сгенерированные» или «Смешанные».";
+
 /** Warnings for the teacher before the start: a chosen category that gives nothing only narrows the choice. */
 export function coverageWarnings(c: Coverage, settings: CoverageSettings): string[] {
+  if (c.no112) return [NO_112_WARNING];
   if (!c.drawing || c.blocked) return [];
   const where = settings.location ? ` в локации «${placeLabel(settings.location)}»` : "";
   const out = c.empty.map((name) =>

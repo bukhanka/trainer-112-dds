@@ -124,10 +124,18 @@ function SeatTile({ seat, now, lessonId, finished }: { seat: SeatState; now: num
         {seat.serviceName && <span className="min-w-0 truncate text-xs text-arm-desc" title={seat.serviceName}>{seat.serviceName}</span>}
         {seat.queue > 0 && <span className="ml-auto shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900">в очереди {seat.queue}</span>}
       </header>
+      {seat.dealtOut && (
+        <div
+          className="-mt-1 w-fit rounded bg-arm-panel px-1.5 py-0.5 text-xs font-medium text-arm-dark"
+          title={`Все задания и сценарии, которые место может получить на этом занятии, уже пришли: новых ${is112 ? "вызовов" : "карточек"} не будет. Каждое задание приходит месту один раз.`}
+        >
+          Задания закончились — новых {is112 ? "вызовов" : "карточек"} не будет
+        </div>
+      )}
       <div className="text-base font-semibold leading-tight">{seat.studentName}</div>
       {seat.level && (
         <div className="-mt-1 text-xs text-arm-desc" title="Уровень ученика в роли этого места («как в шахматах») и сложность заданий, которую он подсказывает">
-          Уровень <span className="font-semibold tabular-nums text-arm-dark">{seat.level.rating}</span> · задания ≈ {seat.level.difficulty} из 10
+          Уровень <span className="font-semibold tabular-nums text-arm-dark">{seat.level.rating}</span> · сложность заданий ≈ {seat.level.difficulty} из 10
           {!seat.level.attempts && " · новичок"}
         </div>
       )}
@@ -146,7 +154,9 @@ function SeatTile({ seat, now, lessonId, finished }: { seat: SeatState; now: num
         ) : seat.timer ? (
           <div className="font-medium">{seat.timer.label === "входящий вызов" ? "Звонит заявитель" : "Разговор с заявителем"}</div>
         ) : (
-          <div className="text-arm-desc">{finished ? "Занятие завершено" : is112 ? "Ждёт вызова" : "Нет открытых карточек"}</div>
+          <div className="text-arm-desc">
+            {finished ? "Занятие завершено" : seat.dealtOut ? "Все задания уже пришли — новых не будет" : is112 ? "Ждёт вызова" : "Нет открытых карточек"}
+          </div>
         )}
       </div>
 
@@ -285,9 +295,11 @@ function Projector({ data, now, elapsed, running, offline }: { data: BoardRespon
                     ? seat.timer.label
                     : data.lesson.status === "FINISHED"
                       ? "занятие завершено"
-                      : seat.role === "OP112"
-                        ? "ждёт вызова"
-                        : "нет карточек"}
+                      : seat.dealtOut
+                        ? "задания закончились"
+                        : seat.role === "OP112"
+                          ? "ждёт вызова"
+                          : "нет карточек"}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-base">
                 <span className="text-white/70">сдал {seat.counts.submitted}</span>

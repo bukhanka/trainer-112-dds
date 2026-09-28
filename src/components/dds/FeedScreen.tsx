@@ -354,6 +354,13 @@ function FeedRecord(props: { row: FeedRow; now: number; ackSec: number; workSec:
   );
 }
 
+/** Every task of the place has come (Seat.dealtOutAt): what the student reads instead of a countdown. */
+function dealtOutText(cardSource: string): string {
+  return cardSource === "mixed"
+    ? "Новых сгенерированных карточек пока нет: все задания этого места уже пришли. Карточки с мест 112 приходят по-прежнему."
+    : "Новых карточек пока нет: все задания этого места уже пришли. Доработайте открытые карточки — преподаватель видит на доске, что задания закончились.";
+}
+
 function EmptyFeed({ filtered }: { filtered: boolean }) {
   const { state } = useDds();
   const next = state.flow?.nextCardInSec;
@@ -361,6 +368,7 @@ function EmptyFeed({ filtered }: { filtered: boolean }) {
   if (filtered) text = "Ничего не найдено — измените поиск или нажмите «сбросить».";
   else if (state.flow?.noScenarios) text = "Нет одобренных сценариев для этого занятия — карточки не приходят. Обратитесь к преподавателю.";
   else if (state.flow?.paused) text = "Карточек пока нет: администратор приостановил поток новых карточек.";
+  else if (state.flow?.exhausted) text = dealtOutText(state.seat.cardSource);
   else if (state.flow?.running && next != null) text = `Карточек пока нет. Первая придёт через ${fmtDuration(next)}.`;
   return <div className="mt-6 text-center text-[14px] text-white/85">{text}</div>;
 }
@@ -394,7 +402,15 @@ function SeatStrip() {
       </div>
     );
   }
-  if (!seat.practice && !seat.hints) return null;
+  if (!seat.practice && !seat.hints) {
+    // Without hints the strip speaks only when the place has had all its tasks: otherwise the feed just goes quiet.
+    if (!flow?.exhausted || flow.paused) return null;
+    return (
+      <div role="status" className="mt-3 bg-arm-dark/60 px-3 py-2 text-[13px]">
+        {dealtOutText(seat.cardSource)}
+      </div>
+    );
+  }
 
   async function finish() {
     if (!confirm("Завершить тренировку? Незакрытые карточки попадут в разбор как есть.")) return;
@@ -416,11 +432,15 @@ function SeatStrip() {
           ? "Нет одобренных сценариев."
           : flow?.paused
             ? "Новые карточки приостановлены администратором."
-            : next != null
-              ? `Следующая карточка через ${fmtDuration(next)}.`
-              : flow && flow.queue >= flow.maxQueue
-                ? "Очередь заполнена: закройте карточку, чтобы пришла новая."
-                : ""}
+            : flow?.exhausted
+              ? seat.cardSource === "mixed"
+                ? "Новых сгенерированных карточек пока нет: все задания пришли."
+                : "Новых карточек пока нет: все задания пришли."
+              : next != null
+                ? `Следующая карточка через ${fmtDuration(next)}.`
+                : flow && flow.queue >= flow.maxQueue
+                  ? "Очередь заполнена: закройте карточку, чтобы пришла новая."
+                  : ""}
       </span>
       {seat.practice ? (
         <button onClick={finish} disabled={busy} className="ml-auto border border-white/60 px-2 py-0.5 hover:bg-white/10 disabled:opacity-50">

@@ -55,6 +55,8 @@ export type BoardInput = {
     scenarioIds: string[];
     /** The student's level in the role of this place (src/lib/adaptive/rating.ts). */
     level?: SeatLevel | null;
+    /** When the place ran out of new tasks (Seat.dealtOutAt): every task and scenario it can get has come. */
+    dealtOutAt?: Date | null;
   }[];
   incidents: {
     id: string;
@@ -121,6 +123,8 @@ export type SeatState = {
   serviceName: string | null;
   tasks: number;
   level: SeatLevel | null;
+  /** The lesson runs and the place has had all its tasks: no new cards or calls will come to it. */
+  dealtOut: boolean;
   current: { number: number; title: string; address: string | null; status: string; difficulty: number | null } | null;
   timer: SeatTimer | null;
   queue: number;
@@ -272,6 +276,7 @@ export function buildBoard(input: BoardInput, now: Date): BoardState {
       serviceName: seat.serviceName,
       tasks: seat.scenarioIds.length,
       level: seat.level ?? null,
+      dealtOut: running && !!seat.dealtOutAt,
       failedChecks: failed,
       topErrors: top,
       pendingReview: attempts.filter((a) => a.reviewStatus === "PENDING").length,

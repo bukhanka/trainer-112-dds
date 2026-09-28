@@ -64,6 +64,7 @@ export async function loadBoardInput(lesson: Lesson): Promise<BoardInput> {
       serviceName: s.service?.shortName ?? null,
       scenarioIds: s.scenarioIds,
       level: levelOf(s.studentId, s.role),
+      dealtOutAt: s.dealtOutAt,
     })),
     incidents: incidents.map((i) => ({
       id: i.id,

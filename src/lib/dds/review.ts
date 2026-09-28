@@ -20,7 +20,8 @@ import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarity
 import { dispatchOf } from "./crew";
 import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
 import { mentionsCardNumber } from "./personas";
-import { cardErrorFrom, referenceFor, saysCardErrorRight } from "./scenario";
+import { cardErrorFrom, saysCardErrorRight } from "./scenario";
+import { cardReference } from "./territory";
 import { seatFeedWhere, settingsOf, type SeatRef } from "./scope";
 import { awaitsAnswer, rulesFor } from "./status";
 import { DDS_TX } from "./tx";
@@ -114,7 +115,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
   const reports = crewCalls.flatMap((c) => (cp(c).reports ?? []).map((r) => ({ status: r.status, at: new Date(r.at) })));
   const incoming = calls.filter((c) => c.kind === "BRIGADE_IN" && c.status !== "RINGING");
-  const reference = referenceFor(incident.scenario?.ddsReference, plate.service);
+  const reference = cardReference(incident.scenario?.ddsReference, plate.service, incident.address);
   // Calls to 112 about the card: made from it, naming its number (from the feed or another card), or from the keypad
   // with the right information of its error said.
   const phone112 = await db.call.findMany({ where: { seatId, kind: "SERVICE_OUT" } });

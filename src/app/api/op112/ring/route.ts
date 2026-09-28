@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { CallerPersona } from "@/lib/incident/types";
 import { jsonError, op112User } from "@/lib/op112/access";
-import { findActiveSeat, nextScenario } from "@/lib/op112/seat";
+import { drawCall, findActiveSeat } from "@/lib/op112/seat";
 import { currentSessionId } from "@/lib/op112/session-key";
 import { callDto } from "@/lib/op112/state";
 
@@ -24,8 +24,14 @@ export async function POST() {
   const ringing = await db.call.findFirst({ where: { seatId: seat.id, kind: "CALLER_IN", status: "RINGING" }, orderBy: { startedAt: "asc" } });
   if (ringing) return Response.json({ call: callDto(ringing) });
 
-  const scenario = await nextScenario(seat);
-  if (!scenario) return jsonError("no_scenarios", 404);
+  const draw = await drawCall(seat);
+  const scenario = draw.scenario;
+  if (!scenario) {
+    // A repeat call waits for the card of its first call; otherwise every task of the place has rung (op112/seat.ts).
+    if (draw.left) return jsonError("waiting", 409);
+    await markDealtOut(seat.id, new Date());
+    return jsonError(draw.pool ? "all_dealt" : "no_scenarios", 404);
+  }
   const persona = scenario.caller as CallerPersona;
   const phone = persona.phone || randomPhone();
   const call = await db.call.create({
@@ -44,6 +50,8 @@ export async function POST() {
       },
     },
   });
+  // The last task of the place is ringing: the board shows at once that the place has had them all.
+  await markDealtOut(seat.id, draw.left ? null : new Date());
   // Two quick requests may both create a call: keep the oldest ringing one.
   const all = await db.call.findMany({ where: { seatId: seat.id, kind: "CALLER_IN", status: "RINGING" }, orderBy: { startedAt: "asc" } });
   if (all.length > 1) {
@@ -51,4 +59,9 @@ export async function POST() {
     return Response.json({ call: callDto(all[0]) });
   }
   return Response.json({ call: callDto(call) });
+}
+
+/** Seat.dealtOutAt: when the place ran out of tasks; cleared when something new comes up. */
+async function markDealtOut(seatId: string, at: Date | null) {
+  await db.seat.updateMany({ where: { id: seatId, dealtOutAt: at ? null : { not: null } }, data: { dealtOutAt: at } });
 }

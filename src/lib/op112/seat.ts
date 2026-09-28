@@ -6,7 +6,7 @@ import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
 import { isPractice } from "@/lib/lessons/form";
 import { adaptiveChoice, lessonSettingsSchema, parseLessonSettings, type LessonSettings } from "@/lib/lessons/settings";
-import { inPlayAtDds, notRightAfter, preferNotInPlay } from "@/lib/lessons/in-play";
+import { dealtAtDds, inPlayAtDds, preferNotInPlay, scenarioOfCall } from "@/lib/lessons/in-play";
 import { hasCardError } from "@/lib/dds/scenario";
 import { withoutPairsOf, withPairs } from "@/lib/scenarios/pairs";
 import { inLessonLocation } from "@/lib/scenarios/place";
@@ -151,14 +151,29 @@ const USABLE: Prisma.ScenarioWhereInput = {
   NOT: { status: "ARCHIVED" },
 };
 
-/**
- * Next scenario for a seat: the teacher's list for this place if any, otherwise approved scenarios
- * of the lesson's categories and location. Scenarios the seat has not had yet come first: near the student's level
- * when the lesson is adaptive (src/lib/adaptive), easier first when it is not.
- */
+export type CallDraw = {
+  scenario: Scenario | null;
+  /** How many scenarios the place can ring with in this lesson at all; 0 — nothing to deal from the start. */
+  pool: number;
+  /** How many are left after this one, a repeat call waiting for its first card included; 0 — every task has rung. */
+  left: number;
+};
+
+/** The next call's scenario for a seat, or null when nothing can ring now (see drawCall). */
 export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
+  return (await drawCall(seat)).scenario;
+}
+
+/**
+ * Next call for a seat: the teacher's list for this place if any, in its order, otherwise approved scenarios of the
+ * lesson's categories and location — near the student's level when the lesson is adaptive (src/lib/adaptive), easier
+ * first when it is not. Every task and every scenario rings at a place once per lesson — a missed or declined call
+ * counts; when nothing new is left, nothing rings, and the place and the board say so.
+ */
+export async function drawCall(seat: Op112Seat): Promise<CallDraw> {
   const settings = lessonSettings(seat);
-  const where: Prisma.ScenarioWhereInput = seat.scenarioIds.length
+  const assigned = seat.scenarioIds.length > 0;
+  const where: Prisma.ScenarioWhereInput = assigned
     ? { id: { in: seat.scenarioIds } }
     : settings.categories.length
       ? { AND: [USABLE, { category: { in: settings.categories } }] }
@@ -166,32 +181,42 @@ export async function nextScenario(seat: Op112Seat): Promise<Scenario | null> {
   const listed = await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] });
   // A variant with an error in the card is played at the ДДС place only: for the operator it is the same call as its
   // ticket (dds/scenario.ts). Not even when the teacher marked it for the place.
-  const found = await withoutEarlyRepeats(inLessonLocation(listed.filter((s) => !hasCardError(s.ddsReference)), seat, settings), seat.lessonId);
-  if (!found.length) return null;
-  const used = await db.incident.groupBy({
-    by: ["scenarioId"],
-    where: { createdBySeatId: seat.id, scenarioId: { not: null } },
-    _max: { createdAt: true },
-  });
-  const lastUse = new Map(used.flatMap((u) => (u.scenarioId ? [[u.scenarioId, u._max.createdAt?.getTime() ?? 0] as const] : [])));
-  // A place drawing by itself never rings with the other half of a pair it has had (scenarios/pairs.ts); it does not ring
-  // with a situation open in a ДДС feed of the lesson, a ticket whose variant with an error in the card is open there
-  // included (lessons/in-play.ts), and never with the same situation twice in a row while there is another.
-  const had =
-    seat.scenarioIds.length || !lastUse.size
-      ? []
-      : await db.scenario.findMany({ where: { id: { in: [...lastUse.keys()] } }, select: { id: true, ticketRef: true } });
-  const drawn = seat.scenarioIds.length ? found : withoutPairsOf(found, had);
-  const free = seat.scenarioIds.length ? drawn : preferNotInPlay(drawn, withPairs(await inPlayAtDds(db, seat.lessonId), listed));
-  const last = [...lastUse.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  const pool = notRightAfter([free, drawn], last);
-  if (!seat.scenarioIds.length && adaptiveChoice(seat.lesson.settings)) {
-    const level = await studentRating(seat.studentId, "OP112");
-    return pickAdaptive(pool, { target: level.difficulty, lastUsed: lastUse });
+  const playable = inLessonLocation(listed.filter((s) => !hasCardError(s.ddsReference)), seat, settings);
+  // In a lesson of mixed cards a place drawing by itself does not ring with a situation a ДДС place has already got as a
+  // generated card: the card it types would reach the ДДС places a second time (lessons/in-play.ts).
+  const atDds = !assigned && settings.cardSource === "mixed" ? withPairs(await dealtAtDds(db, seat.lessonId), listed) : new Set<string>();
+  const pool = playable.filter((s) => !atDds.has(s.id));
+
+  // What has rung here: every call, answered or not, and every card typed at the place.
+  const [cards, calls] = await Promise.all([
+    db.incident.findMany({ where: { createdBySeatId: seat.id, scenarioId: { not: null } }, select: { scenarioId: true, createdAt: true } }),
+    db.call.findMany({ where: { seatId: seat.id, kind: "CALLER_IN" }, select: { counterpart: true, startedAt: true } }),
+  ]);
+  const used = new Set([...cards.flatMap((c) => (c.scenarioId ? [c.scenarioId] : [])), ...calls.flatMap((c) => scenarioOfCall(c) ?? [])]);
+  // A place drawing by itself never rings with the other half of a pair it has had (scenarios/pairs.ts).
+  const had = assigned || !used.size ? [] : await db.scenario.findMany({ where: { id: { in: [...used] } }, select: { id: true, ticketRef: true } });
+  const unseen = pool.filter((s) => !used.has(s.id));
+  const pending = assigned ? unseen : withoutPairsOf(unseen, had);
+  // A repeat call rings once its first card is saved: until then it waits, but it is still to come.
+  const ready = await withoutEarlyRepeats(pending, seat.lessonId);
+  if (!ready.length) return { scenario: null, pool: playable.length, left: pending.length };
+
+  let scenario: Scenario;
+  if (assigned) {
+    const order = new Map(seat.scenarioIds.map((id, i) => [id, i]));
+    scenario = [...ready].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))[0];
+  } else {
+    // It does not ring with a situation open in a ДДС feed of the lesson while there is another (lessons/in-play.ts).
+    const free = preferNotInPlay(ready, withPairs(await inPlayAtDds(db, seat.lessonId), listed));
+    if (adaptiveChoice(seat.lesson.settings)) {
+      const level = await studentRating(seat.studentId, "OP112");
+      scenario = pickAdaptive(free, { target: level.difficulty }) ?? free[0];
+    } else {
+      scenario = free[0];
+    }
   }
-  const fresh = pool.filter((s) => !lastUse.has(s.id));
-  if (fresh.length) return fresh[0];
-  return [...pool].sort((a, b) => (lastUse.get(a.id) ?? 0) - (lastUse.get(b.id) ?? 0))[0];
+  const left = assigned ? pending.length - 1 : withoutPairsOf(pending.filter((s) => s.id !== scenario.id), [scenario]).length;
+  return { scenario, pool: playable.length, left };
 }
 
 /** The ticket a scenario repeats («Совпадение»: a second call about an incident already on a card). */
