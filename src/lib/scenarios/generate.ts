@@ -632,7 +632,9 @@ export async function truthChoices(scenario: { truth: unknown; ddsCard: unknown;
   const caller = (scenario.caller && typeof scenario.caller === "object" ? scenario.caller : {}) as { situation?: string };
   const card = (scenario.ddsCard && typeof scenario.ddsCard === "object" ? scenario.ddsCard : {}) as { description?: string };
   const situation = [scenario.title, caller.situation, card.description].filter(Boolean).join(" ");
-  const list = typeCandidates(types, remark, `${situation} ${remark}`, {}, 10);
+  // Service names are taken out of the remark: «газовая служба» must not bring gas leaves to the list.
+  const plain = SERVICE_WORDS.reduce((t, [re]) => t.replace(new RegExp(re.source, "gi"), " "), remark);
+  const list = typeCandidates(types, plain, `${situation} ${plain}`, {}, 10);
   if (truth.finalType) {
     const now = types.find((t) => t.finalType === truth.finalType);
     if (now && !list.includes(now)) list.push(now);
