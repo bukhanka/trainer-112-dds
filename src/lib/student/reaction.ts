@@ -1,6 +1,6 @@
 /**
  * «Время реакции» of a student: how long the first action takes against the lesson's norm —
- * ДДС: «Добавлена» → the card opened (30 s, customer's answer of 27.09); 112: typing the card, «Принять» → «сохранить».
+ * ДДС: «Добавлена» → the card opened (30 s, the customer's norm); 112: typing the card, «Принять» → «сохранить».
  * The same definition as in the lesson report (src/lib/adaptive/history.ts). Confirmed attempts only,
  * like everything else in the cabinet: a draft verdict never shows through.
  */

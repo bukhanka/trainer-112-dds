@@ -203,6 +203,14 @@ const FIELD: Record<string, string> = {
   changes: "Исправлены проверки",
   settings: "Настройки",
   teacherNote: "Заметка преподавателя",
+  callsEnded: "Разговоров на местах 112 завершено",
+  callsMissed: "Вызовов на местах 112 пропущено",
+  confirmed: "Подтверждено попыток",
+  noCritical: "Только без критичных ошибок",
+  skippedCritical: "Оставлено: с критичной ошибкой",
+  skippedEdited: "Оставлено: с правками преподавателя",
+  skippedDecided: "Пропущено: уже решены",
+  skippedMissing: "Пропущено: не найдены",
 };
 
 /** Keys that repeat what the object already says, or ids that mean nothing to a person. */
@@ -239,7 +247,7 @@ const WORDS: Record<string, Record<string, string>> = {
   trigger: { manual: "вручную", scheduled: "по расписанию" },
   kind: { students: "по ученикам", attempts: "по попыткам" },
   source: { ai: "ИИ", rules: "правила" },
-  via: { category: "по категории и району" },
+  via: { category: "по категории и району", bulk: "списком, как есть" },
   cardSource: { generated: "генерирует система", students: "от учеников на местах 112", mixed: "система и ученики" },
 };
 const SECTION_TITLES: Record<string, string> = Object.fromEntries(SECTIONS.map((s) => [s.key, s.title]));
@@ -381,6 +389,7 @@ export function auditChanges(row: AuditRow, names: AuditNames): AuditChange[] {
       }
       const cor = obj(a.corrections);
       if (Number(cor.created ?? 0) || Number(cor.retired ?? 0)) out.push({ field: FIELD.corrections, after: value("corrections", a.corrections, row, names) });
+      if (a.via === "bulk") out.push({ field: FIELD.via, after: value("via", a.via, row, names) });
       return out;
     }
     case "scenario.update":

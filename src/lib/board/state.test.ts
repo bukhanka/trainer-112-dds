@@ -58,7 +58,7 @@ const incident = (id: string, plates: Plate[], extra: Partial<BoardInput["incide
 const input = (over: Partial<BoardInput>): BoardInput => ({ lesson: lesson(), seats: [], incidents: [], calls: [], attempts: [], ...over });
 
 describe("buildBoard: ДДС place", () => {
-  it("turns the open timer red and marks «Не оповещено» 30 s after «Добавлена» (customer, 27.09)", () => {
+  it("turns the open timer red and marks «Не оповещено» 30 s after «Добавлена» (the customer's norm)", () => {
     const board = buildBoard(input({ seats: [seat("1", "DDS")], incidents: [incident("i1", [plate("p1", 40, "ADDED", [], { seatId: "1" })])] }), NOW);
     const s = board.seats[0];
     expect(s.timer).toMatchObject({ phase: "open", late: true, normSec: 30 });

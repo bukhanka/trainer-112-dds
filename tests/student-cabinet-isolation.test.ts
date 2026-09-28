@@ -83,16 +83,25 @@ describe("student cabinet: my tasks and reaction time are only mine", () => {
     session.user = { id: "ivanov", login: "student1", fullName: "Иванов", role: "STUDENT" };
   });
 
-  it("lists own places of running and planned lessons with their tasks, not a practice or a finished lesson", async () => {
+  it("lists own places of running and planned lessons with the number of their tasks, not a practice or a finished lesson", async () => {
     const res = await assignments();
     expect(res.status).toBe(200);
     const { assignments: list } = await res.json();
     expect(list.map((a: { lessonId: string }) => a.lessonId)).toEqual(["l-run", "l-draft", "l-mixed"]);
     expect(list[2]).toMatchObject({ role: "DDS", from112: "only" });
-    expect(list[0]).toMatchObject({ status: "RUNNING", role: "DDS", serviceName: "Поселение Вороновское", source: "tasks" });
-    expect(list[0].tasks.map((t: { title: string }) => t.title)).toEqual(["Прорыв трубы в подвале", "Пожар в квартире"]);
-    expect(list[1]).toMatchObject({ status: "DRAFT", role: "OP112", tasks: [], source: "categories", categories: ["Пожары"] });
+    expect(list[0]).toMatchObject({ status: "RUNNING", role: "DDS", serviceName: "Поселение Вороновское", source: "tasks", taskCount: 2 });
+    expect(list[1]).toMatchObject({ status: "DRAFT", role: "OP112", taskCount: 0, source: "categories" });
     expect(JSON.stringify(list)).not.toContain("Петровой");
+  });
+
+  it("never tells what the tasks are before the call: no titles, categories, difficulty or ids", async () => {
+    const { assignments: list } = await (await assignments()).json();
+    const json = JSON.stringify(list);
+    for (const secret of ["Прорыв трубы", "Пожар в квартире", "Коммунальные аварии", "Пожары", "sc-pipe", "sc-fire"]) expect(json).not.toContain(secret);
+    const keys = [...new Set(list.flatMap((a: object) => Object.keys(a)))].sort();
+    expect(keys).toEqual(
+      ["from112", "groupName", "lessonId", "lessonTitle", "role", "seatLabel", "serviceName", "source", "startedAt", "status", "taskCount", "teacherName"].sort(),
+    );
   });
 
   it("counts reaction time from own confirmed attempts only", async () => {

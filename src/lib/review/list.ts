@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { DEFAULT_PASS, passVerdict, type PassRules, type PassVerdict } from "@/lib/scoring/pass";
 import { applyOverrides } from "@/lib/scoring/score";
+import { teacherEdited } from "./bulk";
 import { readCriteria, readOverrides } from "./draft";
 
 export type AttemptFilters = { status?: string | null; kind?: string | null; seat?: string | null };
@@ -20,6 +21,8 @@ export type AttemptListItem = {
   failed: number;
   total: number;
   critical: boolean;
+  /** Returned to review after the teacher changed checks or wrote a comment: decided one by one, not in a list. */
+  edited: boolean;
   /** «зачтено / не зачтено» by the lesson's criteria (a draft verdict while the attempt is on review). */
   pass: PassVerdict | null;
 };
@@ -62,6 +65,7 @@ export async function listLessonAttempts(lessonId: string, f: AttemptFilters, ru
       failed: checks.filter((c) => c.ok === false).length,
       total: checks.filter((c) => c.ok !== null).length,
       critical: checks.some((c) => c.critical && c.ok === false),
+      edited: teacherEdited({ override: overrides, teacherComment: a.teacherComment }),
       pass: passVerdict(a.score, raw, overrides, rules),
     };
   });

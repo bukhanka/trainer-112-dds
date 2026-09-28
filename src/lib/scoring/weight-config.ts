@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { WEIGHT_GROUPS, type WeightGroup, type Weights } from "./score";
 
-/** Starting weights: time, address and services matter most; text and completeness least (customer's Q&A). */
+/** Starting weights: time, address and services matter most; text and completeness least (the customer's priorities). */
 export const DEFAULT_WEIGHTS: Weights = {
   timeliness: 3,
   statusOrder: 2,

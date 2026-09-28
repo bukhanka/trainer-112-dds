@@ -173,7 +173,7 @@ export async function seedReference(db: PrismaClient): Promise<void> {
   const started = Date.now();
   const classifier = read<ClassifierFile>("classifier.json");
   const services = read<ServiceFile>("services.json");
-  // Variants of approved tickets with an error in the card (customer's answer of 27.09): the crew reports it on arrival.
+  // Variants of approved tickets with an error in the card (a customer requirement): the crew reports it on arrival.
   const scenarios = [...(read<ScenarioFile>("scenarios.json") ?? []), ...(read<ScenarioFile>("scenarios-card-errors.json") ?? [])];
 
   const parts: string[] = [];

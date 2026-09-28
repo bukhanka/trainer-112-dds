@@ -41,7 +41,7 @@ export async function loadReportInput(lesson: Lesson): Promise<ReportInput> {
       let timeSec: number | null = null;
       let actions = 0;
       if (a.kind === "DDS" && a.incidentService) {
-        // «Добавлена» → the card opened: the 30-second norm (customer's answer of 27.09).
+        // «Добавлена» → the card opened: the customer's 30-second norm.
         const opened = a.incidentService.events.find((e) => e.status !== "ADDED");
         if (opened) timeSec = Math.round((opened.at.getTime() - a.incidentService.addedAt.getTime()) / 1000);
         actions = a.incidentService.events.filter((e) => e.seatId === a.seatId && e.status !== "ADDED").length;

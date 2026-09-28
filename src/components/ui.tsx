@@ -72,16 +72,17 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
   return (
     <div className="mb-4 flex flex-col gap-2">
       {back && (
-        <Link href={back.href} className="text-sm text-arm-blue hover:underline">
+        <Link href={back.href} className="text-sm text-arm-blue hover:underline print:hidden">
           ← {back.label}
         </Link>
       )}
+      {/* The title keeps at least 18rem: on a phone the buttons go under it instead of squeezing it into a column of words. */}
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 grow basis-72">
           <h1 className="text-xl font-semibold text-arm-dark">{title}</h1>
           {subtitle && <div className="mt-0.5 text-sm text-arm-desc">{subtitle}</div>}
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2 print:hidden">{actions}</div>}
       </div>
     </div>
   );

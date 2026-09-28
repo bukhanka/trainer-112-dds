@@ -13,7 +13,7 @@ import { plural } from "@/lib/format";
 import { OP112_KEYS } from "@/lib/help/op112-keys";
 import { defaultTeacherSettings } from "@/lib/lessons/defaults";
 import { CRITICAL_CAP, WEIGHT_GROUPS } from "@/lib/scoring/score";
-import { PrintButton } from "./PrintButton";
+import { PrintButton } from "@/components/PrintButton";
 
 /** When each status is set, in the words of the dispatcher memo. */
 const WHEN: Record<ServiceStatus, { who: "система" | "вы"; when: string }> = {
@@ -93,7 +93,7 @@ export async function TraineeMemo() {
       </nav>
 
       <Block id="dds" title="Место диспетчера ДДС">
-        <H3>Два норматива (по ответу заказчика 27.09)</H3>
+        <H3>Два норматива заказчика</H3>
         <ul className="list-disc space-y-1 pl-5">
           <li>
             <b>{ack}</b> — открыть карточку. Время считается с «Добавлена» у вашей службы, даже если карточка ещё ждёт в очереди. Таймер в ленте краснеет, когда

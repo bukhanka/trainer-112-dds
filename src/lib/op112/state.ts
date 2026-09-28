@@ -75,7 +75,8 @@ export type Op112State = {
   serverNow: string;
   user: { fullName: string; operatorNo: string };
   seat: { id: string; label: string | null; armNo: string } | null;
-  lesson: { id: string; title: string; selfTraining: boolean; typingSec: number; hints: boolean } | null;
+  /** `finished` — the teacher has ended the lesson; the place stays open only to finish the card. */
+  lesson: { id: string; title: string; selfTraining: boolean; typingSec: number; hints: boolean; finished: boolean } | null;
   onDdsSeat: boolean;
   call: CallDto | null;
   incident: IncidentDto | null;
@@ -186,6 +187,7 @@ export async function buildState(user: SessionUser): Promise<Op112State> {
       selfTraining: isSelfTraining(seat.lesson.settings),
       typingSec: settings.typingSec,
       hints: settings.hints,
+      finished: seat.lesson.status === "FINISHED",
     },
     onDdsSeat: false,
     call: openCall ? callDto(openCall) : null,

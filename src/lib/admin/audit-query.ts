@@ -45,6 +45,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "attempt.confirm": "Оценка подтверждена преподавателем",
   "attempt.override": "Оценка исправлена преподавателем",
   "attempt.reopen": "Оценка возвращена на проверку",
+  "attempt.bulk_confirm": "Оценки подтверждены списком",
   "correction.add": "Правка ИИ-проверки добавлена",
   "correction.revise": "Правка ИИ-проверки заменена",
   "correction.on": "Правка ИИ-проверки включена",

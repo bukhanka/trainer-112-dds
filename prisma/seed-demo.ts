@@ -229,7 +229,7 @@ function simulateDds(fx: Fx, serviceId: number | null, serviceName: string, p: P
   // A lesson may end before the crew finishes: those plates stay «Не завершено».
   const kept = cut == null ? events : events.filter((e) => e.sec <= cut);
 
-  // The two norms of the customer's answer of 27.09: open the card within 30 s, the first record —
+  // The customer's two norms: open the card within 30 s, the first record —
   // a status with a text — within 3 min, both from «Добавлена».
   const opened = kept.find((e) => e.status === "RECEIVED");
   crits.push({
@@ -685,7 +685,7 @@ async function seedCorrections(lessonId: string, ctx: Ctx) {
 }
 
 function ownEvents(plateId: string, events: Event[], addedAt: Date, seat: { id: string; studentId: string; fullName: string }, ctx: Ctx): Prisma.StatusEventCreateManyInput[] {
-  // The history shows in red what came late by the two norms of 27.09, as the workstation marks it (dds/plate.ts):
+  // The history shows in red what came late by the customer's two norms, as the workstation marks it (dds/plate.ts):
   // the opening after ackSec, the first record — a status with a text — after workSec.
   const record = events.find((e) => e.status !== "RECEIVED" && !!e.comment?.trim());
   return events.map((e) => ({

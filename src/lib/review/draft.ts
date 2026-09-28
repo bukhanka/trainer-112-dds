@@ -75,7 +75,7 @@ export function readOverrides(raw: unknown): Overrides | null {
   return Object.keys(out).length ? out : null;
 }
 
-/** Per-group advice for the student. Our own wording, based on the dispatcher memo and the customer's Q&A. */
+/** Per-group advice for the student. Our own wording, based on the dispatcher memo and the customer's requirements. */
 export const GROUP_ADVICE: Record<WeightGroup, string> = {
   timeliness:
     "Следите за нормативами: откройте карточку в течение 30 секунд после «Добавлена», первую запись — статус и текст — сделайте в течение 3 минут; карточку 112 сохраняйте до того, как покраснеет таймер.",
