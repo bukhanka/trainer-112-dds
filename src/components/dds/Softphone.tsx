@@ -6,7 +6,7 @@ import { PushToTalk } from "@/components/voice/PushToTalk";
 import { TalkModeSwitch, useTalkMode, type TalkMode } from "@/components/voice/TalkMode";
 import { useVoice } from "@/components/voice/useVoice";
 import type { BookEntry, CallBrief, CallMessage } from "@/lib/dds/calls";
-import { fmtDuration, fmtHM, redialNumber } from "@/lib/dds/format";
+import { BOOK_112_GROUP, fmtDuration, fmtHM, redialNumber } from "@/lib/dds/format";
 import { heldSeconds, openHold, type HoldPeriod } from "@/lib/dds/hold";
 import { beep, postJson, useNow, withSeat } from "./client";
 import { useDds } from "./DdsShell";
@@ -414,14 +414,16 @@ function DialPad(props: { number: string; setNumber: (v: string) => void; disabl
   );
 }
 
-/** The phone book; on an open card its section comes first, so «заявитель» there is the applicant of this card. */
+/** The phone book; on an open card its section comes first after «Служба 112», so «заявитель» there is the applicant of this card. */
 function PhoneBook({ entries, openCard, disabled, onDial }: { entries: BookEntry[]; openCard?: string; disabled: boolean; onDial: (e: BookEntry) => void }) {
   const own = openCard ? `Карточка ${openCard}` : null;
   const groups = entries.reduce<Record<string, BookEntry[]>>((acc, e) => {
     (acc[e.group] ??= []).push(e);
     return acc;
   }, {});
-  const sections = Object.entries(groups).sort(([a], [b]) => Number(b === own) - Number(a === own));
+  // «Служба 112» — one line — on top, then the open card, then the rest in the server's order.
+  const rank = (group: string) => (group === BOOK_112_GROUP ? 0 : group === own ? 1 : 2);
+  const sections = Object.entries(groups).sort(([a], [b]) => rank(a) - rank(b));
   if (!entries.length) return <p className="p-3 text-arm-desc">Книжка пуста.</p>;
   return (
     <div className="pb-2">

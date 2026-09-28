@@ -14,7 +14,7 @@ import type { CallerPersona, IncidentAddress, IncidentCaller } from "@/lib/incid
 import type { LessonSettings } from "@/lib/lessons/settings";
 import { cardErrorFixed, correctedCard, fixLabel } from "./card-fix";
 import { CREW_PACE_SEC, crewPlanFor, crewSchedule, dispatchOf, stageAt, type Dispatch } from "./crew";
-import { addressShort, fmtHM } from "./format";
+import { addressShort, BOOK_112_GROUP, fmtHM } from "./format";
 import { endHold, openHold, readHolds, resumeLine, startHold, type HoldPeriod } from "./hold";
 import {
   atSite,
@@ -324,7 +324,7 @@ export async function phoneState(seat: DdsSeat): Promise<PhoneState> {
 }
 
 /** The book entry of the 112 operator: the memo's call when the card has an error or the situation changed. */
-export const BOOK_112: BookEntry = { group: "Служба 112", name: OPERATOR_112, role: "оператор: ошибка в карточке, изменилась обстановка", phone: "112" };
+export const BOOK_112: BookEntry = { group: BOOK_112_GROUP, name: OPERATOR_112, role: "оператор: ошибка в карточке, изменилась обстановка", phone: "112" };
 
 /** The place's phone book: its crews, the 112 operator, and for every open card the applicant, the other services and contacts. */
 export async function phoneBook(seat: DdsSeat): Promise<BookEntry[]> {
