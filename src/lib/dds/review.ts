@@ -7,6 +7,7 @@ import type { Call, Prisma } from "@prisma/client";
 import { inBackground } from "@/lib/ai/background";
 import { aiOffNote, llmConfigured } from "@/lib/ai/provider";
 import { formatAddress } from "@/lib/board/address";
+import { reachesPlaces } from "@/lib/board/state";
 import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
@@ -19,7 +20,7 @@ import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarity
 import { dispatchOf } from "./crew";
 import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
 import { referenceFor } from "./scenario";
-import { seatFeedWhere, settingsOf } from "./scope";
+import { seatFeedWhere, settingsOf, type SeatRef } from "./scope";
 import { awaitsAnswer, rulesFor } from "./status";
 import { DDS_TX } from "./tx";
 
@@ -238,16 +239,29 @@ export async function closeLessonCalls(lessonId: string, now = new Date()): Prom
  * The end-of-lesson review of a ДДС place: every plate gets reviewed once more with the final picture
  * (missed reports, statuses never set). Plates already reviewed finally or checked by the teacher are skipped,
  * so calling it on every poll of a finished lesson costs one query.
+ *
+ * A plate that never reached a place — the system answered it, or a card typed at 112 in a lesson of generated cards
+ * only — is not the place's work unless the place acted on it: the same rule as the board (board/state.ts). Otherwise a
+ * finished lesson opened later would get a review nobody earned, credited to the first place of the service.
  */
-export async function evaluateSeatPlates(seat: { id: string; lessonId: string; serviceId: number | null }): Promise<number> {
+export async function evaluateSeatPlates(seat: SeatRef & { lesson: { settings: unknown } }): Promise<number> {
   if (!seat.serviceId) return 0;
+  const lesson = { cardSource: settingsOf(seat.lesson.settings).cardSource };
   const plates = await db.incidentService.findMany({
     where: { serviceId: seat.serviceId, incident: seatFeedWhere(seat) },
-    select: { id: true, attempts: { where: { kind: "DDS" }, select: { reviewStatus: true, aiDraft: true } } },
+    select: {
+      id: true,
+      incident: { select: { source: true } },
+      events: { select: { status: true, seatId: true } },
+      attempts: { where: { kind: "DDS" }, select: { reviewStatus: true, aiDraft: true } },
+    },
   });
-  // Not reviewed yet, or only by the place during the lesson and still waiting for the teacher.
-  const due = plates.filter((p) =>
-    p.attempts.every((a) => a.reviewStatus === "PENDING" && madeByPlace(a.aiDraft) && !(a.aiDraft as Draft)?.final),
+  // The place's work: reached it or acted on by it; not reviewed yet, or only by the place during the lesson and
+  // still waiting for the teacher.
+  const due = plates.filter(
+    (p) =>
+      (p.events.some((e) => e.seatId === seat.id) || reachesPlaces(p.incident, p, lesson)) &&
+      p.attempts.every((a) => a.reviewStatus === "PENDING" && madeByPlace(a.aiDraft) && !(a.aiDraft as Draft)?.final),
   );
   for (const p of due) await evaluatePlate(p.id, new Date(), { final: true });
   return due.length;
@@ -256,7 +270,10 @@ export async function evaluateSeatPlates(seat: { id: string; lessonId: string; s
 /** For the teacher's «finish lesson»: close the calls and review all ДДС places of the lesson. Safe to call repeatedly. */
 export async function finishLessonEvaluation(lessonId: string): Promise<number> {
   await closeLessonCalls(lessonId);
-  const seats = await db.seat.findMany({ where: { lessonId, role: "DDS" }, select: { id: true, lessonId: true, serviceId: true } });
+  const seats = await db.seat.findMany({
+    where: { lessonId, role: "DDS" },
+    select: { id: true, lessonId: true, serviceId: true, lesson: { select: { settings: true } } },
+  });
   let count = 0;
   for (const seat of seats) count += await evaluateSeatPlates(seat);
   return count;

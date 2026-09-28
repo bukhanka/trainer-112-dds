@@ -200,8 +200,13 @@ function sumFlags(list: RedFlags[]): RedFlags {
 /**
  * Can this plate reach a ДДС place of the lesson at all? Not when the system already answered it
  * (a bot: answer without a place) and not a card typed at 112 in a lesson that takes only generated cards.
+ * The end-of-lesson review follows the same rule (dds/review.ts).
  */
-export function reachesPlaces(inc: Incident, p: Plate, lesson: BoardInput["lesson"]): boolean {
+export function reachesPlaces(
+  inc: Pick<Incident, "source">,
+  p: { events: Pick<Plate["events"][number], "status" | "seatId">[] },
+  lesson: Pick<BoardInput["lesson"], "cardSource">,
+): boolean {
   if (p.events.some((e) => ANSWER.includes(e.status) && !e.seatId)) return false;
   return !(inc.source === "op112" && lesson.cardSource === "generated");
 }

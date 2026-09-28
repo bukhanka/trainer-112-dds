@@ -17,6 +17,7 @@ import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERAT
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
 import { inPlayAt112, latestScenario, notRightAfter, preferNotInPlay } from "@/lib/lessons/in-play";
+import { withoutPairsOf, withPairs } from "@/lib/scenarios/pairs";
 import { inLessonLocation } from "@/lib/scenarios/place";
 
 type Tx = Prisma.TransactionClient;
@@ -93,6 +94,7 @@ async function maybeGenerate(
 
 const scenarioSelect = {
   id: true,
+  ticketRef: true,
   title: true,
   category: true,
   difficulty: true,
@@ -107,7 +109,8 @@ type PickedScenario = Prisma.ScenarioGetPayload<{ select: typeof scenarioSelect 
 /**
  * Tasks assigned to the place come first, in order; otherwise an approved scenario of the lesson's
  * categories and location — near the student's level when the lesson is adaptive (src/lib/adaptive), at random
- * when it is not. Scenarios already shown at this place are used again only when the pool is exhausted.
+ * when it is not. Scenarios already shown at this place are used again only when the pool is exhausted; a ticket and
+ * its variant with an error in the card show the same card, so the place gets only one of the two (scenarios/pairs.ts).
  */
 export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings, adaptive: boolean): Promise<PickedScenario | null> {
   const where: Prisma.ScenarioWhereInput = { status: "APPROVED" };
@@ -118,13 +121,19 @@ export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings,
   const withCard = (await tx.scenario.findMany({ where, select: scenarioSelect })).filter((s) => s.ddsCard !== null);
   const found = inLessonLocation(withCard, seat, settings);
   if (!found.length) return null;
-  const feed = await tx.incident.findMany({ where: seatFeedWhere(seat), select: { scenarioId: true, createdAt: true } });
-  // A place drawing by itself skips what the 112 places of the lesson are working on right now (lessons/in-play.ts)
-  // and takes first the situations that would reach its ДДС in real work. A narrow choice never deals the same
-  // situation twice in a row while there is another: the preferences give way first.
-  const free = seat.scenarioIds.length ? found : preferNotInPlay(found, await inPlayAt112(tx, seat.lessonId));
-  const wanted = seat.scenarioIds.length ? found : await preferReaching(tx, seat, free);
-  const pool = notRightAfter([wanted, free, found], latestScenario(feed));
+  const feed = await tx.incident.findMany({
+    where: seatFeedWhere(seat),
+    select: { scenarioId: true, createdAt: true, scenario: { select: { ticketRef: true } } },
+  });
+  // A place drawing by itself never gets the other half of a pair it has had in its feed (dealt to it or saved at a 112
+  // place), skips what the 112 places of the lesson are working on right now (lessons/in-play.ts) and takes first the
+  // situations that would reach its ДДС in real work. A narrow choice never deals the same situation twice in a row
+  // while there is another: the preferences give way first. Tasks assigned by the teacher come as they are.
+  const had = feed.flatMap((i) => (i.scenarioId ? [{ id: i.scenarioId, ticketRef: i.scenario?.ticketRef }] : []));
+  const drawn = seat.scenarioIds.length ? found : withoutPairsOf(found, had);
+  const free = seat.scenarioIds.length ? drawn : preferNotInPlay(drawn, withPairs(await inPlayAt112(tx, seat.lessonId), withCard));
+  const wanted = seat.scenarioIds.length ? drawn : await preferReaching(tx, seat, free);
+  const pool = notRightAfter([wanted, free, drawn], latestScenario(feed));
   if (!seat.scenarioIds.length && adaptive) {
     const lastUsed = new Map<string, number>();
     for (const i of feed) if (i.scenarioId) lastUsed.set(i.scenarioId, Math.max(lastUsed.get(i.scenarioId) ?? 0, i.createdAt.getTime()));
