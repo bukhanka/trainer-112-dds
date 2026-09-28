@@ -12,7 +12,7 @@ import { placeLabel } from "@/lib/scenarios/location";
 import { describePassRules, passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
 import { CoverageNotice } from "../ScenarioCoverage";
-import { serviceLabel } from "../ServicePicker";
+import { serviceLabel } from "@/lib/lessons/service-label";
 import { LessonBoard } from "./LessonBoard";
 import { LessonControls } from "./LessonControls";
 

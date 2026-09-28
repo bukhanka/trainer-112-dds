@@ -60,6 +60,11 @@ class Client {
     }
     return { status: res.status, body: parsed };
   }
+  /** The HTML of a screen, as the browser gets it: a server render error leaves the page without its content. */
+  async page(path: string): Promise<{ status: number; html: string }> {
+    const res = await fetch(`${BASE}${path}`, { headers: { cookie: this.cookie } });
+    return { status: res.status, html: await res.text() };
+  }
 }
 
 async function main() {
@@ -219,6 +224,9 @@ async function main() {
     // 5. The teacher: board, stop, attempts of both places.
     const board = await teacher.call("GET", `/api/teacher/lessons/${lessonId}/board`);
     check(board.status === 200, "доска класса отвечает", `мест: ${((board.body.seats as unknown[]) ?? []).length}`);
+    const lessonPage = await teacher.page(`/teacher/lessons/${lessonId}`);
+    check(lessonPage.status === 200 && lessonPage.html.includes(`Проверка 112 → ДДС (${SOURCE})`) && !lessonPage.html.includes("Не удалось показать страницу"),
+      "страница занятия у преподавателя открывается", `HTTP ${lessonPage.status}`);
     const opTile = ((board.body.seats as { studentName: string; dealtOut?: boolean }[]) ?? []).find((t) => t.studentName === s1.fullName);
     check(opTile?.dealtOut === true, "на доске: у места 112 задания закончились");
     const stopped = await teacher.call("POST", `/api/teacher/lessons/${lessonId}/stop`);

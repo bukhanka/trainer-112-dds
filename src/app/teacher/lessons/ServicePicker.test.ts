@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { serviceGroups, serviceLabel } from "./ServicePicker";
+import { serviceLabel } from "@/lib/lessons/service-label";
+import { serviceGroups } from "./ServicePicker";
 
 const svc = (id: number, shortName: string, kind: string, fullName: string | null = null) => ({ id, shortName, fullName, kind });
 
