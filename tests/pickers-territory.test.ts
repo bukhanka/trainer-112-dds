@@ -32,7 +32,7 @@ const horoshevo = { id: 87, shortName: "Поселение Хорошево-Мн
 const service101 = { id: 1, shortName: "Служба 101", okrug: null, district: null };
 const seat = (serviceId: number, scenarioIds: string[] = []) => ({ id: "seat", lessonId: "l1", studentId: "u1", serviceId, scenarioIds }) as unknown as Seat;
 const settings = (patch: Record<string, unknown> = {}) => lessonSettingsSchema.parse(patch);
-const tx = (w: Partial<DdsWorld> & { feed?: string[] } = {}) => ddsTx({ pool, own: horoshevo, ...w, feed: (w.feed ?? []).map((scenarioId) => ({ scenarioId })) });
+const tx = (w: Omit<Partial<DdsWorld>, "feed"> & { feed?: string[] } = {}) => ddsTx({ pool, own: horoshevo, ...w, feed: (w.feed ?? []).map((scenarioId) => ({ scenarioId })) });
 
 afterEach(() => {
   vi.restoreAllMocks();

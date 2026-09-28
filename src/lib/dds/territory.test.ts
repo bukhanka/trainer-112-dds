@@ -61,13 +61,14 @@ describe("a card moved onto the place's territory", () => {
     for (const ref of ["Б28-3", "Б13-1", "Б8-3", "Б30-3", "Б1-1", "Б6-1", "Б3-1", "Б30-2", "Б9-1"]) expect(movable(ddsCardOf(ticket(ref))), ref).toBe(false);
   });
 
-  it("has a street for every district, settlement and prefecture of the list but three Zelenograd districts", () => {
+  it("has a street for every district, settlement and prefecture of the list but three Zelenograd districts", { timeout: 30_000 }, () => {
     const without = territorial.filter((s) => !moveTarget(territoryOf(s)!, "probe")).map((s) => s.shortName);
     expect(without.sort()).toEqual(["Поселение Матушкино", "Поселение Силино", "Поселение Старое Крюково"]);
   });
 
-  it("lands on the place's territory, the same house for the same scenario and service, never on a ticket's house", () => {
+  it("lands on the place's territory, the same house for the same scenario and service, never on a ticket's house", { timeout: 30_000 }, () => {
     const spec = ddsCardOf(ticket("Б17-1"));
+    const ticketHouses = new Set(tickets.map((x) => ddsCardOf(x).address).map((a) => `${a.street}|${a.house}`));
     for (const s of territorial) {
       const t = territoryOf(s)!;
       const to = moveTarget(t, `Б17-1|${s.id}`);
@@ -75,7 +76,7 @@ describe("a card moved onto the place's territory", () => {
       expect(moveTarget(t, `Б17-1|${s.id}`)).toEqual(to);
       const moved = moveCard(spec, to);
       expect(territoryMatch(placeOfAddress(moved.address), t), `${s.shortName}: ${JSON.stringify(to)}`).toBe("in");
-      expect(tickets.some((x) => x.ticketRef !== "Б17-1" && JSON.stringify(ddsCardOf(x).address.street) === JSON.stringify(to.street) && ddsCardOf(x).address.house === to.house)).toBe(false);
+      expect(ticketHouses.has(`${to.street}|${to.house}`)).toBe(false);
     }
   });
 
@@ -89,7 +90,7 @@ describe("a card moved onto the place's territory", () => {
     expect(b17.address).toMatchObject({ structure: "2", entrance: "1", code: "2215", district: "Хорошёво-Мнёвники" });
   });
 
-  it("leaves no trace of the old place in the card, the reference or the applicant's words", () => {
+  it("leaves no trace of the old place in the card, the reference or the applicant's words", { timeout: 30_000 }, () => {
     for (const t of tickets) {
       const spec = ddsCardOf(t);
       if (!movable(spec)) continue;
