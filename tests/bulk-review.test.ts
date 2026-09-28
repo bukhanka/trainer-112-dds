@@ -47,6 +47,7 @@ vi.mock("@/lib/db", () => {
     lesson: model(state.lessons),
     attempt: model(state.attempts),
     teacherCorrection: model(state.corrections),
+    followUp: fakeModel([]),
     weightProfile: fakeModel([]),
     incidentType: fakeModel([]),
     auditLog: model(state.audit),

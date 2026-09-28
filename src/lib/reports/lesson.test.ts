@@ -91,6 +91,23 @@ describe("buildLessonReport", () => {
     expect(report.summary.agreement).toEqual({ checks: 9, changed: 1, rate: 89, aiChecks: 1, aiChanged: 1 });
   });
 
+  it("does not call an unavailable AI check agreement with the teacher", () => {
+    const onlyUnavailable = buildLessonReport(input([
+      attempt("s1", "u1", [c("dds.ai.literacy", "literacy", null, { source: "ai" })], { score: null }),
+    ]));
+    expect(onlyUnavailable.summary.agreement).toEqual({ checks: 0, changed: 0, rate: null, aiChecks: 0, aiChanged: 0 });
+  });
+
+  it("does not call a student ready after a critical mistake despite a high average", () => {
+    const attempts = [
+      ...Array.from({ length: 4 }, () => attempt("s1", "u1", [c("ok", "address", true)], { score: 100 })),
+      attempt("s1", "u1", [c("street", "address", false, { critical: true })], { score: 40 }),
+    ];
+    const student = buildLessonReport(input(attempts)).students.find((row) => row.studentId === "u1")!;
+    expect(student).toMatchObject({ avgScore: 88, critical: 1, passed: 4, judged: 5 });
+    expect(student.readiness?.label).toMatch(/критическая ошибка/);
+  });
+
   it("builds a heat map only over groups that were checked", () => {
     expect(report.heat.groups).toEqual(["timeliness", "comments", "address", "literacy"]);
     const pet = report.heat.rows.find((r) => r.studentId === "u2")!;
@@ -144,7 +161,9 @@ describe("pass criteria in the report", () => {
 
 describe("readiness", () => {
   it("maps the average score to a level", () => {
-    expect(readiness(90)?.label).toMatch(/готов/);
+    expect(readiness(90, { reviewed: 4 })?.label).toMatch(/высокий результат/);
+    expect(readiness(90, { reviewed: 4, critical: 1 })?.label).toMatch(/критическая ошибка/);
+    expect(readiness(90, { reviewed: 1 })?.label).toMatch(/мало проверенных/);
     expect(readiness(49)?.tone).toBe("red");
     expect(readiness(null)).toBeNull();
   });

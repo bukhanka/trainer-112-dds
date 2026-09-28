@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { PassLine } from "@/components/pass";
 import { Badge, PageHeader, Section } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
+import { studentFollowUps } from "@/lib/followup/student";
 import { getStudentAttempt } from "@/lib/student/results";
 import { viewerSession } from "@/lib/student/viewer";
 import { WEIGHT_GROUPS, type WeightGroup } from "@/lib/scoring/score";
@@ -26,6 +28,7 @@ export default async function MyAttemptPage(props: PageProps<"/student/results/[
     );
   }
 
+  const followUps = await studentFollowUps(user.id, id);
   const groups = (Object.keys(WEIGHT_GROUPS) as WeightGroup[]).filter((g) => a.checks.some((c) => c.group === g));
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -43,6 +46,31 @@ export default async function MyAttemptPage(props: PageProps<"/student/results/[
       <Section>
         <PassLine verdict={a.pass} rules={a.passRules} />
       </Section>
+      {a.feedback && (
+        <Section title="Главное из разбора">
+          <p className="text-sm">{a.feedback.summary}</p>
+          {a.feedback.strength && <p className="mt-2 text-sm text-emerald-800">Получилось: {a.feedback.strength}</p>}
+          {a.feedback.priority && (
+            <div className="mt-3 rounded border border-arm-gray/70 bg-arm-panel p-3 text-sm">
+              <p className="font-medium">
+                {a.feedback.priority.title}
+                {a.feedback.priority.critical && <Badge tone="red" className="ml-2">критично</Badge>}
+              </p>
+              {a.feedback.priority.evidence && <p className="mt-1 text-arm-desc">Основание: {a.feedback.priority.evidence}</p>}
+              <p className="mt-2">В следующей ситуации: {a.feedback.priority.nextAction}</p>
+            </div>
+          )}
+        </Section>
+      )}
+      {followUps.length > 0 && <Section title="Следующее упражнение">
+        <ul className="space-y-2 text-sm">
+          {followUps.map((f) => <li key={f.id} className="rounded border border-arm-gray/70 p-3">
+            <b>{f.title}</b><span className="block text-arm-desc">{f.status}</span>
+            {(f.state === "planned" || f.state === "practice" || f.state === "control_ready" || f.state === "control") &&
+              <Link className="mt-1 inline-block text-arm-blue underline" href="/student">Открыть мои задания →</Link>}
+          </li>)}
+        </ul>
+      </Section>}
       {a.teacherComment && (
         <Section title="Комментарий преподавателя">
           <p className="text-sm">{a.teacherComment}</p>

@@ -120,6 +120,7 @@ const db: Record<string, unknown> = {
   },
   seat: model(() => data.seats),
   lesson: model(() => data.lessons),
+  followUp: model(() => []),
 };
 db.$transaction = async (fn: (tx: unknown) => unknown) => fn(db);
 

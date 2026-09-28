@@ -139,7 +139,7 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
     return null;
   }
   try {
-    return clean(await withTimeout(chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, tier: "fast", mock }), REPLY_TIMEOUT_MS), cards);
+    return cleanCallerReply(await withTimeout(chatJson(messages, replySchema, { temperature: 0.6, maxTokens: 250, tier: "fast", mock }), REPLY_TIMEOUT_MS), cards);
   } catch (err) {
     // A model that answers but cannot keep to JSON still gets a plain reply; its disclosures are guessed.
     if (err instanceof Error && /invalid JSON/i.test(err.message)) {
@@ -213,17 +213,72 @@ export async function callerReply(p: Persona, history: CallLine[], operatorText:
     { role: "user", content: operatorText },
   ];
   const line = await modelLine(messages, cards, () => asJson(mockReply(p, history, operatorText, gender)));
+  if (line) {
+    const topics = askedTopics(operatorText);
+    const asked = topics.includes("addressExact") ? ["addressExact"] : topics.includes("address") ? ["address"] : [];
+    for (const topic of ["name", "phone", "status"] as const) if (topics.includes(topic)) asked.push(topic);
+    // The model may omit its metadata entirely. Direct answers to critical questions must still match the ticket.
+    if (asked.some((key) => {
+      const fact = cards.find((c) => c.key === key);
+      return fact && !spokenMatchesFact(fact, line.text);
+    })) return mockReply(p, history, operatorText, gender);
+  }
   return line ?? mockReply(p, history, operatorText, gender);
 }
 
-function clean(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {
+export function cleanCallerReply(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {
   const keys = new Set(cards.map((c) => c.key));
   // Said aloud, so no written shorthand: a model still writes «ул.» and «д.» now and then.
   const text = sayable(out.reply.replace(/^\s*["«]|["»]\s*$/g, ""));
   // A model that ignored the «revealed» field gets its disclosures guessed from the words it used.
   if (!out.revealed) return { text, revealed: guessRevealed(text, cards) };
   const groups = new Set(cards.map((c) => c.group).filter(Boolean));
-  return { text, revealed: expandRevealed(out.revealed.filter((k) => keys.has(k) || groups.has(k)), cards) };
+  const claimed = expandRevealed([...out.revealed, ...guessRevealed(text, cards)].filter((k) => keys.has(k) || groups.has(k)), cards);
+  // The model may label a fact it did not say, or speak a different value. Use the rule-based caller for that turn.
+  if (claimed.some((key) => {
+    const fact = cards.find((c) => c.key === key);
+    return fact?.expect && !spokenMatchesFact(fact, text);
+  })) throw new Error("caller reply contradicts its disclosed facts");
+  return { text, revealed: claimed };
+}
+
+/** A claimed disclosure can affect grading only when its reference value is audible in that line. */
+export function spokenMatchesFact(fact: FactCard, line: string): boolean {
+  const t = low(line).replace(/ё/g, "е");
+  const e = fact.expect;
+  if (!e) return true;
+  if (e.kind === "name") {
+    const [surname, given] = low(fact.text).replace(/ё/g, "е").split(/\s+/);
+    const words = t.split(/[^а-яa-z-]+/);
+    return Boolean(surname && given && words.some((w, i) => w === surname && words[i + 1] === given));
+  }
+  if (e.kind === "phone") {
+    const expected = fact.text.replace(/\D/g, "").slice(-10);
+    return expected.length === 10 && line.replace(/\D/g, "").includes(expected);
+  }
+  if (e.kind === "address") {
+    const reference = low(sayable(fact.text)).replace(/ё/g, "е");
+    const words = reference.split(/[^а-яa-z0-9]+/).filter((w) =>
+      w.length >= 5 && !/^(номер|улица|улице|город|москва|дома|домом|знаю|рядом|точно|строение|километр|километра|километре)$/.test(w));
+    const numbers = reference.match(/\d+/g) ?? [];
+    return words.every((w) => t.includes(w.slice(0, 5))) &&
+      numbers.every((n) => new RegExp(`(^|\\D)${n}(\\D|$)`).test(t)) &&
+      words.length + numbers.length > 0;
+  }
+  if (e.kind === "status") {
+    const role = low(fact.text).replace(/ё/g, "е").split(/[^а-я]+/).find((w) => w.length >= 4);
+    return Boolean(role && t.includes(role.slice(0, Math.min(5, role.length))));
+  }
+  if (e.kind === "flag") {
+    if (!evidenced(fact, line)) return false;
+    const negative = e.flag === "gas" ? /нет газа|газа нет|без газа|электроплит|не газиф/
+      : e.flag === "victims" ? /пострадавших нет|пострадавших не видит|никто не пострадал|без пострадавш/ : null;
+    if (negative?.test(t)) return e.value === false;
+    if (e.flag === "gas" && /газиф|газ есть|газ проведен/.test(t)) return e.value === true;
+    if (e.flag === "victims" && /есть(?: [а-я]+){0,3} пострадавш|пострадавшие есть|человек пострадал|ранен|травм/.test(t)) return e.value === true;
+    if (e.flag === "gas" || e.flag === "victims") return false; // polarity not clear enough for grading
+  }
+  return evidenced(fact, line);
 }
 
 /** Fallback when the model does not list what it said: distinctive words of a fact in the reply. */
@@ -236,7 +291,7 @@ function guessRevealed(text: string, cards: FactCard[]): string[] {
         .filter((w) => w.length >= 5 || /^\d{2,}$/.test(w));
       if (!words.length) return false;
       const hits = words.filter((w) => t.includes(w.slice(0, Math.max(4, w.length - 2)))).length;
-      return hits >= Math.min(2, words.length) && evidenced(c, text);
+      return hits >= Math.min(2, words.length) && spokenMatchesFact(c, text);
     })
     .map((c) => c.key);
 }

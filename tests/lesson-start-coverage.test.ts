@@ -30,6 +30,7 @@ vi.mock("@/lib/db", () => ({
     },
     seat: { findMany: async ({ where }: { where: { lessonId?: string } }) => (where.lessonId ? store.seats : []) },
     scenario: { findMany: async ({ where }: { where: Where }) => library.filter((s) => matches(s, where)) },
+    followUp: { findMany: async () => [] },
   },
 }));
 vi.mock("@/lib/adaptive/snapshot", () => ({ saveLessonForecasts: async () => 0 }));

@@ -1,3 +1,4 @@
+import { isControl } from "@/lib/followup/skills";
 import type { Prisma } from "@prisma/client";
 import type { SessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -43,8 +44,10 @@ export async function resolveLessonInput(
 
   const scenarioIds = [...new Set(seats.flatMap((s) => s.scenarioIds))];
   if (scenarioIds.length) {
-    const scenarios = await db.scenario.findMany({ where: { id: { in: scenarioIds } }, select: { id: true, title: true, status: true } });
+    const scenarios = await db.scenario.findMany({ where: { id: { in: scenarioIds } }, select: { id: true, title: true, status: true, learningMeta: true } });
     if (scenarios.length !== scenarioIds.length) return { ok: false, error: "Задание не найдено — обновите страницу" };
+    const reserved = scenarios.find((s) => isControl(s.learningMeta));
+    if (reserved) return { ok: false, error: `Сценарий «${reserved.title}» зарезервирован для контрольного задания` };
     const draft = scenarios.find((s) => s.status !== "APPROVED");
     if (draft) return { ok: false, error: `Сценарий «${draft.title}» не утверждён: утвердите его в разделе «Сценарии»` };
   }

@@ -1,6 +1,8 @@
 /** The student's 112 place: the running lesson and seat, personal training, the next call. */
 import type { Prisma, Scenario } from "@prisma/client";
 import { db } from "@/lib/db";
+import { isControl } from "@/lib/followup/skills";
+import { canIssueControl } from "@/lib/followup/state";
 import type { SessionUser } from "@/lib/auth/session";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
@@ -179,9 +181,13 @@ export async function drawCall(seat: Op112Seat): Promise<CallDraw> {
       ? { AND: [USABLE, { category: { in: settings.categories } }] }
       : USABLE;
   const listed = await db.scenario.findMany({ where, orderBy: [{ difficulty: "asc" }, { createdAt: "asc" }] });
+  const allowedControl = new Set<string>();
+  for (const s of listed.filter((row) => assigned && isControl(row.learningMeta))) {
+    if (await canIssueControl(db, seat.lessonId, seat.studentId, s.id)) allowedControl.add(s.id);
+  }
   // A variant with an error in the card is played at the ДДС place only: for the operator it is the same call as its
   // ticket (dds/scenario.ts). Not even when the teacher marked it for the place.
-  const playable = inLessonLocation(listed.filter((s) => !hasCardError(s.ddsReference)), seat, settings);
+  const playable = inLessonLocation(listed.filter((s) => !hasCardError(s.ddsReference) && (!isControl(s.learningMeta) || allowedControl.has(s.id))), seat, settings);
   // In a lesson of mixed cards a place drawing by itself does not ring with a situation a ДДС place has already got as a
   // generated card: the card it types would reach the ДДС places a second time (lessons/in-play.ts).
   const atDds = !assigned && settings.cardSource === "mixed" ? withPairs(await dealtAtDds(db, seat.lessonId), listed) : new Set<string>();

@@ -190,12 +190,15 @@ export type Move = { okrug: string; district: string; street: string; house: str
 
 const houseNumber = (house: string) => Number.parseInt(house.replace(/\D+/g, " ").trim().split(" ")[0] ?? "", 10);
 
+/** «улица грина|11»: a house as a key, to keep two incidents of one feed off the same house. */
+export const houseKey = (street: string | null | undefined, house: string | null | undefined) => `${low(street).replace(/\s+/g, " ").trim()}|${low(house).replace(/\s+/g, "")}`;
+
 /**
  * The house a card moves to: a street of the place's district (for a prefecture — of one of its districts), a house
- * near the one the tickets know there, or a small number that exists on almost any street; never a ticket's own house.
- * Null when the gazetteer has no street there.
+ * near the one the tickets know there, or a small number that exists on almost any street; never a ticket's own house,
+ * nor a house already in the place's feed (`avoid`, houseKey). Null when the gazetteer has no street there.
  */
-export function moveTarget(t: Territory, seed: string): Move | null {
+export function moveTarget(t: Territory, seed: string, avoid: ReadonlySet<string> = new Set()): Move | null {
   const h = hash(seed);
   const districts = t.level === "district" ? [t.district!] : districtsOf(t.okrug);
   const withStreets = districts.filter((d) => streetsOf(d).length);
@@ -211,7 +214,7 @@ export function moveTarget(t: Territory, seed: string): Move | null {
   const near = tickets(p.street).map((x) => houseNumber(x.house)).find((n) => Number.isFinite(n) && n > 0);
   const step = 2 * (1 + (Math.floor(h / 13) % 4));
   let house = near ? (near > step && (h & 1) ? near - step : near + step) : 1 + (Math.floor(h / 13) % 24);
-  while (taken.has(String(house))) house += 2;
+  for (let i = 0; i < 60 && (taken.has(String(house)) || avoid.has(houseKey(p.street, String(house)))); i++) house += 2;
   return { okrug: normalizeOkrug(p.okrug) ?? p.okrug!, district: p.district!, street: p.street, house: String(house) };
 }
 
@@ -236,12 +239,17 @@ export const moveSeed = (scenarioId: string, serviceId: number) => `${scenarioId
  * Where the card of a scenario goes for a place: `move` — the house it moves to (null: it stays where it is); `foreign`
  * — it stays off the place's territory (a task marked by hand that cannot move).
  */
-export function moveFor(spec: DdsCardSpec, scenarioId: string, own: ServiceLike & { id: number }): { move: Move | null; foreign: boolean } {
+export function moveFor(
+  spec: DdsCardSpec,
+  scenarioId: string,
+  own: ServiceLike & { id: number },
+  avoid: ReadonlySet<string> = new Set(),
+): { move: Move | null; foreign: boolean } {
   const t = territoryOf(own);
   if (!t) return { move: null, foreign: false };
   const match = territoryMatch(placeOfAddress(spec.address), t);
   if (match === "in") return { move: null, foreign: false };
-  const move = movable(spec) ? moveTarget(t, moveSeed(scenarioId, own.id)) : null;
+  const move = movable(spec) ? moveTarget(t, moveSeed(scenarioId, own.id), avoid) : null;
   return { move, foreign: !move && match === "out" };
 }
 

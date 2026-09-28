@@ -38,6 +38,7 @@ model User {
   seats        Seat[]
   attempts     Attempt[]          @relation("AttemptStudent")
   reviews      Attempt[]          @relation("AttemptReviewer")
+  followUpsCreated FollowUp[]      @relation("FollowUpCreator")
   forecasts    ForecastSnapshot[]
 }
 
@@ -193,6 +194,7 @@ model Scenario {
   teacherNote      String?
   createdById      String?
   approvedById     String?
+  learningMeta     Json? // approved learning purpose, role, skill and comparable case identity
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -229,6 +231,8 @@ model Lesson {
   calls     Call[]
   attempts  Attempt[]
   forecasts ForecastSnapshot[]
+  practiceFollowUps FollowUp[] @relation("FollowUpPracticeLesson")
+  controlFollowUps  FollowUp[] @relation("FollowUpControlLesson")
 }
 
 enum SeatRole {
@@ -424,6 +428,7 @@ model Attempt {
   criteria          Json
   /// AI draft: summary, per-criterion comments, recommendations
   aiDraft           Json?
+  feedback          Json? // published after a teacher confirms the effective checks
   /// teacher corrections per criterion key
   override          Json?
   score             Float? // cached with the active weight profile
@@ -432,10 +437,36 @@ model Attempt {
   reviewedBy        User?            @relation("AttemptReviewer", fields: [reviewedById], references: [id])
   reviewedAt        DateTime?
   teacherComment    String?
+  sourceFollowUps   FollowUp[]
   createdAt         DateTime         @default(now())
 
   @@index([lessonId, studentId])
   @@index([studentId, createdAt]) // the level and the forecast replay one student's attempts
+}
+
+/// A teacher-authorized route from one confirmed error to coached practice and a separate control task.
+/// Students may share both lessons while their origin and outcome stay individual.
+model FollowUp {
+  id                 String   @id @default(cuid())
+  sourceAttemptId    String
+  sourceAttempt      Attempt  @relation(fields: [sourceAttemptId], references: [id])
+  sourceReviewDigest String
+  skillKey           String
+  sourceSnapshot     Json
+  practiceLessonId   String
+  practiceLesson     Lesson   @relation("FollowUpPracticeLesson", fields: [practiceLessonId], references: [id])
+  controlLessonId    String
+  controlLesson      Lesson   @relation("FollowUpControlLesson", fields: [controlLessonId], references: [id])
+  practiceJudgment   Json?
+  controlJudgment    Json?
+  createdById        String
+  createdBy          User     @relation("FollowUpCreator", fields: [createdById], references: [id])
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdAt          DateTime @default(now())
+
+  @@index([practiceLessonId])
+  @@index([controlLessonId])
 }
 
 /// Forecast for a student of a lesson, saved when the lesson starts, to set against the fact once the

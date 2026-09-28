@@ -4,7 +4,7 @@
  * Idempotent: types, groups and services are upserted, routes are replaced as a whole,
  * scenarios are matched by their reference («Б1-1», «НВ-1»).
  */
-import type { Prisma, PrismaClient, ServiceDelivery, ScenarioStatus } from "@prisma/client";
+import { Prisma, type PrismaClient, type ServiceDelivery, type ScenarioStatus } from "@prisma/client";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -62,6 +62,7 @@ type ScenarioFile = {
   ddsReference?: Prisma.InputJsonValue | null;
   approvedSections?: string[];
   teacherNote?: string | null;
+  learningMeta?: Prisma.InputJsonValue | null;
 }[];
 
 function read<T>(name: string): T | null {
@@ -158,6 +159,8 @@ async function seedScenarios(db: PrismaClient, scenarios: ScenarioFile) {
       ddsReference: s.ddsReference ?? undefined,
       approvedSections: s.approvedSections ?? [],
       teacherNote: s.teacherNote ?? null,
+      // Reseeding only updates this field for explicitly curated rows.
+      ...(s.learningMeta === undefined ? {} : { learningMeta: s.learningMeta === null ? Prisma.DbNull : s.learningMeta }),
     };
     const id = byRef.get(s.ticketRef);
     if (id) await db.scenario.update({ where: { id }, data });

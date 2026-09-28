@@ -4,7 +4,7 @@ import { aiOffNote } from "@/lib/ai/provider";
 import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
-import { getActiveWeights } from "@/lib/scoring/weights";
+import { getActiveWeights, lockScores, weightsForAttempt } from "@/lib/scoring/weights";
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
@@ -34,6 +34,25 @@ export const EMPTY_TEXT = { noContact: "<Нет контакта>", dropped: "<�
 /** The active weights with the zero point of the time checks, as everywhere else (src/lib/scoring/weights.ts). */
 export async function activeWeights(): Promise<Weights> {
   return (await getActiveWeights()).weights;
+}
+
+/**
+ * The teacher's single and bulk review actions use the same score lock. Read and write inside that lock so an
+ * answer that arrives later cannot change a confirmed result, including the model-failure path.
+ */
+export async function replacePendingCriteria(attemptId: string, replaced: ReadonlySet<string>, fresh: CriterionResult[]): Promise<void> {
+  await db.$transaction(async (tx) => {
+    await lockScores(tx);
+    const attempt = await tx.attempt.findUnique({ where: { id: attemptId } });
+    if (!attempt || attempt.reviewStatus !== "PENDING") return;
+    const criteria = [...((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !replaced.has(c.code)), ...fresh];
+    const weights = await weightsForAttempt(tx, attempt.lessonId, attempt.studentId);
+    const score = computeScore(criteria, weights, attempt.override as Record<string, boolean | null> | null);
+    await tx.attempt.updateMany({
+      where: { id: attemptId, reviewStatus: "PENDING" },
+      data: { criteria: criteria as unknown as Prisma.InputJsonValue, score },
+    });
+  });
 }
 
 /** Flags the chosen panels can set: rows with a flag and buttons that switch one on. */
@@ -153,9 +172,7 @@ export async function regradeAfterWork(incidentId: string): Promise<void> {
     const replaced = new Set<string>([PHONE_CODE, ...LINK_CODES]);
     const attempt = await db.attempt.findFirst({ where: { incidentId, kind: "OP112" }, orderBy: { createdAt: "desc" } });
     if (!attempt) return;
-    const criteria = [...((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !replaced.has(c.code)), ...fresh];
-    const score = computeScore(criteria, await activeWeights(), attempt.override as Record<string, boolean | null> | null);
-    await db.attempt.update({ where: { id: attempt.id }, data: { criteria: criteria as unknown as Prisma.InputJsonValue, score } });
+    await replacePendingCriteria(attempt.id, replaced, fresh);
   } catch (err) {
     console.error("op112 after-work checks failed", incidentId, err);
   }
@@ -190,7 +207,7 @@ async function grade(incidentId: string): Promise<{ attemptId: string; aiPending
   const rules = evaluateOp112Rules(input);
   const aiPending = aiEnabled() && !input.card.empty;
   const criteria: CriterionResult[] = [...rules, ...(aiPending || input.card.empty ? [] : aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`))];
-  const score = computeScore(criteria, await activeWeights());
+  const score = computeScore(criteria, await weightsForAttempt(db, loaded.lessonId, loaded.studentId));
   const attempt = await db.attempt.create({
     data: {
       lessonId: loaded.lessonId,
@@ -210,7 +227,7 @@ async function grade(incidentId: string): Promise<{ attemptId: string; aiPending
 export async function runAiReview(attemptId: string): Promise<void> {
   try {
     const attempt = await db.attempt.findUnique({ where: { id: attemptId } });
-    if (!attempt?.incidentId) return;
+    if (!attempt?.incidentId || attempt.reviewStatus !== "PENDING") return;
     const loaded = await loadEvalInput(attempt.incidentId);
     if (!loaded) return;
     // The teachers' corrections of these checks in similar situations (учёт правок, src/lib/review/corrections.ts).
@@ -218,20 +235,12 @@ export async function runAiReview(attemptId: string): Promise<void> {
     const ctx = situation ?? { scenarioId: loaded.scenarioId, typeCode: null, typeGroupId: null, category: null };
     const [said, description] = await Promise.all([loadGuidance("op112.ai.said", ctx), loadGuidance("op112.ai.description", ctx)]);
     const ai = await evaluateOp112Ai(loaded.input, { ctx, said, description });
-    // Read again: «отработана» may have updated the phone check while the model was thinking.
-    const fresh = (await db.attempt.findUnique({ where: { id: attemptId } })) ?? attempt;
-    const base = ((fresh.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
-    const criteria = [...base, ...ai];
-    const score = computeScore(criteria, await activeWeights(), fresh.override as Record<string, boolean | null> | null);
-    await db.attempt.update({ where: { id: attemptId }, data: { criteria: criteria as unknown as Prisma.InputJsonValue, score } });
+    // Read the latest phone checks and review state inside the same lock as teacher confirmation.
+    await replacePendingCriteria(attemptId, new Set<string>(AI_CODES), ai);
   } catch (err) {
     // The rule checks stay; the model checks are marked as not done so the review stops waiting.
     console.error("op112 ai review failed", attemptId, err);
-    const attempt = await db.attempt.findUnique({ where: { id: attemptId } }).catch(() => null);
-    if (!attempt) return;
-    const base = ((attempt.criteria ?? []) as unknown as CriterionResult[]).filter((c) => !(AI_CODES as readonly string[]).includes(c.code));
-    const criteria = [...base, ...aiUnavailable("ИИ-проверка не удалась")];
-    await db.attempt.update({ where: { id: attemptId }, data: { criteria: criteria as unknown as Prisma.InputJsonValue } }).catch(() => undefined);
+    await replacePendingCriteria(attemptId, new Set<string>(AI_CODES), aiUnavailable("ИИ-проверка не удалась")).catch(() => undefined);
   }
 }
 

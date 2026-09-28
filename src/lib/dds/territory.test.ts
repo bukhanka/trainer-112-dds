@@ -5,6 +5,7 @@ import { ddsCardOf, personaOf, referenceFor, type ScenarioLike } from "./scenari
 import {
   cardReference,
   foreignReference,
+  houseKey,
   movable,
   moveCard,
   movedPersona,
@@ -78,6 +79,18 @@ describe("a card moved onto the place's territory", () => {
       expect(territoryMatch(placeOfAddress(moved.address), t), `${s.shortName}: ${JSON.stringify(to)}`).toBe("in");
       expect(ticketHouses.has(`${to.street}|${to.house}`)).toBe(false);
     }
+  });
+
+  it("keeps two incidents of one feed off the same house", () => {
+    const t = territoryOf(voronovo)!;
+    const seen = new Set<string>();
+    for (const x of tickets.filter((x) => movable(ddsCardOf(x)))) {
+      const to = moveTarget(t, `${x.id}|${voronovo.id}`, seen)!;
+      const key = houseKey(to.street, to.house);
+      expect(seen.has(key), `${x.ticketRef}: ${key}`).toBe(false);
+      seen.add(key);
+    }
+    expect(seen.size).toBeGreaterThan(30);
   });
 
   it("keeps the entrance and the code, drops the object and the descriptive address of the old place", () => {

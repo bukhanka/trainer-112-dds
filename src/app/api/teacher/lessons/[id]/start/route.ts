@@ -1,5 +1,6 @@
 import { saveLessonForecasts } from "@/lib/adaptive/snapshot";
 import { db } from "@/lib/db";
+import { followUpStartProblem } from "@/lib/followup/state";
 import { lessonCoverage } from "@/lib/lessons/coverage";
 import { isPractice, parseTeacherSettings } from "@/lib/lessons/form";
 import { dealableScenarios } from "@/lib/lessons/options";
@@ -55,6 +56,9 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
     const who = busy.map((b) => `${b.student.fullName} («${b.lesson.title}»)`).join(", ");
     return jsonError(`Эти ученики уже на другом идущем занятии: ${who}. Завершите его или уберите их из мест.`, 409);
   }
+
+  const followUpProblem = await followUpStartProblem(db, id, taskIds);
+  if (followUpProblem) return jsonError(followUpProblem, 409);
 
   const startedAt = new Date();
   const res = await db.lesson.updateMany({ where: { id, status: "DRAFT" }, data: { status: "RUNNING", startedAt } });

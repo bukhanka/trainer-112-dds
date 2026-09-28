@@ -6,10 +6,15 @@ import { PLATE_STATUS_LABEL } from "@/lib/board/state";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDuration, formatTime } from "@/lib/format";
 import { correctionsByIds } from "@/lib/review/corrections-db";
+import { feedbackRevision } from "@/lib/review/published-feedback";
+import { followUpCases, followUpCandidates } from "@/lib/followup/options";
+import { studentFollowUps } from "@/lib/followup/student";
+import { AssignFollowUp } from "@/app/teacher/followups/AssignFollowUp";
+import { FollowUpProgress, type TeacherFollowUp } from "@/app/teacher/followups/FollowUpProgress";
 import { readCriteria, readDraft, readOverrides } from "@/lib/review/draft";
 import { RUNNING_LOCK } from "@/lib/review/review";
 import { passRulesOf } from "@/lib/scoring/pass";
-import { getActiveWeights } from "@/lib/scoring/weights";
+import { weightsForAttempt } from "@/lib/scoring/weights";
 import { readWorkLog } from "@/lib/op112/workoffs";
 import { attemptScope } from "@/lib/teacher/access";
 import { AttemptReview, type LearnedView } from "./AttemptReview";
@@ -50,9 +55,9 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
   });
   if (!attempt) notFound();
 
-  const [siblings, weights, calls] = await Promise.all([
+  const [siblings, weights, calls, cases, candidates, linked] = await Promise.all([
     db.attempt.findMany({ where: { lessonId: attempt.lessonId, reviewStatus: "PENDING" }, orderBy: { createdAt: "asc" }, select: { id: true, createdAt: true } }),
-    getActiveWeights(),
+    weightsForAttempt(db, attempt.lessonId, attempt.studentId),
     attempt.kind === "OP112" && attempt.incidentId
       ? // The calls of this 112 place only: the caller and its calls to phone-only services, not the crews of the ДДС places.
         db.call.findMany({
@@ -61,6 +66,9 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
           select: { kind: true, messages: true, startedAt: true, counterpart: true },
         })
       : Promise.resolve([]),
+    followUpCases(),
+    followUpCandidates(attempt.lessonId, attempt.id),
+    studentFollowUps(attempt.studentId, attempt.id),
   ]);
   // Teacher corrections the model checks of this attempt were shown (учёт правок).
   const criteria = readCriteria(attempt.criteria);
@@ -76,6 +84,19 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
   const others = siblings.filter((s) => s.id !== attempt.id);
   const nextPending = others.find((s) => s.createdAt > attempt.createdAt) ?? others[0] ?? null;
 
+  const progress: TeacherFollowUp[] = await Promise.all(linked.map(async (item) => {
+    const [practiceLesson, controlLesson, later] = await Promise.all([
+      db.lesson.findUniqueOrThrow({ where: { id: item.practiceLessonId }, select: { status: true } }),
+      db.lesson.findUniqueOrThrow({ where: { id: item.controlLessonId }, select: { status: true } }),
+      db.attempt.findMany({ where: { studentId: attempt.studentId, lessonId: { in: [item.practiceLessonId, item.controlLessonId] } }, orderBy: { createdAt: "desc" }, select: { id: true, lessonId: true, reviewStatus: true } }),
+    ]);
+    const stage = (lessonId: string, lessonStatus: string) => {
+      const row = later.find((a) => a.lessonId === lessonId);
+      return { lessonId, lessonStatus, attemptId: row?.id ?? null, checked: Boolean(row && row.reviewStatus !== "PENDING") };
+    };
+    return { id: item.id, title: item.title, state: item.state, status: item.status,
+      practice: stage(item.practiceLessonId, practiceLesson.status), control: stage(item.controlLessonId, controlLesson.status), cancelled: item.state === "cancelled" };
+  }));
   const caller = (attempt.incident?.caller ?? {}) as { fullName?: string; status?: string; aon?: string };
   const plate = attempt.incidentService;
   const kindLabel = attempt.kind === "OP112" ? "Оператор 112" : "Диспетчер ДДС";
@@ -107,20 +128,25 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
       />
 
       <AttemptReview
+        key={`${attempt.reviewStatus}:${attempt.reviewedAt?.toISOString() ?? ""}:${feedbackRevision(readCriteria(attempt.criteria), attempt.aiDraft)}`}
         id={attempt.id}
         criteria={criteria}
         override={readOverrides(attempt.override)}
         draft={withoutModel(readDraft(attempt.aiDraft))}
+        feedbackRevision={feedbackRevision(readCriteria(attempt.criteria), attempt.aiDraft)}
         reviewStatus={attempt.reviewStatus}
         teacherComment={attempt.teacherComment}
         reviewedBy={attempt.reviewedBy?.fullName ?? null}
         reviewedAt={attempt.reviewedAt ? formatDateTime(attempt.reviewedAt) : null}
-        weights={weights.weights}
+        weights={weights}
         locked={attempt.lesson.status === "RUNNING" ? RUNNING_LOCK : null}
         nextPendingId={nextPending?.id ?? null}
         pass={passRulesOf(attempt.lesson.settings)}
         learned={learned}
       />
+
+      {attempt.reviewStatus !== "PENDING" && <AssignFollowUp compact candidates={candidates.filter((c) => c.attemptId === attempt.id)} scenarios={cases} />}
+      {progress.map((item) => <FollowUpProgress key={`${item.id}:${item.state}`} item={item} />)}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {attempt.incident && (

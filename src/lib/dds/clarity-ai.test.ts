@@ -40,7 +40,7 @@ describe("the model's clarity check of ДДС comments", () => {
     const real = clarityFromReply({ clear: false, fragment: "АБ на месте", better: "Аварийная бригада на месте" }, input, [correction], basis);
     expect(real).toMatchObject({ ok: false, evidence: "Непонятно: «АБ на месте»", expected: "Аварийная бригада на месте", source: "ai", learned: ["corr-1"], basis });
     const invented = clarityFromReply({ clear: false, fragment: "бригада уехала домой", better: "" }, input, [], basis);
-    expect(invented.evidence).toBe("Без звонка не понять, что сделано и чем закончилось");
+    expect(invented).toMatchObject({ ok: null, evidence: "ИИ не подтвердил замечание цитатой из комментария; проверит преподаватель" });
     expect(clarityFromReply({ clear: true, fragment: "", better: "" }, input, [], basis)).toMatchObject({ ok: true, evidence: "Понятно без звонка", learned: [] });
   });
 

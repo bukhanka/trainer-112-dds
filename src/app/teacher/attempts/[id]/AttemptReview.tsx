@@ -17,6 +17,7 @@ export type AttemptReviewProps = {
   criteria: CriterionResult[];
   override: Overrides | null;
   draft: AiDraft | null;
+  feedbackRevision: string;
   reviewStatus: "PENDING" | "CONFIRMED" | "OVERRIDDEN";
   teacherComment: string | null;
   reviewedBy: string | null;
@@ -95,6 +96,9 @@ export function AttemptReview(p: AttemptReviewProps) {
   const [editing, setEditing] = useState(false);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(() => Object.fromEntries(applyOverrides(p.criteria, p.override).map((c) => [c.code, c.ok])));
   const [comment, setComment] = useState(p.teacherComment ?? "");
+  const [approveFeedback, setApproveFeedback] = useState(false);
+  const [feedbackSummary, setFeedbackSummary] = useState(p.draft?.summary ?? "");
+  const [feedbackAction, setFeedbackAction] = useState(p.draft?.recommendations?.[0] ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -338,7 +342,23 @@ export function AttemptReview(p: AttemptReviewProps) {
                   onChange={(e) => setComment(e.target.value)}
                   aria-label="Комментарий ученику"
                 />
-                <Button variant="success" disabled={busy} onClick={() => send({ action: "confirm", comment: comment.trim() || undefined }, "Оценка подтверждена")}>
+                {p.draft?.source === "ai" && <div className="rounded border border-arm-blue/40 bg-arm-panel/30 p-3 text-sm">
+                  <label className="flex items-start gap-2 font-medium">
+                    <input type="checkbox" className="mt-1" checked={approveFeedback} onChange={(e) => setApproveFeedback(e.target.checked)} />
+                    Проверил текст ИИ — показать ученику после моего решения
+                  </label>
+                  {approveFeedback && <div className="mt-2 grid gap-2">
+                    <label className="grid gap-1">Короткий разбор
+                      <textarea className="min-h-20 rounded border border-arm-gray p-2" maxLength={500} value={feedbackSummary} onChange={(e) => setFeedbackSummary(e.target.value)} />
+                    </label>
+                    <label className="grid gap-1">Что сделать в следующем задании
+                      <textarea className="min-h-16 rounded border border-arm-gray p-2" maxLength={500} value={feedbackAction} onChange={(e) => setFeedbackAction(e.target.value)} />
+                    </label>
+                  </div>}
+                  {!approveFeedback && <p className="mt-1 text-xs text-arm-desc">Ученику будет показан короткий разбор по подтверждённым проверкам.</p>}
+                </div>}
+                <Button variant="success" disabled={busy || (approveFeedback && !feedbackSummary.trim())} onClick={() => send({ action: "confirm", comment: comment.trim() || undefined,
+                  feedback: approveFeedback && p.draft?.source === "ai" ? { revision: p.feedbackRevision, summary: feedbackSummary.trim(), nextAction: feedbackAction.trim() || undefined } : undefined }, "Оценка подтверждена")}>
                   ✓ Верно — подтвердить
                 </Button>
                 <Button

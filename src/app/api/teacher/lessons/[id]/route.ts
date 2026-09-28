@@ -25,6 +25,7 @@ export async function PATCH(request: Request, ctx: RouteContext<"/api/teacher/le
   const lesson = await findLesson(user, id);
   if (!lesson) return jsonError("Занятие не найдено", 404);
   if (lesson.status !== "DRAFT") return jsonError(LOCKED, 409);
+  if (await db.followUp.findFirst({ where: { OR: [{ practiceLessonId: id }, { controlLessonId: id }] }, select: { id: true } })) return jsonError("Это занятие входит в отработку навыка. Измените назначение из разбора ученика.", 409);
 
   const resolved = await resolveLessonInput(user, await readJson(request));
   if (!resolved.ok) return jsonError(resolved.error);
@@ -58,6 +59,7 @@ export async function DELETE(request: Request, ctx: RouteContext<"/api/teacher/l
   const lesson = await findLesson(user, id);
   if (!lesson) return jsonError("Занятие не найдено", 404);
   if (lesson.status !== "DRAFT") return jsonError("Удалить можно только черновик: у проведённого занятия есть результаты учеников.", 409);
+  if (await db.followUp.findFirst({ where: { OR: [{ practiceLessonId: id }, { controlLessonId: id }] }, select: { id: true } })) return jsonError("Занятие связано с отработкой навыка; история решения преподавателя сохраняется.", 409);
 
   const seats = await db.seat.findMany({ where: { lessonId: id } });
   const res = await db.lesson.deleteMany({ where: { id, status: "DRAFT" } });

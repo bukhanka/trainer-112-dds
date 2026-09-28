@@ -1,4 +1,5 @@
 import { Badge, LinkButton, Section } from "@/components/ui";
+import { studentFollowUps } from "@/lib/followup/student";
 import { countLabel, formatTime, shortName } from "@/lib/format";
 import { getAssignments, type Assignment } from "@/lib/student/assignments";
 
@@ -27,7 +28,7 @@ function tasksLine(a: Assignment): string {
  * «Мои задания»: the places the teacher gave the student in a running or planned lesson and their tasks.
  * `empty` is the text for no places; without it an empty list renders nothing (the results page).
  */
-export function MyTasks({ assignments, empty }: { assignments: Assignment[]; empty?: React.ReactNode }) {
+export function MyTasks({ assignments, empty, stages = {} }: { assignments: Assignment[]; empty?: React.ReactNode; stages?: Record<string, { title: string; status: string; hints: boolean }> }) {
   if (!assignments.length && !empty) return null;
   return (
     <Section title="Мои задания">
@@ -58,6 +59,7 @@ export function MyTasks({ assignments, empty }: { assignments: Assignment[]; emp
                   <span className="text-xs text-arm-desc sm:max-w-60">Место откроется, когда преподаватель начнёт занятие.</span>
                 )}
               </div>
+              {stages[a.lessonId] && <p className="mt-2 text-sm"><b>{stages[a.lessonId].title}</b> · {stages[a.lessonId].status} · {stages[a.lessonId].hints ? "подсказки включены" : "контроль без подсказок"}</p>}
               {a.taskCount ? (
                 <p className="mt-2 text-sm">{tasksLine(a)}</p>
               ) : (
@@ -76,5 +78,12 @@ export function MyTasks({ assignments, empty }: { assignments: Assignment[]; emp
 
 /** The section with its own data: on the results page it shows only while something is assigned. */
 export async function MyTasksSection({ studentId, empty }: { studentId: string; empty?: React.ReactNode }) {
-  return <MyTasks assignments={await getAssignments(studentId)} empty={empty} />;
+  const [assignments, links] = await Promise.all([getAssignments(studentId), studentFollowUps(studentId)]);
+  const stages: Record<string, { title: string; status: string; hints: boolean }> = {};
+  for (const f of links) {
+    if (f.state === "cancelled" || f.state === "source_changed") continue;
+    stages[f.practiceLessonId] = { title: f.title, status: f.status, hints: true };
+    stages[f.controlLessonId] = { title: f.title, status: f.status, hints: false };
+  }
+  return <MyTasks assignments={assignments} stages={stages} empty={empty} />;
 }

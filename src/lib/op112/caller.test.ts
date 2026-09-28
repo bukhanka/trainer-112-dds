@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callerOpening, genderOfName, greetingLine, lineTurn, mockOpening, mockReply, NOISE_TEXT, noiseLines, type Gender, type Persona } from "./caller";
+import { callerOpening, cleanCallerReply, genderOfName, greetingLine, lineTurn, mockOpening, mockReply, spokenMatchesFact, NOISE_TEXT, noiseLines, type Gender, type Persona } from "./caller";
 import { askedTopics, expectationOfFact, factCards, findAsked, speech, spokenFact, statusOfRole, topicsOfFact } from "./facts";
 import type { CallLine } from "./types";
 
@@ -100,6 +100,29 @@ describe("rule-based caller", () => {
     expect(mockReply(persona, told, "Помощь выезжает, ожидайте").text).toMatch(/спасибо/i);
     expect(mockReply({ ...persona, temper: "panic" }, [], "Служба 112").text).toMatch(/^Помогите! .*Быстрее/);
     expect(mockReply({ ...persona, temper: "elderly" }, [], "Служба 112", "male").text).toMatch(/Сынок/);
+  });
+});
+
+describe("model caller disclosures", () => {
+  const cards = factCards(persona);
+
+  it("falls back when the model claims a different address, name, phone or critical flag", () => {
+    expect(() => cleanCallerReply({ reply: "Улица Грина, дом 12", revealed: ["addressExact"] }, cards)).toThrow();
+    expect(() => cleanCallerReply({ reply: "Меня зовут Сидорова Ольга", revealed: ["name"] }, cards)).toThrow();
+    expect(() => cleanCallerReply({ reply: "Телефон 8 999 999 99 99", revealed: ["phone"] }, cards)).toThrow();
+    const victims = cards.find((c) => c.topic === "victims")!;
+    expect(spokenMatchesFact(victims, "Есть трое пострадавших")).toBe(false);
+    expect(() => cleanCallerReply({ reply: "Есть трое пострадавших", revealed: [victims.key] }, cards)).toThrow();
+  });
+
+  it("accepts the caller's real values, including a name without patronymic", () => {
+    expect(cleanCallerReply({ reply: "Меня зовут Сидорова Анна", revealed: ["name"] }, cards).revealed).toContain("name");
+    expect(cleanCallerReply({ reply: "Телефон +7 916 126-34-71", revealed: ["phone"] }, cards).revealed).toContain("phone");
+    expect(cleanCallerReply({ reply: "Улица Грина, дом 11", revealed: ["addressExact"] }, cards).revealed).toContain("addressExact");
+  });
+
+  it("does not infer a wrong disclosed fact when the model omits its metadata", () => {
+    expect(cleanCallerReply({ reply: "Телефон 8 999 999 99 99" }, cards).revealed).not.toContain("phone");
   });
 });
 

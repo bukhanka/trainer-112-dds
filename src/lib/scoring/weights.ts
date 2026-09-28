@@ -29,6 +29,20 @@ export async function getActiveWeights(client: Client = db): Promise<{ weights: 
   };
 }
 
+
+/** Control cases retain the scoring contract chosen when the teacher assigned them. */
+export async function weightsForAttempt(client: Client, lessonId: string, studentId: string): Promise<Weights> {
+  const link = await client.followUp.findFirst({
+    where: { controlLessonId: lessonId, sourceAttempt: { studentId } },
+    select: { sourceSnapshot: true },
+  });
+  if (link) {
+    const snapshot = link.sourceSnapshot as { weights?: unknown } | null;
+    if (snapshot?.weights) return normalizeWeights(snapshot.weights);
+  }
+  return (await getActiveWeights(client)).weights;
+}
+
 /** A running class lesson blocks saving weights; a student's self-practice does not. */
 export async function runningLesson(client: Client = db): Promise<{ title: string } | null> {
   const running = await client.lesson.findMany({ where: { status: "RUNNING" }, select: { title: true, settings: true } });

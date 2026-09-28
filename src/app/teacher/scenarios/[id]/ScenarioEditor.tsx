@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { Badge, Button, inputClass } from "@/components/ui";
+import { learningMeta } from "@/lib/followup/metadata";
 import { SECTIONS, TEMPERS, type SectionKey } from "@/lib/scenarios/sections";
 import { CallerView, DdsCardView, DdsReferenceView, TruthView } from "./views";
 
@@ -19,6 +20,7 @@ export type EditorScenario = {
   ddsCard: unknown;
   ddsReference: unknown;
   teacherNote: string | null;
+  learningMeta: unknown;
 };
 
 type Mode = { section: SectionKey; kind: "edit" | "fix" } | null;
@@ -46,6 +48,14 @@ export function ScenarioEditor({ s, lockedBy, aiMock, categories }: { s: EditorS
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [meta, setMeta] = useState({ title: s.title, category: s.category, difficulty: s.difficulty, editing: false });
+  const initialLearning = learningMeta(s.learningMeta);
+  const [learning, setLearning] = useState({
+    purpose: initialLearning?.purpose ?? "ordinary",
+    role: initialLearning?.role ?? "OP112",
+    skillKey: initialLearning?.skillKeys[0] ?? "op112.location",
+    equivalenceKey: initialLearning?.equivalenceKey ?? "",
+    caseKey: initialLearning?.caseKey ?? "",
+  });
   const base = `/api/teacher/scenarios/${s.id}`;
   const archived = s.status === "ARCHIVED";
   const lockText = lockedBy ? `Сценарий может выпасть в идущем занятии «${lockedBy}». Править и снимать утверждение можно после его окончания.` : null;
@@ -69,6 +79,39 @@ export function ScenarioEditor({ s, lockedBy, aiMock, categories }: { s: EditorS
 
   return (
     <div className="flex flex-col gap-4">
+      <section className="rounded border border-arm-gray/70 bg-white p-4">
+        <h2 className="font-semibold">Учебное назначение сценария</h2>
+        <p className="mt-1 text-sm text-arm-desc">Контроль выдаётся только в назначенной преподавателем проверке. Обычные занятия его не показывают.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm">Для чего сценарий
+            <select className={inputClass} value={learning.purpose} disabled={busy || Boolean(lockedBy)} onChange={(e) => setLearning((v) => ({ ...v, purpose: e.target.value as typeof v.purpose }))}>
+              <option value="ordinary">Обычная библиотека</option><option value="practice">Отработка навыка</option><option value="control">Контроль навыка</option>
+            </select>
+          </label>
+          {learning.purpose !== "ordinary" && <>
+            <label className="flex flex-col gap-1 text-sm">Рабочее место
+              <select className={inputClass} value={learning.role} disabled={busy || Boolean(lockedBy)} onChange={(e) => setLearning((v) => ({ ...v, role: e.target.value as typeof v.role, skillKey: e.target.value === "DDS" ? "dds.report_record" : "op112.location" }))}>
+                <option value="OP112">Оператор 112</option><option value="DDS">Диспетчер ДДС</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">Цель
+              <select className={inputClass} value={learning.skillKey} disabled={busy || Boolean(lockedBy)} onChange={(e) => setLearning((v) => ({ ...v, skillKey: e.target.value as typeof v.skillKey }))}>
+                {learning.role === "OP112" ? <option value="op112.location">Уточнить место происшествия</option> : <option value="dds.report_record">Отразить доклад бригады</option>}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">Группа сопоставимой сложности
+              <input className={inputClass} maxLength={80} value={learning.equivalenceKey} disabled={busy || Boolean(lockedBy)} onChange={(e) => setLearning((v) => ({ ...v, equivalenceKey: e.target.value }))} placeholder="Например: адрес · базовый" />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">Код ситуации
+              <input className={inputClass} maxLength={80} value={learning.caseKey} disabled={busy || Boolean(lockedBy)} onChange={(e) => setLearning((v) => ({ ...v, caseKey: e.target.value }))} placeholder="Один код у копий одной ситуации" />
+            </label>
+          </>}
+        </div>
+        <Button className="mt-3" size="sm" disabled={busy || Boolean(lockedBy) || (learning.purpose !== "ordinary" && (!learning.equivalenceKey.trim() || !learning.caseKey.trim()))}
+          onClick={() => run(base, { learningMeta: learning.purpose === "ordinary" ? null : { purpose: learning.purpose, role: learning.role, skillKeys: [learning.skillKey], equivalenceKey: learning.equivalenceKey, caseKey: learning.caseKey } }, "Назначение сценария сохранено")}>
+          Сохранить учебное назначение
+        </Button>
+      </section>
       <section className="rounded border border-arm-gray/70 bg-white p-4">
         {meta.editing ? (
           <div className="grid gap-3 sm:grid-cols-[1fr_12rem_8rem_auto] sm:items-end">

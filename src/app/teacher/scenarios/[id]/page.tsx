@@ -46,6 +46,7 @@ export default async function ScenarioPage(props: PageProps<"/teacher/scenarios/
           ddsCard: s.ddsCard,
           ddsReference: s.ddsReference,
           teacherNote: s.teacherNote,
+          learningMeta: s.learningMeta,
         }}
         lockedBy={lockedBy}
         aiMock={aiMode().llm === "mock"}

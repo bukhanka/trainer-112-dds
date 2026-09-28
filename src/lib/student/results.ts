@@ -4,7 +4,10 @@
  */
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { studentFollowUps } from "@/lib/followup/student";
 import { GROUP_ADVICE, readCriteria, readOverrides } from "@/lib/review/draft";
+import { reviewDigest } from "@/lib/followup/skills";
+import { readPublishedFeedback, type PublishedFeedback } from "@/lib/review/published-feedback";
 import { describePassRules, passRulesOf, passVerdict, type PassVerdict } from "@/lib/scoring/pass";
 import { errorTitle } from "@/lib/scoring/errors";
 import { applyOverrides, WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
@@ -64,7 +67,7 @@ export type StudentResults = {
 const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
 
 /** Pure: turns the student's own rows into what the page shows. Draft verdicts never leave this function. */
-export function buildStudentResults(rows: Row[]): StudentResults {
+export function buildStudentResults(rows: Row[], resolvedSources: Set<string> = new Set()): StudentResults {
   const reviewed = rows.filter((r) => r.reviewStatus !== "PENDING");
   const checks = (r: Row) => applyOverrides(readCriteria(r.criteria), readOverrides(r.override));
   const verdictOf = (r: Row) => passVerdict(r.score, readCriteria(r.criteria), readOverrides(r.override), passRulesOf(r.lesson.settings));
@@ -82,7 +85,7 @@ export function buildStudentResults(rows: Row[]): StudentResults {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const failedByGroup = new Map<WeightGroup, CriterionResult[]>();
-  for (const r of [...reviewed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())) {
+  for (const r of [...reviewed].filter((r) => !resolvedSources.has(r.id)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 10)) {
     for (const c of checks(r)) {
       if (c.ok === false) failedByGroup.set(c.group, [...(failedByGroup.get(c.group) ?? []), c]);
     }
@@ -146,9 +149,15 @@ export function isOtherSessionPractice(settings: unknown, viewer?: ViewerSession
 }
 
 export async function getStudentResults(studentId: string, viewer?: ViewerSession): Promise<StudentResults> {
-  const rows = await db.attempt.findMany({ where: ownAttemptsWhere(studentId), orderBy: { createdAt: "asc" }, select: listSelect });
-  return buildStudentResults(rows.filter((r) => !isOtherSessionPractice(r.lesson.settings, viewer)));
+  const [rows, followUps] = await Promise.all([
+    db.attempt.findMany({ where: ownAttemptsWhere(studentId), orderBy: { createdAt: "asc" }, select: listSelect }),
+    studentFollowUps(studentId),
+  ]);
+  const resolved = new Set(followUps.filter((f) => f.state === "achieved").map((f) => f.sourceAttemptId));
+  return buildStudentResults(rows.filter((r) => !isOtherSessionPractice(r.lesson.settings, viewer)), resolved);
 }
+
+export type StudentFeedback = Pick<PublishedFeedback, "summary" | "strength" | "priority">;
 
 export type StudentAttemptDetail =
   | { status: "PENDING"; id: string; kind: "OP112" | "DDS"; createdAt: string; lessonTitle: string; task: string | null }
@@ -162,6 +171,7 @@ export type StudentAttemptDetail =
       incidentNumber: number | null;
       score: number | null;
       teacherComment: string | null;
+      feedback: StudentFeedback | null;
       checks: { code: string; group: WeightGroup; title: string; ok: boolean | null; critical: boolean; evidence: string | null; expected: string | null; changedByTeacher: boolean }[];
       pass: PassVerdict | null;
       /** The lesson's criteria in plain words: «балл не ниже 70, без критичных ошибок». */
@@ -172,19 +182,26 @@ export type StudentAttemptDetail =
 export async function getStudentAttempt(studentId: string, attemptId: string, viewer?: ViewerSession): Promise<StudentAttemptDetail | null> {
   const a = await db.attempt.findFirst({
     where: { id: attemptId, ...ownAttemptsWhere(studentId) },
-    select: { ...listSelect, teacherComment: true },
+    select: { ...listSelect, teacherComment: true, reviewedAt: true, feedback: true },
   });
   if (!a || isOtherSessionPractice(a.lesson.settings, viewer)) return null;
   const base = { id: a.id, kind: a.kind, createdAt: a.createdAt.toISOString(), lessonTitle: a.lesson.title, task: a.scenario?.title ?? null };
   if (a.reviewStatus === "PENDING") return { status: "PENDING", ...base };
   const raw = readCriteria(a.criteria);
   const overrides = readOverrides(a.override);
+  const published = readPublishedFeedback(a.feedback);
+  const currentDigest = reviewDigest({ criteria: raw, override: overrides, reviewedAt: a.reviewedAt, teacherComment: a.teacherComment });
+  // A late recalculation or a reopened review cannot silently change the text the teacher published.
+  const feedback: StudentFeedback | null = published?.reviewDigest === currentDigest
+    ? { summary: published.summary, strength: published.strength, priority: published.priority }
+    : null;
   return {
     status: a.reviewStatus,
     ...base,
     incidentNumber: a.incident?.number ?? null,
     score: a.score,
     teacherComment: a.teacherComment,
+    feedback,
     pass: passVerdict(a.score, raw, overrides, passRulesOf(a.lesson.settings)),
     passRules: describePassRules(passRulesOf(a.lesson.settings)),
     checks: applyOverrides(raw, overrides).map((c) => ({

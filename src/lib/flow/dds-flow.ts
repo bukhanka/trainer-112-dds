@@ -1,3 +1,5 @@
+import { isControl } from "@/lib/followup/skills";
+import { canIssueControl } from "@/lib/followup/state";
 /**
  * Card flow of a ДДС place. There are no background workers: every poll of the feed calls
  * ensureDdsFlow(seatId), which brings the place up to date — a new card when the tempo allows,
@@ -13,7 +15,7 @@ import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
 import { ddsCardOf, hasOwnReference, reachesPlace } from "@/lib/dds/scenario";
-import { hasStreets, movable, moveCard, moveFor, placeOfAddress, platesFor, territoryMatch, territoryOf, type Territory } from "@/lib/dds/territory";
+import { hasStreets, houseKey, movable, moveCard, moveFor, placeOfAddress, platesFor, territoryMatch, territoryOf, type Territory } from "@/lib/dds/territory";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
@@ -125,6 +127,7 @@ const scenarioSelect = {
   truth: true,
   ddsCard: true,
   ddsReference: true,
+  learningMeta: true,
 } satisfies Prisma.ScenarioSelect;
 
 type PickedScenario = Prisma.ScenarioGetPayload<{ select: typeof scenarioSelect }>;
@@ -164,7 +167,13 @@ export async function drawCard(tx: Tx, seat: Seat, settings: LessonSettings, ada
   else if (settings.categories.length) where.category = { in: settings.categories };
 
   // A scenario without a ДДС card (a silent line, a call that breaks off) is a task for the 112 place only.
-  const withCard = (await tx.scenario.findMany({ where, select: scenarioSelect })).filter((s) => s.ddsCard !== null);
+  const candidates = await tx.scenario.findMany({ where, select: scenarioSelect });
+  const allowedControl = new Set<string>();
+  for (const s of candidates.filter((row) => assigned && isControl(row.learningMeta))) {
+    if (await canIssueControl(tx, seat.lessonId, seat.studentId, s.id)) allowedControl.add(s.id);
+  }
+  const withCard = candidates.filter((s) => s.ddsCard !== null
+    && (!isControl(s.learningMeta) || allowedControl.has(s.id)));
   const own = seat.serviceId ? await tx.service.findUnique({ where: { id: seat.serviceId }, select: ownSelect }) : null;
   const territory = own ? territoryOf(own) : null;
   const located = inLessonLocation(withCard, seat, settings);
@@ -247,8 +256,15 @@ async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Dat
   const select = { id: true, shortName: true, okrug: true, district: true } as const;
   const own = await tx.service.findUnique({ where: { id: seat.serviceId! }, select });
   if (!own) return;
-  // A district or prefecture place gets the card on its territory: the house moves there when it can (territory.ts).
-  const { move, foreign } = moveFor(spec, scenario.id, own);
+  // A district or prefecture place gets the card on its territory: the house moves there when it can (territory.ts),
+  // never onto a house of another card in its feed — two incidents on one house would read as a duplicate.
+  const feedHouses = new Set(
+    (await tx.incident.findMany({ where: { ddsSeatId: seat.id }, select: { address: true } })).map((i) => {
+      const a = (i.address ?? {}) as { street?: string; house?: string };
+      return houseKey(a.street, a.house);
+    }),
+  );
+  const { move, foreign } = moveFor(spec, scenario.id, own, feedHouses);
   if (move) spec = moveCard(spec, move);
 
   const listed = spec.services.length

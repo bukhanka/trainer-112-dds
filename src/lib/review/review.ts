@@ -8,15 +8,17 @@
  */
 import { z } from "zod";
 import { computeScore, type CriterionResult, type Overrides, type Weights } from "@/lib/scoring/score";
+import { feedbackApprovalSchema } from "./published-feedback";
 
 export const RUNNING_LOCK = "Занятие ещё идёт: оценки подтверждаются после его окончания, чтобы ничего не менялось посреди работы класса.";
 
 export const reviewActionSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("confirm"), comment: z.string().trim().max(2000).optional() }),
+  z.object({ action: z.literal("confirm"), comment: z.string().trim().max(2000).optional(), feedback: feedbackApprovalSchema.optional() }),
   z.object({
     action: z.literal("override"),
     override: z.record(z.string(), z.boolean().nullable()),
     comment: z.string().trim().max(2000).optional(),
+    feedback: feedbackApprovalSchema.optional(),
   }),
   z.object({ action: z.literal("reopen") }),
 ]);

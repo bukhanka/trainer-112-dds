@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { syncCorrections } from "@/lib/review/corrections-db";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { planReview, reviewActionSchema, RUNNING_LOCK } from "@/lib/review/review";
-import { getActiveWeights, lockScores } from "@/lib/scoring/weights";
+import { buildPublishedFeedback, feedbackRevision } from "@/lib/review/published-feedback";
+import { lockScores, weightsForAttempt } from "@/lib/scoring/weights";
 import { attemptScope, auditInTx, jsonError, readJson, teacherApi } from "@/lib/teacher/access";
 
 class Refusal extends Error {
@@ -41,21 +42,41 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/att
         score: attempt.score,
         teacherComment: attempt.teacherComment,
       };
-      const { weights } = await getActiveWeights(tx);
+      const weights = await weightsForAttempt(tx, attempt.lessonId, attempt.studentId);
       const plan = planReview(criteria, current, parsed.data, weights);
       if (!plan.ok) throw new Refusal(plan.error, 400);
 
       const reopened = plan.next.reviewStatus === "PENDING";
+      const approval = parsed.data.action === "reopen" ? undefined : parsed.data.feedback;
+      if (approval && approval.revision !== feedbackRevision(criteria, attempt.aiDraft)) {
+        throw new Refusal("Черновик изменился — обновите страницу и проверьте текст снова", 409);
+      }
+      const reviewedAt = reopened ? null : new Date();
+      let feedback = null;
+      if (!reopened && reviewedAt) {
+        try {
+          feedback = buildPublishedFeedback({
+            criteria,
+            override: plan.next.override,
+            teacherComment: plan.next.teacherComment,
+            reviewedAt,
+            approval,
+          });
+        } catch (err) {
+          throw new Refusal(err instanceof Error ? err.message : "Обновите страницу и проверьте текст снова", 409);
+        }
+      }
       // Optimistic check: nobody changed the decision since we read it, and the lesson was not restarted.
       const res = await tx.attempt.updateMany({
-        where: { id, reviewStatus: attempt.reviewStatus, lesson: { status: { not: "RUNNING" } } },
+        where: { id, reviewStatus: attempt.reviewStatus, reviewedAt: attempt.reviewedAt, lesson: { status: { not: "RUNNING" } } },
         data: {
           reviewStatus: plan.next.reviewStatus,
           override: plan.next.override ?? Prisma.JsonNull,
           score: plan.next.score,
           teacherComment: plan.next.teacherComment,
           reviewedById: reopened ? null : user.id,
-          reviewedAt: reopened ? null : new Date(),
+          reviewedAt,
+          feedback: feedback ? (feedback as Prisma.InputJsonValue) : Prisma.JsonNull,
         },
       });
       if (!res.count) throw new Refusal("Попытку только что изменили — обновите страницу", 409);
@@ -75,9 +96,10 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/att
           reviewedBy: reopened ? null : user.login,
           changes: plan.changed.map((code) => ({ code, title: byCode.get(code)?.title ?? code, from: byCode.get(code)?.ok ?? null, to: plan.next.override?.[code] ?? null })),
           corrections,
+          feedbackDigest: feedback?.reviewDigest ?? null,
         },
       });
-      return { ...plan.next, corrections };
+      return { ...plan.next, corrections, feedback };
     });
     return Response.json({ ok: true, ...next });
   } catch (err) {

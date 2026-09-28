@@ -1,6 +1,7 @@
 import type { SessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { hasCardError } from "@/lib/dds/scenario";
+import { isControl } from "@/lib/followup/skills";
 import { groupLocations, type LocationGroup } from "@/lib/scenarios/location";
 import { scenarioPlace } from "@/lib/scenarios/place";
 import { groupScope } from "@/lib/teacher/access";
@@ -43,9 +44,9 @@ export type LessonFormOptions = {
 export async function dealableScenarios(): Promise<CoverageScenario[]> {
   const rows = await db.scenario.findMany({
     where: { OR: [{ status: "APPROVED" }, { status: "DRAFT", approvedSections: { has: "caller" } }] },
-    select: { id: true, category: true, status: true, truth: true, ddsCard: true, ddsReference: true },
+    select: { id: true, category: true, status: true, truth: true, ddsCard: true, ddsReference: true, learningMeta: true },
   });
-  return rows.map((s) => {
+  return rows.filter((s) => !isControl(s.learningMeta)).map((s) => {
     const place = scenarioPlace(s.truth);
     const approved = s.status === "APPROVED";
     const dds = approved && s.ddsCard !== null;
@@ -69,7 +70,7 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
     db.scenario.findMany({
       where: { status: "APPROVED" },
       orderBy: [{ category: "asc" }, { difficulty: "asc" }, { title: "asc" }],
-      select: { id: true, title: true, category: true, difficulty: true, ddsCard: true, ddsReference: true },
+      select: { id: true, title: true, category: true, difficulty: true, ddsCard: true, ddsReference: true, learningMeta: true },
     }),
     db.scenario.findMany({ where: { status: { not: "ARCHIVED" } }, distinct: ["category"], select: { category: true } }),
     dealableScenarios(),
@@ -92,7 +93,7 @@ export async function loadLessonFormOptions(user: SessionUser): Promise<LessonFo
         .sort((a, b) => a.fullName.localeCompare(b.fullName, "ru")),
     })),
     services,
-    scenarios: scenarios.map(({ ddsCard, ddsReference, ...s }) => ({
+    scenarios: scenarios.filter((s) => !isControl(s.learningMeta)).map(({ ddsCard, ddsReference, ...s }) => ({
       ...s,
       okrug: placeOf.get(s.id)?.okrug ?? null,
       district: placeOf.get(s.id)?.district ?? null,

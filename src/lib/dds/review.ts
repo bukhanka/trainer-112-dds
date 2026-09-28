@@ -12,7 +12,7 @@ import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { computeScore, type CriterionResult, type Weights, WEIGHT_GROUPS } from "@/lib/scoring/score";
-import { getActiveWeights, lockScores } from "@/lib/scoring/weights";
+import { lockScores, weightsForAttempt } from "@/lib/scoring/weights";
 import type { Counterpart } from "./calls";
 import { abbreviationsIn, judgedComments } from "./clarity";
 import { endHold, readHolds } from "./hold";
@@ -158,7 +158,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
   });
   const judged = judgedComments(plate.events.filter((e) => !awaitsAnswer(e.status)));
   const basis = judged.length ? clarityBasis(judged) : null;
-  const weights = await activeWeights();
+  const weights = await weightsForAttempt(db, lesson.id, seat.studentId);
 
   // One review per plate and place even when the finish button and the poll race each other.
   const saved = await db.$transaction(async (tx) => {
@@ -229,11 +229,11 @@ export async function runClarityCheck(attemptId: string, basis: string): Promise
   await db.$transaction(async (tx) => {
     await lockScores(tx);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-review:${plate.id}`}))`;
-    const cur = await tx.attempt.findUnique({ where: { id: attemptId }, select: { criteria: true, override: true, aiDraft: true, reviewStatus: true } });
+    const cur = await tx.attempt.findUnique({ where: { id: attemptId }, select: { lessonId: true, studentId: true, criteria: true, override: true, aiDraft: true, reviewStatus: true } });
     const draft = (cur?.aiDraft ?? null) as Draft;
     if (!cur || cur.reviewStatus !== "PENDING" || draft?.aiCheck?.basis !== basis) return;
     const criteria = [...readCriteria(cur.criteria).filter((c) => c.code !== CLARITY_AI_CODE), check];
-    const { weights } = await getActiveWeights(tx);
+    const weights = await weightsForAttempt(tx, cur.lessonId, cur.studentId);
     const score = computeScore(criteria, weights, readOverrides(cur.override));
     const rest = { ...draft };
     delete rest.aiCheck;

@@ -10,6 +10,8 @@ import { lessonForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDelta, formatDuration, plural, shortName } from "@/lib/format";
+import { followUpCases, followUpCandidates } from "@/lib/followup/options";
+import { AssignFollowUp } from "@/app/teacher/followups/AssignFollowUp";
 import { certificateVerdict } from "@/lib/reports/certificate";
 import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
@@ -46,6 +48,7 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
     seats: input.seats.map((x) => ({ studentId: x.studentId, name: x.studentName, seat: x.label, role: x.role })),
     attempts: await loadRatingAttempts(input.seats.map((x) => x.studentId), { scope: teacherLessons(lesson.teacherId) }),
   });
+  const [followUpCasesList, followUpCandidatesList] = await Promise.all([followUpCases(), followUpCandidates(lesson.id)]);
   const s = report.summary;
   const duration = lesson.startedAt ? ((lesson.finishedAt ?? new Date()).getTime() - lesson.startedAt.getTime()) / 1000 : null;
   const withTime = report.students.filter((r) => r.avgTimeSec != null);
@@ -102,11 +105,13 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         <Stat label="Средний балл (0–100)" value={s.avgScore ?? "—"} />
         <Stat label="Зачтено попыток" value={s.judged ? `${s.passed} из ${s.judged}` : "—"} hint={describePassRules(report.pass)} />
         <Stat
-          label="Согласие преподавателя с черновиком"
+          label="Заключения приняты без исправления"
           value={s.agreement.rate == null ? "—" : `${s.agreement.rate} %`}
           hint={s.agreement.checks ? `исправлено ${s.agreement.changed} из ${s.agreement.checks} ${plural(s.agreement.checks, ["проверки", "проверок", "проверок"])}${s.agreement.aiChecks ? `, из них ИИ: ${s.agreement.aiChanged} из ${s.agreement.aiChecks}` : ""}` : undefined}
         />
       </div>
+
+      {lesson.status === "FINISHED" && <AssignFollowUp candidates={followUpCandidatesList} scenarios={followUpCasesList} />}
 
       <Section title="Выводы по занятию">
         <p className="text-sm">{report.insight}</p>

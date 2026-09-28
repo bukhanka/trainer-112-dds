@@ -15,7 +15,7 @@ import type { CriterionResult, WeightGroup } from "@/lib/scoring/score";
 import { findKind, kindTitle } from "./catalog";
 import { evidenced, factCards, findAsked, keywordRegex, low, normalizeQuestion } from "./facts";
 import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./gazetteer";
-import type { Persona } from "./caller";
+import { spokenMatchesFact, type Persona } from "./caller";
 import type { ServiceLite } from "./routing";
 import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
 import { linkCheck } from "./links";
@@ -237,6 +237,12 @@ function cutWords(s: string, max: number): string {
 const quote = (s: string, max = 140) => `«${cutWords(s, max)}»`;
 const digits = (s: string | undefined) => (s ?? "").replace(/\D/g, "").slice(-10);
 const same = (a: string | undefined, b: string | undefined) => low(a ?? "").trim() === low(b ?? "").trim();
+const nameParts = (s: string | undefined) => low(s ?? "").replace(/ё/g, "е").split(/[^а-яa-z-]+/).filter(Boolean).slice(0, 2);
+const sameFirstAndLast = (said: string | undefined, filled: string | undefined) => {
+  const expected = nameParts(said);
+  const actual = nameParts(filled);
+  return expected.length === 2 && actual.length === 2 && expected[0] === actual[0] && expected[1] === actual[1];
+};
 
 const EMPTY_BUTTON = { noContact: "нет контакта", dropped: "срыв звонка" } as const;
 const EMPTY_EXPECTED = {
@@ -248,7 +254,7 @@ const EMPTY_EXPECTED = {
 export function lineStory(messages: CallLine[], facts: FactCard[]): { story: string; said: string[]; cutOff: boolean } {
   const words = messages.filter((m) => m.role === "counterpart" && !m.noise);
   const cutOff = messages.some((m) => m.noise === "hangup");
-  const keys = new Set(words.flatMap((m) => m.revealed ?? []));
+  const keys = new Set(facts.filter((f) => words.some((m) => m.revealed?.includes(f.key) && confirmedDisclosure(f, m))).map((f) => f.key));
   // A model does not always mark the address it said: a distinctive word of it in the caller's lines counts too.
   const heard = low(words.map((m) => m.text).join(" "));
   const named = (f: FactCard) =>
@@ -327,6 +333,13 @@ function mentionsValue(text: string, value: string): boolean {
   return Boolean(stem) && new RegExp(`(^|[^а-яё])(?:${stem})${n < 10 ? "(?![а-яё]*надцат)" : ""}`).test(t);
 }
 
+function confirmedDisclosure(fact: FactCard, line: CallLine): boolean {
+  if (line.role !== "counterpart" || line.noise) return false;
+  const e = fact.expect;
+  return spokenMatchesFact(fact, line.text) ||
+    Boolean(e?.kind === "tag" && /^\d+$/.test(e.value) && mentionsValue(line.text, e.value));
+}
+
 /**
  * A number of a panel row written in the description counts only next to the row's word: «дом 17 этажей» is the
  * number of floors, «д. 17» is not. Returns the words that show it, or null.
@@ -381,19 +394,24 @@ function flagText(card: EvalCard, flag: keyof IncidentFlags): string {
 export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   const { card, truth, persona, messages } = input;
   const out: CriterionResult[] = [];
+  let invalidAddress = false;
   const add = (code: string, group: WeightGroup, title: string, ok: boolean | null, extra: Partial<CriterionResult> = {}) =>
-    out.push({ code, group, title, ok, source: "rule", ...extra });
+    out.push(invalidAddress && code.startsWith("op112.address.")
+      ? { code, group, title, ...extra, ok: null, critical: false, evidence: "Ответ заявителя об адресе не совпал с данными задания; проверка адреса требует преподавателя", source: "rule" }
+      : { code, group, title, ok, source: "rule", ...extra });
 
   const operatorLines = messages.filter((m) => m.role === "trainee").map((m) => m.text);
   const facts = persona ? factCards(persona) : [];
   const revealed = new Map<string, { fact: FactCard; line: CallLine }>();
+  const invalidDisclosures = new Set<string>();
   for (const f of facts) {
-    // Of the lines that told this fact, the one that has its value: «Дом семнадцатиэтажный», not «на седьмом этаже».
+    // Metadata from the simulated caller is untrusted: a claimed fact needs its value in a caller line.
     const lines = messages.filter((m) => m.role === "counterpart" && m.revealed?.includes(f.key));
-    const value = f.expect?.kind === "tag" ? f.expect.value.split("|")[0] : null;
-    const line = (value ? lines.find((m) => mentionsValue(m.text, value)) : undefined) ?? lines[0];
+    const line = lines.find((m) => confirmedDisclosure(f, m));
     if (line) revealed.set(f.key, { fact: f, line });
+    else if (lines.length) invalidDisclosures.add(f.key);
   }
+  invalidAddress = invalidDisclosures.has("addressExact") || (invalidDisclosures.has("address") && !revealed.has("addressExact"));
 
   // Time to «сохранить» (for an empty card — to «сохранить карточку как пустую»).
   const timeCheck = (done: string) => {
@@ -453,8 +471,8 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     const said = exact ? `Заявитель уточнил: ${quote(exact.line.text)}` : persona?.hiddenAddress ? `Адрес не уточнён: заявитель назвал только ${quote(persona.visibleAddress)}` : "";
     if (t.street) {
       const verdict = streetVerdict(f.street, t.street);
-      add("op112.address.street", "address", "Улица совпадает с местом происшествия", verdict === "same", {
-        critical: verdict === "lookalike",
+      add("op112.address.street", "address", "Улица совпадает с местом происшествия", invalidAddress ? null : verdict === "same", {
+        critical: !invalidAddress && verdict === "lookalike",
         evidence: [
           verdict === "empty" ? "Улица не заполнена" : `В карточке: ${quote(f.street ?? "")}`,
           verdict === "lookalike" ? "Похожее название, но это другая улица — бригада уедет не туда" : "",
@@ -567,7 +585,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   const unsaid = (key: string) => line.cutOff && !revealed.has(key);
   const statusSaid = revealed.get("status");
   const nameFilled = Boolean(card.caller.fullName?.trim());
-  add("op112.field.fullName", "completeness", "Заполнена фамилия и имя заявителя", unsaid("name") && !nameFilled ? null : nameFilled, {
+  add("op112.field.fullName", "completeness", "Заполнена фамилия и имя заявителя", invalidDisclosures.has("name") || (unsaid("name") && !nameFilled) ? null : nameFilled, {
     evidence: card.caller.fullName
       ? quote(card.caller.fullName)
       : unsaid("name")
@@ -575,12 +593,12 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
         : "Пусто — после сохранения исправить нельзя",
   });
   const statusOk = Boolean(card.caller.status) && (Boolean(statusSaid) || !truth?.callerStatus || card.caller.status === truth.callerStatus);
-  add("op112.field.status", "completeness", "Выбран статус заявителя", statusOk, {
+  add("op112.field.status", "completeness", "Выбран статус заявителя", invalidDisclosures.has("status") ? null : statusOk, {
     evidence: card.caller.status ? `Выбрано: ${card.caller.status}` : "Статус не выбран",
     expected: !statusSaid && truth?.callerStatus ? truth.callerStatus : undefined,
   });
   const phoneFilled = Boolean(digits(card.caller.provided));
-  add("op112.field.phone", "completeness", "Заполнен предоставленный телефон", unsaid("phone") && !phoneFilled ? null : phoneFilled, {
+  add("op112.field.phone", "completeness", "Заполнен предоставленный телефон", invalidDisclosures.has("phone") || (unsaid("phone") && !phoneFilled) ? null : phoneFilled, {
     evidence: card.caller.provided
       ? card.caller.provided
       : unsaid("phone")
@@ -640,11 +658,10 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
         expected: miss.length ? `Записать в описание: ${fact.text}` : undefined,
       });
     } else if (e.kind === "name") {
-      const surname = low(persona?.fullName.split(/\s+/)[0] ?? "");
-      const ok = Boolean(surname) && low(card.caller.fullName ?? "").includes(surname);
+      const ok = sameFirstAndLast(persona?.fullName, card.caller.fullName);
       add("op112.said.name", "completeness", title, ok, {
         evidence: `${said} → в карточке: ${card.caller.fullName ? quote(card.caller.fullName) : "пусто"}`,
-        expected: persona?.fullName,
+        expected: persona?.fullName.split(/\s+/).slice(0, 2).join(" "),
       });
     } else if (e.kind === "phone") {
       const ok = digits(card.caller.provided) === digits(persona?.phone) || digits(card.caller.onSite) === digits(persona?.phone);
@@ -748,8 +765,8 @@ const RULE_FIELDS: { field: RegExp; code: RegExp }[] = [
     field: /адрес|улиц|(^|[^а-я])дом(а|у|е|ом)?(?![а-я])|корпус|строени|владени|квартир|подъезд|этаж(?!н)|домофон|(^|[^а-я])код(?![а-я])|район|округ|город|населен/,
     code: /^op112\.address\./,
   },
-  { field: /фио|(^|[^а-я])имя|фамил|заявител/, code: /^op112\.(said\.name|field\.fullName)$/ },
-  { field: /телефон/, code: /^op112\.(said\.phone|field\.phone)$/ },
+  { field: /фио|(^|[^а-я])имя|фамил|заявител/, code: /^op112\.said\.name$/ },
+  { field: /телефон/, code: /^op112\.said\.phone$/ },
   { field: /статус/, code: /^op112\.(said\.status|field\.status)$/ },
   { field: /(^|[^а-я])тип|класс|что случилось/, code: /^op112\.(type|class)$/ },
   { field: /служб/, code: /^op112\.services\./ },
@@ -784,7 +801,74 @@ export function nameWithoutPatronymic(d: { field: string; said: string; filled: 
   const words = (s: string) => low(s).replace(/ё/g, "е").split(/[^а-яa-z-]+/).filter((w) => w.length > 1);
   const said = words(d.said);
   const filled = words(d.filled);
-  return filled.length >= 2 && filled.every((w) => said.includes(w));
+  return filled.length === 2 && said.some((w, i) =>
+    w === filled[0] && said[i + 1] === filled[1] && /(вич|вна|ична|оглы|кызы)$/.test(said[i + 2] ?? ""));
+}
+
+type AiDiscrepancy = { field: string; said: string; filled: string };
+
+const normalizedText = (s: string) => low(s).replace(/ё/g, "е").replace(/[^а-яa-z0-9]+/g, " ").trim();
+
+/** Map a model's field label to the actual card value. An unknown field cannot support an automatic penalty. */
+function actualCardField(input: EvalInput, field: string): string | null {
+  const f = low(field);
+  if (!f.trim()) return null;
+  if (/статус/.test(f)) return input.card.caller.status ?? "";
+  if (/фио|имя|фамил|заявител/.test(f)) return input.card.caller.fullName ?? "";
+  if (/телефон|номер для связи/.test(f)) return input.card.caller.provided ?? "";
+  if (/описани|комментар|что случилось/.test(f)) return input.card.description;
+  if (/адрес|улиц|корпус|строени|(^|[^а-я])дом(а|у|е|ом)?(?![а-я])/.test(f)) return addressLine(input.card.address);
+  const tag = input.card.tags.find((t) => normalizedText(field).includes(normalizedText(t.row)) || normalizedText(t.row).includes(normalizedText(field)));
+  if (tag) return tag.text ?? tag.value;
+  const flag = Object.entries(FLAG_TITLE).find(([key, title]) => f.includes(low(title)) || f.includes(low(key)));
+  if (flag) return flagText(input.card, flag[0] as keyof IncidentFlags);
+  return null;
+}
+
+function quotedByCaller(quoteText: string, messages: CallLine[]): boolean {
+  const q = normalizedText(quoteText.replace(/^заявитель:\s*/i, ""));
+  return Boolean(q) && messages.some((m) => m.role === "counterpart" && !m.noise && normalizedText(m.text).includes(q));
+}
+
+function filledMatchesCard(reported: string, actual: string): boolean {
+  const r = normalizedText(reported);
+  const a = normalizedText(actual);
+  if (/^(пусто|не заполнено|не указано|отсутствует)$/.test(r) || !r) return !a;
+  return Boolean(a) && (a.includes(r) || r.includes(a));
+}
+
+/** Model claims are suggestions; only a real caller quote and the card's actual value may lower the score. */
+export function supportedAiDiscrepancies(input: EvalInput, rules: CriterionResult[], discrepancies: AiDiscrepancy[]): AiDiscrepancy[] {
+  return discrepancies.filter((d) => {
+    if (nameWithoutPatronymic(d) || judgedByRules(d.field, rules) || !quotedByCaller(d.said, input.messages)) return false;
+    const actual = actualCardField(input, d.field);
+    if (actual === null || !filledMatchesCard(d.filled, actual)) return false;
+    const field = low(d.field);
+    const related = input.persona ? factCards(input.persona).filter((fact) => {
+      if (/статус/.test(field)) return fact.expect?.kind === "status";
+      if (/телефон/.test(field)) return fact.expect?.kind === "phone";
+      if (/фио|имя|фамил|заявител/.test(field)) return fact.expect?.kind === "name";
+      if (/адрес|улиц|корпус|строени/.test(field)) return fact.expect?.kind === "address";
+      if (fact.expect?.kind === "tag") return normalizedText(field).includes(normalizedText(fact.expect.row));
+      if (fact.expect?.kind === "flag") return field.includes(low(FLAG_TITLE[fact.expect.flag] ?? fact.expect.flag));
+      return false;
+    }) : [];
+    if (related.some((fact) => !spokenMatchesFact(fact, d.said))) return false;
+    // A nonempty free-text field may faithfully paraphrase the caller. Without a reference value, leave that
+    // semantic dispute to the teacher; an exact quote already present in the field is certainly not a mismatch.
+    if (normalizedText(actual).includes(normalizedText(d.said)) || (!related.length && actual.trim())) return false;
+    // If the model reports a disagreement while the card has the ticket's value, the report is unsupported.
+    if (related.some((fact) => {
+      const e = fact.expect;
+      if (e?.kind === "name") return sameFirstAndLast(fact.text, input.card.caller.fullName);
+      if (e?.kind === "phone") return digits(fact.text) === digits(input.card.caller.provided);
+      if (e?.kind === "status") return input.card.caller.status === e.value;
+      if (e?.kind === "flag") return flagHolds(input.card, e.flag, e.value);
+      if (e?.kind === "tag") return tagMatches(input.card, e.row, e.value);
+      return false;
+    })) return false;
+    return true;
+  }).slice(0, 6);
 }
 
 /** Transcript vs card by the model. Returns «не применимо» when no model is configured or it fails. */
@@ -795,16 +879,18 @@ export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance
     // The rules have already compared the card with the reference; the model looks only at what they cannot see.
     const rules = evaluateOp112Rules(input);
     const res = await chatJson(op112AiMessages(input, guidance, rules), aiSchema, { temperature: 0, maxTokens: 700 });
-    const list = res.discrepancies.filter((d) => !nameWithoutPatronymic(d) && !judgedByRules(d.field, rules)).slice(0, 6);
+    const candidates = res.discrepancies.filter((d) => !nameWithoutPatronymic(d) && !judgedByRules(d.field, rules));
+    const list = supportedAiDiscrepancies(input, rules, candidates);
+    const unverified = candidates.length - list.length;
     return [
       {
         code: "op112.ai.said",
         group: "completeness",
         title: "ИИ: всё сказанное заявителем попало в карточку",
-        ok: list.length === 0,
+        ok: list.length ? false : unverified ? null : true,
         evidence: list.length
           ? list.map((d) => `${d.field}: заявитель ${quote(d.said, 100)} → в карточке ${quote(d.filled || "пусто", 60)}`).join("; ")
-          : "Расхождений не найдено",
+          : unverified ? "ИИ указал расхождение без проверяемой цитаты или значения поля — требуется преподаватель" : "Расхождений не найдено",
         source: "ai",
         learned: guidance?.said.map((g) => g.id) ?? [],
       },

@@ -1,3 +1,4 @@
+import { learningMetaSchema } from "@/lib/followup/metadata";
 /**
  * A scenario is approved section by section: the teacher may accept the caller persona and keep the
  * reference answers in draft. The scenario is ready for lessons only when every present section is
@@ -63,6 +64,7 @@ export const scenarioPatchSchema = z.object({
   category: text.min(1).max(80).optional(),
   difficulty: z.number().int().min(1).max(10).optional(),
   teacherNote: z.string().trim().max(4000).nullable().optional(),
+  learningMeta: learningMetaSchema.nullable().optional(),
   caller: callerSchema.optional(),
   truth: jsonSectionSchema.optional(),
   ddsCard: jsonSectionSchema.nullable().optional(),

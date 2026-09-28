@@ -72,6 +72,7 @@ vi.mock("@/lib/db", () => {
   const db: Record<string, unknown> = {
     attempt: model(state.attempts),
     teacherCorrection: model(state.corrections),
+    followUp: fakeModel([]),
     weightProfile: fakeModel([]),
     incidentType: fakeModel([]),
     auditLog: { create: async ({ data }: { data: Row }) => state.audit.push(data) },

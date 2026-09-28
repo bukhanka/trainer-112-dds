@@ -15,7 +15,7 @@ const attempts = [
 
 const session = vi.hoisted(() => ({ user: null as null | { id: string; login: string; fullName: string; role: "STUDENT" | "TEACHER" | "ADMIN" } }));
 
-vi.mock("@/lib/db", () => ({ db: { attempt: fakeModel(attempts) } }));
+vi.mock("@/lib/db", () => ({ db: { attempt: fakeModel(attempts), followUp: fakeModel([]) } }));
 vi.mock("@/lib/auth/session", () => ({
   apiUser: async (roles?: string[]) => {
     if (!session.user) return Response.json({ error: "unauthorized" }, { status: 401 });

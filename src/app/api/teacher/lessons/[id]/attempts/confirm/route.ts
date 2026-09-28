@@ -4,7 +4,8 @@ import { bulkConfirmSchema, planBulkConfirm } from "@/lib/review/bulk";
 import { syncCorrections } from "@/lib/review/corrections-db";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { planReview, RUNNING_LOCK } from "@/lib/review/review";
-import { getActiveWeights, lockScores } from "@/lib/scoring/weights";
+import { buildPublishedFeedback } from "@/lib/review/published-feedback";
+import { lockScores, weightsForAttempt } from "@/lib/scoring/weights";
 import { attemptScope, auditInTx, findLesson, jsonError, readJson, requestIp, teacherApi } from "@/lib/teacher/access";
 
 class Refusal extends Error {
@@ -41,10 +42,12 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
           where: { id: { in: [...new Set(ids)] }, lessonId: id, ...attemptScope(user) },
           select: {
             id: true,
+            studentId: true,
             reviewStatus: true,
             criteria: true,
             override: true,
             score: true,
+            reviewedAt: true,
             teacherComment: true,
             reviewedBy: { select: { login: true } },
             lesson: { select: { status: true } },
@@ -57,7 +60,6 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
           rows.map((r) => ({ id: r.id, reviewStatus: r.reviewStatus, criteria: readCriteria(r.criteria), override: readOverrides(r.override), teacherComment: r.teacherComment })),
           noCritical,
         );
-        const { weights } = await getActiveWeights(tx);
         // Corrections of an attempt are retired by «Верно» as by a single decision (normally there are none here).
         const withCorrections = plan.confirm.length
           ? new Set(
@@ -74,11 +76,19 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
         for (const a of plan.confirm) {
           const row = byId.get(a.id)!;
           const current = { reviewStatus: a.reviewStatus, override: a.override, score: row.score, teacherComment: row.teacherComment };
+          const weights = await weightsForAttempt(tx, id, byId.get(a.id)!.studentId);
           const decision = planReview(a.criteria, current, { action: "confirm" }, weights);
           if (!decision.ok) continue;
+          // Bulk approval publishes a rule-based note from each effective decision; it never copies a fresh AI draft.
+          const feedback = buildPublishedFeedback({
+            criteria: a.criteria,
+            override: decision.next.override,
+            teacherComment: decision.next.teacherComment,
+            reviewedAt: now,
+          });
           // Optimistic check, as for a single decision: still on review, the lesson not running.
           const res = await tx.attempt.updateMany({
-            where: { id: a.id, reviewStatus: "PENDING", lesson: { status: { not: "RUNNING" } } },
+            where: { id: a.id, reviewStatus: "PENDING", reviewedAt: row.reviewedAt, lesson: { status: { not: "RUNNING" } } },
             data: {
               reviewStatus: decision.next.reviewStatus,
               override: Prisma.JsonNull,
@@ -86,6 +96,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
               teacherComment: decision.next.teacherComment,
               reviewedById: user.id,
               reviewedAt: now,
+              feedback: feedback as Prisma.InputJsonValue,
             },
           });
           if (!res.count) {
@@ -103,7 +114,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
             actor: user.login,
             ip,
             before: { ...current, override: null, reviewedBy: row.reviewedBy?.login ?? null },
-            after: { ...decision.next, override: null, reviewedBy: user.login, changes: [], corrections, via: "bulk" },
+            after: { ...decision.next, override: null, reviewedBy: user.login, changes: [], corrections, via: "bulk", feedbackDigest: feedback.reviewDigest },
           });
           confirmed++;
         }

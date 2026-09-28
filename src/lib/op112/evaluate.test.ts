@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeScore, type Weights } from "@/lib/scoring/score";
 import type { Persona } from "./caller";
 import { resolveCard } from "./card";
-import { evaluateOp112Ai, evaluateOp112Rules, judgedByRules, nameWithoutPatronymic, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, type EvalInput } from "./evaluate";
+import { evaluateOp112Ai, evaluateOp112Rules, judgedByRules, nameWithoutPatronymic, normalizeTruth, op112AiMessages, referenceLeaves, streetVerdict, supportedAiDiscrepancies, type EvalInput } from "./evaluate";
 import { factCards } from "./facts";
 import type { ServiceLite } from "./routing";
 import type { CallLine, CardAnswers } from "./types";
@@ -326,6 +326,12 @@ describe("the model does not judge what the rules compare with the reference", (
     expect(judgedByRules("Домашнее животное", rules)).toBe(false);
   });
 
+  it("does not treat a merely filled name or phone as a checked value", () => {
+    const onlyPresence = rules.filter((c) => !["op112.said.name", "op112.said.phone"].includes(c.code));
+    expect(judgedByRules("Заявитель", onlyPresence)).toBe(false);
+    expect(judgedByRules("Телефон", onlyPresence)).toBe(false);
+  });
+
   it("tells the model what the rules have already compared", () => {
     const [system] = op112AiMessages(input(), undefined, rules);
     expect(system.content).toContain("Адрес не оценивай");
@@ -338,6 +344,7 @@ describe("evaluateOp112Ai", () => {
   it("does not count a name without the patronymic as a discrepancy", () => {
     expect(nameWithoutPatronymic({ field: "Заявитель", said: "Соколова Вера Ивановна", filled: "Соколова Вера" })).toBe(true);
     expect(nameWithoutPatronymic({ field: "ФИО", said: "Соколова Вера Ивановна", filled: "Соколов" })).toBe(false);
+    expect(nameWithoutPatronymic({ field: "ФИО", said: "Соколова Вера Ивановна", filled: "Соколова Ивановна" })).toBe(false);
     expect(nameWithoutPatronymic({ field: "Адрес", said: "улица Твардовского 2", filled: "Твардовского 2" })).toBe(false);
   });
 
@@ -374,6 +381,71 @@ describe("evaluateOp112Ai", () => {
     expect(system.content).toContain("К пункту 2 (описание):");
     expect(user.content).toContain("Разговор:");
     expect(op112AiMessages(input())[0].content).not.toContain("Правки преподавателей");
+  });
+});
+
+describe("untrusted caller and model evidence", () => {
+  it("compares both surname and given name while leaving patronymic optional", () => {
+    const base = input();
+    const wrong = evaluateOp112Rules({
+      ...base,
+      card: { ...base.card, caller: { ...base.card.caller, fullName: "Сидоров Пётр" } },
+    });
+    expect(byCode(wrong, "op112.said.name")).toMatchObject({ ok: false, expected: "Сидоров Иван" });
+    expect(byCode(evaluateOp112Rules(base), "op112.said.name")?.ok).toBe(true);
+  });
+
+  it("does not penalize a trainee for a caller label that contradicts the spoken address or phone", () => {
+    const base = input();
+    const messages = [
+      line("counterpart", persona.situation, ["situation"]),
+      line("trainee", "Уточните адрес и ваш телефон"),
+      line("counterpart", "Точный адрес: МЖД Киевская 2 км, строение 5", ["addressExact"]),
+      line("counterpart", "Мой телефон 8 999 999 99 99", ["phone"]),
+    ];
+    const res = evaluateOp112Rules({ ...base, messages });
+    expect(byCode(res, "op112.address.street")?.ok).toBeNull();
+    expect(byCode(res, "op112.address.house")?.ok).toBeNull();
+    expect(byCode(res, "op112.field.phone")?.ok).toBeNull();
+    expect(byCode(res, "op112.said.phone")).toBeUndefined();
+  });
+
+  it("still checks the address after the caller later gives a correct precise address", () => {
+    const base = input();
+    const messages = [
+      line("counterpart", "Депо у другого вокзала", ["address"]),
+      line("trainee", "Уточните точный адрес"),
+      line("counterpart", "МЖД Киевская 1 км, строение 2", ["addressExact"]),
+    ];
+    const res = evaluateOp112Rules({ ...base, messages });
+    expect(byCode(res, "op112.address.street")?.ok).toBe(true);
+    expect(byCode(res, "op112.address.house")?.ok).toBe(true);
+  });
+
+  it("rejects invented quotes, operator quotes and invented card values before an AI penalty", () => {
+    const base = input({ messages: [line("trainee", "Пострадавших трое"), line("counterpart", "Пострадавших нет, рядом никого")] });
+    const card = { ...base.card, caller: { ...base.card.caller, fullName: "" } };
+    const data = { ...base, card };
+    const model = [
+      { field: "ФИО заявителя", said: "Сидоров Иван Сергеевич", filled: "пусто" }, // invented caller quote
+      { field: "Пострадавшие", said: "Пострадавших трое", filled: "нет" }, // operator spoke it
+      { field: "ФИО заявителя", said: "Пострадавших нет, рядом никого", filled: "пусто" }, // wrong ticket fact
+      { field: "ФИО заявителя", said: "Пострадавших нет, рядом никого", filled: "Сидоров Иван" }, // invented filled value
+    ];
+    expect(supportedAiDiscrepancies(data, [], model)).toEqual([]);
+  });
+
+  it("does not penalize a nonempty description for a model's semantic guess", () => {
+    const base = input({ messages: [line("counterpart", "Пострадавших нет, рядом никого")] });
+    const discrepancy = { field: "Описание", said: "Пострадавших нет, рядом никого", filled: base.card.description };
+    expect(supportedAiDiscrepancies(base, [], [discrepancy])).toEqual([]);
+  });
+
+  it("accepts a real, checkable discrepancy that the rules have not covered", () => {
+    const base = input({ messages: [line("counterpart", "Меня зовут Сидоров Иван Сергеевич")] });
+    const data = { ...base, card: { ...base.card, caller: { ...base.card.caller, fullName: "" } } };
+    const discrepancy = { field: "ФИО заявителя", said: "Сидоров Иван Сергеевич", filled: "пусто" };
+    expect(supportedAiDiscrepancies(data, [], [discrepancy])).toEqual([discrepancy]);
   });
 });
 

@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { isControl } from "@/lib/followup/skills";
 import { auditBy, findLesson, jsonError, teacherApi } from "@/lib/teacher/access";
 import { lessonGroupProblem } from "@/lib/teacher/groups";
 
@@ -12,6 +13,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
   if (!lesson) return jsonError("Занятие не найдено", 404);
   const groupProblem = await lessonGroupProblem(user, lesson.groupId);
   if (groupProblem) return jsonError(groupProblem, 409);
+  if (await db.followUp.count({ where: { controlLessonId: id } })) return jsonError("Контрольное занятие нельзя копировать как обычное", 409);
 
   // Only students who are still in the group and not blocked keep their places.
   const members = lesson.groupId
@@ -19,7 +21,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/teacher/les
     : new Set<string>();
   const seats = (await db.seat.findMany({ where: { lessonId: id }, orderBy: { createdAt: "asc" } })).filter((s) => members.has(s.studentId));
   const approved = new Set(
-    (await db.scenario.findMany({ where: { id: { in: seats.flatMap((s) => s.scenarioIds) }, status: "APPROVED" }, select: { id: true } })).map((s) => s.id),
+    (await db.scenario.findMany({ where: { id: { in: seats.flatMap((s) => s.scenarioIds) }, status: "APPROVED" }, select: { id: true, learningMeta: true } })).filter((s) => !isControl(s.learningMeta)).map((s) => s.id),
   );
   const title = `${lesson.title} (копия)`.slice(0, 120);
   // A copy is always a class lesson, even if made from a student's self-practice.

@@ -11,9 +11,10 @@ const CHUNK = 500;
  * are stored on the attempt, so the new score is exact, not an estimate. Only changed rows are written.
  */
 export async function recomputeAllScores(tx: Tx, weights: Weights): Promise<{ total: number; changed: number }> {
-  const rows = await tx.attempt.findMany({ select: { id: true, criteria: true, override: true, score: true } });
+  const rows = await tx.attempt.findMany({ select: { id: true, criteria: true, override: true, score: true, lesson: { select: { controlFollowUps: { select: { id: true }, take: 1 } } } } });
   const updates: { id: string; score: number | null }[] = [];
   for (const a of rows) {
+    if (a.lesson.controlFollowUps.length) continue; // published control attempts use their frozen profile
     const score = computeScore(readCriteria(a.criteria), weights, readOverrides(a.override));
     if (score !== a.score) updates.push({ id: a.id, score });
   }

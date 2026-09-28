@@ -84,9 +84,12 @@ export type LessonReport = {
   attempts: (ReportAttempt & { student: string; seat: string; normSec: number; failedTitles: string[]; pass: PassVerdict | null })[];
 };
 
-export function readiness(score: number | null): Readiness | null {
+export function readiness(score: number | null, opts: { critical?: number; reviewed?: number } = {}): Readiness | null {
   if (score == null) return null;
-  if (score >= 85) return { label: "готов к самостоятельной работе", tone: "green" };
+  if ((opts.critical ?? 0) > 0) return { label: "критическая ошибка — нужен разбор", tone: "red" };
+  if (score < 50) return { label: "нужен разбор с преподавателем", tone: "red" };
+  if ((opts.reviewed ?? 0) < 3) return { label: "пока мало проверенных попыток", tone: "amber" };
+  if (score >= 85) return { label: "высокий результат на занятии", tone: "green" };
   if (score >= 70) return { label: "уверенно, есть поправки", tone: "blue" };
   if (score >= 50) return { label: "нужна практика", tone: "amber" };
   return { label: "нужен разбор с преподавателем", tone: "red" };
@@ -134,7 +137,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
       textErrors: failed.filter((c) => c.group === "literacy").length,
       critical: failed.filter((c) => c.critical).length,
       avgScore,
-      readiness: readiness(avgScore),
+      readiness: readiness(avgScore, { critical: failed.filter((c) => c.critical).length, reviewed: mine.length }),
       topFailed: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([title, count]) => ({ title, count })),
       cleanGroups: GROUPS.filter((g) => checks.some((c) => c.group === g && c.ok !== null) && !checks.some((c) => c.group === g && c.ok === false)),
       ...passCount(mine),
@@ -177,6 +180,7 @@ export function buildLessonReport(input: ReportInput): LessonReport {
   let aiChanged = 0;
   for (const a of reviewed) {
     for (const c of a.criteria) {
+      if (c.ok === null) continue;
       const flipped = Boolean(a.override && c.code in a.override && a.override[c.code] !== c.ok);
       checks++;
       if (flipped) changed++;
