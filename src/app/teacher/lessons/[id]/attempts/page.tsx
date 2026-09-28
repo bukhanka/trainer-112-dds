@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PassBadge } from "@/components/pass";
-import { Badge, Empty, PageHeader, REVIEW_STATUS } from "@/components/ui";
+import { Empty, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatTime } from "@/lib/format";
 import { listLessonAttempts } from "@/lib/review/list";
 import { passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
+import { AttemptList } from "./AttemptList";
 
 const STATUS_TABS = [
   { value: "PENDING", label: "На проверке" },
@@ -51,7 +51,7 @@ export default async function LessonAttemptsPage(props: PageProps<"/teacher/less
       <PageHeader
         back={{ href: `/teacher/lessons/${id}`, label: lesson.title }}
         title="Проверка попыток"
-        subtitle="ИИ и правила готовят черновик оценки. В зачёт и в отчёты попытка идёт только после вашего решения: «Верно» или «ИИ неправ»."
+        subtitle="ИИ и правила готовят черновик оценки. В зачёт и в отчёты попытка идёт только после вашего решения: «Верно» или «ИИ неправ». С черновиками, где вы согласны, — «Утвердить выбранные» или «Утвердить все без критичных ошибок»."
       />
       {lesson.status === "RUNNING" && (
         <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
@@ -90,40 +90,25 @@ export default async function LessonAttemptsPage(props: PageProps<"/teacher/less
       </div>
 
       {attempts.length ? (
-        <ul className="divide-y divide-arm-gray/50 rounded border border-arm-gray/70 bg-white">
-          {attempts.map((a) => {
-            const st = REVIEW_STATUS[a.reviewStatus];
-            return (
-              <li key={a.id}>
-                <Link href={`/teacher/attempts/${a.id}`} className="grid gap-x-4 gap-y-1 px-3 py-2.5 text-sm hover:bg-arm-panel/60 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1.6fr)_6rem_7rem_12.5rem] sm:items-center">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{a.student}</div>
-                    <div className="text-xs text-arm-desc">
-                      {a.seat} · {a.kind === "OP112" ? "112" : "ДДС"} · {formatTime(a.createdAt)}
-                    </div>
-                  </div>
-                  <div className="min-w-0 truncate">
-                    {a.incidentNumber && <span className="text-xs text-arm-desc">№ <span className="font-mono">{a.incidentNumber}</span> · </span>}
-                    {a.scenario ?? "Карточка"}
-                  </div>
-                  <div className={a.failed ? "font-medium text-red-700" : "text-emerald-700"}>
-                    {a.failed ? `ошибок ${a.failed}` : "без ошибок"}
-                    {a.critical && <span className="block text-xs">критичная</span>}
-                  </div>
-                  <div className="tabular-nums">
-                    {a.score == null ? "—" : a.reviewStatus === "PENDING" ? <span className="text-arm-desc">{a.score} (черновик)</span> : <b>{a.score}</b>}
-                    <span className="block">
-                      <PassBadge verdict={a.pass} draft={a.reviewStatus === "PENDING"} />
-                    </span>
-                  </div>
-                  <div>
-                    <Badge tone={st.tone}>{st.label}</Badge>
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <AttemptList
+          lessonId={id}
+          canDecide={lesson.status !== "RUNNING"}
+          rows={attempts.map((a) => ({
+            id: a.id,
+            kind: a.kind,
+            student: a.student,
+            seat: a.seat,
+            time: formatTime(a.createdAt),
+            scenario: a.scenario,
+            incidentNumber: a.incidentNumber,
+            reviewStatus: a.reviewStatus,
+            score: a.score,
+            failed: a.failed,
+            critical: a.critical,
+            edited: a.edited,
+            pass: a.pass,
+          }))}
+        />
       ) : (
         <Empty>{status === "PENDING" ? "Все попытки проверены." : "Попыток с такими условиями нет."}</Empty>
       )}
