@@ -76,8 +76,9 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
           ← {back.label}
         </Link>
       )}
+      {/* The title keeps at least 18rem: on a phone the buttons go under it instead of squeezing it into a column of words. */}
       <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 grow basis-72">
           <h1 className="text-xl font-semibold text-arm-dark">{title}</h1>
           {subtitle && <div className="mt-0.5 text-sm text-arm-desc">{subtitle}</div>}
         </div>
