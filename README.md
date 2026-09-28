@@ -102,7 +102,7 @@ pnpm dev                                         # http://localhost:3100
 ## Проверки
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test        # 762 автотеста
+pnpm typecheck && pnpm lint && pnpm test        # 778 автотестов
 pnpm e2e                                        # сквозное занятие 112 → ДДС через API (нужен запущенный сервер; --source students | mixed | generated)
 pnpm loadtest --users 100                       # нагрузка, варианты — в docs/performance.md
 ```
