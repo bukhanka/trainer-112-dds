@@ -160,6 +160,8 @@ export type SeatInfo = {
   tempoSec: number;
   maxQueue: number;
   hints: boolean;
+  /** Where the lesson's cards come from: the card flow, the 112 places or both (Lesson.settings.cardSource). */
+  cardSource: "generated" | "students" | "mixed";
 };
 
 export function seatInfo({ seat, readOnly }: SeatAccess, viewerId: string): SeatInfo {
@@ -183,5 +185,6 @@ export function seatInfo({ seat, readOnly }: SeatAccess, viewerId: string): Seat
     tempoSec: settings.tempoSec,
     maxQueue: settings.maxQueue,
     hints: settings.hints || settings.practice,
+    cardSource: settings.cardSource,
   };
 }

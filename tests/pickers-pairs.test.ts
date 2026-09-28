@@ -1,24 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Seat } from "@prisma/client";
+import { ddsTx, type Op112World } from "./fake-picker";
 
 // A ticket and its variant with an error in the card («Б4-1» / «Б4-1-ош», data/scenarios-card-errors.json) show the
 // same ДДС card and are the same call: a place drawing by itself gets only one of the two in a lesson.
-const store = vi.hoisted(() => ({
-  pool: [] as { id: string; ticketRef: string | null; difficulty: number; truth: unknown; ddsCard: unknown; ddsReference?: unknown }[],
-  openInDds: [] as { scenarioId: string }[],
-  used: [] as { scenarioId: string; _max: { createdAt: Date } }[],
-}));
+const world = vi.hoisted(() => ({ current: { pool: [] } as Op112World }));
 
-/** Tasks marked by hand and the tickets of the scenarios a place had are asked by id; the drawing pool by status. */
-const byIds = <T extends { id: string }>(rows: T[], where: { id?: { in?: string[] } }) => (where.id?.in ? rows.filter((r) => where.id!.in!.includes(r.id)) : rows);
-
-vi.mock("@/lib/db", () => ({
-  db: {
-    scenario: { findMany: async ({ where }: { where: { id?: { in?: string[] } } }) => byIds(store.pool, where) },
-    incident: { groupBy: async () => store.used, findMany: async () => store.openInDds },
-    attempt: { findMany: async () => [] },
-  },
-}));
+vi.mock("@/lib/db", async () => ({ db: (await import("./fake-picker")).op112Db(() => world.current) }));
 
 const { pickScenario } = await import("@/lib/flow/dds-flow");
 const { nextScenario } = await import("@/lib/op112/seat");
@@ -30,60 +18,42 @@ const settings = lessonSettingsSchema.parse({});
 
 afterEach(() => {
   vi.restoreAllMocks();
-  store.pool = [];
-  store.openInDds = [];
-  store.used = [];
+  world.current = { pool: [] };
 });
 
 describe("ДДС place: a ticket and its variant with an error in the card", () => {
   const seat = (scenarioIds: string[] = []) => ({ id: "seat", lessonId: "l1", studentId: "u1", serviceId: 191, scenarioIds }) as unknown as Seat;
-  type Card = { scenarioId: string; createdAt: Date; scenario: { ticketRef: string } };
-  const card = (id: string): Card => ({ scenarioId: id, createdAt: new Date(), scenario: { ticketRef: pool.find((s) => s.id === id)!.ticketRef } });
-  /** incident.findMany answers the feed query and the «busy at 112» query differently. */
-  const tx = (opts: { list?: typeof pool; feed?: Card[]; busy112?: string[] } = {}) =>
-    ({
-      scenario: { findMany: async ({ where }: { where: { id?: { in?: string[] } } }) => byIds(opts.list ?? pool, where) },
-      incident: {
-        findMany: async ({ where }: { where: { source?: string } }) =>
-          where.source === "op112" ? (opts.busy112 ?? []).map((scenarioId) => ({ scenarioId })) : (opts.feed ?? []),
-      },
-      call: { findMany: async () => [] },
-      attempt: { findMany: async () => [] },
-      service: { findUnique: async () => null, findMany: async () => [] },
-    }) as never;
+  const card = (scenarioId: string) => ({ scenarioId });
 
-  it("after one of the pair — dealt to the place or saved at a 112 place — the other never comes while there is another", async () => {
+  it("after one of the pair — dealt to the place or saved at a 112 place — the other never comes", async () => {
     for (const adaptive of [true, false]) {
       for (const r of [0, 0.5, 0.99]) {
         vi.spyOn(Math, "random").mockReturnValue(r);
-        expect((await pickScenario(tx({ feed: [card("b41")] }), seat(), settings, adaptive))?.id).toBe("b51");
-        expect((await pickScenario(tx({ feed: [card("b41err")] }), seat(), settings, adaptive))?.id).toBe("b51");
-        // Not only right after it: later in the lesson too — the variant seen earlier comes again rather than its ticket.
-        const later = [card("b41err"), { ...card("b51"), createdAt: new Date(Date.now() + 60_000) }];
-        expect((await pickScenario(tx({ feed: later }), seat(), settings, adaptive))?.id).toBe("b41err");
+        expect((await pickScenario(ddsTx({ pool, feed: [card("b41")] }), seat(), settings, adaptive))?.id).toBe("b51");
+        expect((await pickScenario(ddsTx({ pool, feed: [card("b41err")] }), seat(), settings, adaptive))?.id).toBe("b51");
+        // Later in the lesson too: once the place has had both situations, nothing comes — not the other half, not a repeat.
+        expect(await pickScenario(ddsTx({ pool, feed: [card("b41err"), card("b51")] }), seat(), settings, adaptive)).toBeNull();
       }
     }
   });
 
-  it("when nothing else is left, the same ticket comes again, not its variant", async () => {
+  it("when nothing else is left, nothing comes: neither the same ticket again nor its variant", async () => {
     const list = pool.slice(0, 2);
     for (const adaptive of [true, false]) {
-      for (const r of [0, 0.99]) {
-        vi.spyOn(Math, "random").mockReturnValue(r);
-        expect((await pickScenario(tx({ list, feed: [card("b41")] }), seat(), settings, adaptive))?.id).toBe("b41");
-      }
+      expect(await pickScenario(ddsTx({ pool: list, feed: [card("b41")] }), seat(), settings, adaptive)).toBeNull();
     }
   });
 
   it("skips the variant of the ticket a 112 place of the lesson is talking through", async () => {
     for (const r of [0, 0.99]) {
       vi.spyOn(Math, "random").mockReturnValue(r);
-      expect((await pickScenario(tx({ busy112: ["b41"] }), seat(), settings, false))?.id).toBe("b51");
+      expect((await pickScenario(ddsTx({ pool, typed112: ["b41"] }), seat(), settings, false))?.id).toBe("b51");
     }
   });
 
-  it("keeps both when the teacher assigned both to the place", async () => {
-    expect((await pickScenario(tx({ feed: [card("b41")] }), seat(["b41", "b41err"]), settings, true))?.id).toBe("b41err");
+  it("keeps both when the teacher assigned both to the place, each once", async () => {
+    expect((await pickScenario(ddsTx({ pool, feed: [card("b41")] }), seat(["b41", "b41err"]), settings, true))?.id).toBe("b41err");
+    expect(await pickScenario(ddsTx({ pool, feed: [card("b41"), card("b41err")] }), seat(["b41", "b41err"]), settings, true)).toBeNull();
   });
 });
 
@@ -92,27 +62,25 @@ describe("112 place: a ticket and its variant are the same call", () => {
     ({ id: "seat", lessonId: "l1", studentId: "u1", role: "OP112", scenarioIds, lesson: { id: "l1", settings } }) as never;
 
   it("does not ring with the other half of a pair the place has had", async () => {
-    store.pool = pool;
     for (const r of [0, 0.5, 0.99]) {
       vi.spyOn(Math, "random").mockReturnValue(r);
-      store.used = [{ scenarioId: "b41", _max: { createdAt: new Date() } }];
+      world.current = { pool, typed: ["b41"] };
       expect((await nextScenario(seat({})))?.id).toBe("b51");
       expect((await nextScenario(seat({ adaptive: false })))?.id).toBe("b51");
-      store.used = [{ scenarioId: "b41err", _max: { createdAt: new Date() } }];
+      world.current = { pool, typed: ["b41err"] };
       expect((await nextScenario(seat({})))?.id).toBe("b51");
     }
   });
 
   it("does not ring with the ticket whose variant is open in a ДДС feed of the lesson", async () => {
-    store.pool = pool;
-    store.openInDds = [{ scenarioId: "b41err" }];
+    world.current = { pool, openInDds: ["b41err"] };
     expect((await nextScenario(seat({ adaptive: false })))?.id).toBe("b51");
   });
 
   it("never rings with a variant with an error in the card: the error lives in the card of the ДДС place only", async () => {
     const cardError = { what: "подъезд", inCard: "под. 3", onSite: "подъезд 5", report: "в карточке третий подъезд, а дымит в пятом", mustSay: [] };
     const variant = { ...S("b41err", "Б4-1-ош"), difficulty: 1, ddsReference: { services: [], cardError } };
-    store.pool = [variant, S("b41", "Б4-1")];
+    world.current = { pool: [variant, S("b41", "Б4-1")] };
     for (const adaptive of [true, false]) {
       for (const r of [0, 0.5, 0.99]) {
         vi.spyOn(Math, "random").mockReturnValue(r);
@@ -122,17 +90,6 @@ describe("112 place: a ticket and its variant are the same call", () => {
     // Not even as a task the teacher marked for the place; a ДДС place still gets it.
     expect(await nextScenario(seat({}, ["b41err"]))).toBeNull();
     const dds = { id: "seat", lessonId: "l1", studentId: "u1", serviceId: 191, scenarioIds: ["b41err"] } as unknown as Seat;
-    expect((await pickScenario(ddsTx(store.pool), dds, settings, false))?.id).toBe("b41err");
+    expect((await pickScenario(ddsTx({ pool: world.current.pool }), dds, settings, false))?.id).toBe("b41err");
   });
 });
-
-/** A transaction for the ДДС picker over a given pool, nothing in play and an empty feed. */
-function ddsTx(list: typeof store.pool) {
-  return {
-    scenario: { findMany: async ({ where }: { where: { id?: { in?: string[] } } }) => byIds(list, where) },
-    incident: { findMany: async () => [] },
-    call: { findMany: async () => [] },
-    attempt: { findMany: async () => [] },
-    service: { findUnique: async () => null, findMany: async () => [] },
-  } as never;
-}

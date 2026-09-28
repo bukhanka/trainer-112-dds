@@ -19,7 +19,7 @@ import { endHold, readHolds } from "./hold";
 import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarityAi } from "./clarity-ai";
 import { dispatchOf } from "./crew";
 import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
-import { referenceFor } from "./scenario";
+import { cardReference } from "./territory";
 import { seatFeedWhere, settingsOf, type SeatRef } from "./scope";
 import { awaitsAnswer, rulesFor } from "./status";
 import { DDS_TX } from "./tx";
@@ -128,7 +128,8 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     rules: rulesFor(plate.service),
     ackSec: settings.ackSec,
     workSec: settings.workSec,
-    reference: referenceFor(incident.scenario?.ddsReference, plate.service),
+    // A card that is not on the territory of a district or prefecture place: the right answer is a refusal (territory.ts).
+    reference: cardReference(incident.scenario?.ddsReference, plate.service, incident.address),
     dispatch: dispatchOf(plate.events, phoneDispatch),
     reports,
     crewCalls: { rang: incoming.length, missed: incoming.filter((c) => c.status === "MISSED").length },

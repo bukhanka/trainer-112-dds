@@ -72,6 +72,13 @@ export function lookupAddress(street: string, house?: string | null): KnownAddre
   return sameStreet.length === 1 || !house ? sameStreet[0] : null;
 }
 
+/** Houses the tickets have on this street, with their district: a card moved to the street keeps off them. */
+export function ticketHouses(street: string): { house: string; district: string }[] {
+  const key = streetKey(street);
+  if (!key) return [];
+  return ADDRESSES.filter((a) => a.street && a.house && streetKey(a.street) === key).map((a) => ({ house: a.house!, district: a.district }));
+}
+
 function distance(a: string, b: string): number {
   const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) dp[0][j] = j;

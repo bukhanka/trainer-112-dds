@@ -18,8 +18,8 @@ export function situationOf(s: Ref): string {
 
 /**
  * The pool without the other half of a pair the place has already had: a scenario is left out when its situation came
- * to the place as another scenario. When that leaves nothing, the pool stays as it is — a repeat is better than an
- * empty feed.
+ * to the place as another scenario. Nothing is dealt twice in a lesson (flow/dds-flow.ts, op112/seat.ts): when this
+ * leaves nothing, the place has had all its situations.
  */
 export function withoutPairsOf<T extends Ref>(pool: T[], had: Ref[]): T[] {
   const dealt = new Map<string, Set<string>>();
@@ -28,11 +28,10 @@ export function withoutPairsOf<T extends Ref>(pool: T[], had: Ref[]): T[] {
     dealt.set(key, (dealt.get(key) ?? new Set<string>()).add(h.id));
   }
   if (!dealt.size) return pool;
-  const rest = pool.filter((s) => {
+  return pool.filter((s) => {
     const ids = dealt.get(situationOf(s));
     return !ids || ids.has(s.id);
   });
-  return rest.length ? rest : pool;
 }
 
 /** The ids with the other half of their pairs among `scenarios` added: busy with a ticket means busy with its variant. */

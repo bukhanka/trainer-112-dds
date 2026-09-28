@@ -38,7 +38,8 @@ import {
   type CrewContext,
   type CrewMember,
 } from "./personas";
-import { personaOf, referenceFor } from "./scenario";
+import { ddsCardOf, personaOf, referenceFor } from "./scenario";
+import { cardReference, movedPersona, wasMoved } from "./territory";
 import { seatFeedWhere, settingsOf } from "./scope";
 import type { DdsSeat } from "./seat";
 import { DDS_TX as TX, isBusyError, SERVER_BUSY } from "./tx";
@@ -104,7 +105,7 @@ type CrewState = { dispatch: Dispatch | null; stage: ServiceStatus | null; ctxFo
 function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "counterpart">[], settings: LessonSettings, now: Date): CrewState {
   const own = incident.services.find((p) => p.serviceId === seat.serviceId);
   const dispatch = own ? dispatchOf(own.events, phoneDispatches(calls, incident.id)) : null;
-  const ref = seat.service ? referenceFor(incident.scenario?.ddsReference, seat.service) : null;
+  const ref = seat.service ? cardReference(incident.scenario?.ddsReference, seat.service, incident.address) : null;
   const { chain, plan } = crewPlanFor(ref);
   let stage = dispatch ? stageAt(crewSchedule(chain, CREW_PACE_SEC), (now.getTime() - dispatch.at.getTime()) / 1000) : null;
   // Once the dispatcher closed the plate the crew is done as well.
@@ -128,6 +129,12 @@ function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "c
 
 function callerPersona(incident: CallIncident): CallerPersona {
   const persona = incident.scenario ? personaOf(incident.scenario) : null;
+  if (persona && incident.scenario && incident.source === "generated") {
+    // A card moved onto the place's territory (territory.ts): the applicant gives the address written on the card.
+    const from = ddsCardOf(incident.scenario).address;
+    const to = incident.address as IncidentAddress | null;
+    if (to && wasMoved(to, from)) return movedPersona(persona, from, to, incident.description ?? undefined);
+  }
   if (persona) return persona;
   const caller = (incident.caller as IncidentCaller | null) ?? {};
   return {

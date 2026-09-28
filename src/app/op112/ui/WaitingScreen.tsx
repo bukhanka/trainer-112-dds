@@ -51,6 +51,8 @@ export function WaitingScreen(p: {
   onReview: (id: string, number: number | null) => void;
 }) {
   const [noScenarios, setNoScenarios] = useState(false);
+  // Every task of the place has rung (op112/seat.ts): no new calls, the place asks again now and then.
+  const [dealtOut, setDealtOut] = useState(false);
   const [answering, setAnswering] = useState(false);
   const [retry, setRetry] = useState(0);
   const ringing = p.state.call?.status === "RINGING" ? p.state.call : null;
@@ -64,16 +66,20 @@ export function WaitingScreen(p: {
     const t = setTimeout(
       () => {
         send("/api/op112/ring")
-          .then(() => refresh())
+          .then(() => {
+            setDealtOut(false);
+            refresh();
+          })
           .catch((e) => {
             if (e instanceof ApiError && e.code === "no_scenarios") setNoScenarios(true);
-            else setRetry((n) => n + 1); // a network hiccup: try again a bit later
+            else if (e instanceof ApiError && e.code === "all_dealt") setDealtOut(true);
+            setRetry((n) => n + 1); // a network hiccup, a repeat call waiting for its first card: try again a bit later
           });
       },
-      (retry ? 5000 : 2000) + Math.random() * 2500,
+      dealtOut ? 30_000 : (retry ? 5000 : 2000) + Math.random() * 2500,
     );
     return () => clearTimeout(t);
-  }, [ringingId, paused, noScenarios, refresh, retry]);
+  }, [ringingId, paused, noScenarios, dealtOut, refresh, retry]);
 
   const answer = async () => {
     if (!ringing || answering) return;
@@ -159,14 +165,23 @@ export function WaitingScreen(p: {
       )}
       <main className="flex min-h-0 flex-1 flex-col gap-2 p-2">
         <div className="flex items-center gap-4 bg-white px-4 py-3">
-          <span className={`h-3 w-3 shrink-0 rounded-full ${ringing ? "bg-arm-blue" : noScenarios ? "bg-arm-late" : "animate-pulse bg-[#1c8a3a]"}`} />
+          <span
+            className={`h-3 w-3 shrink-0 rounded-full ${ringing ? "bg-arm-blue" : noScenarios ? "bg-arm-late" : dealtOut ? "bg-arm-desc" : "animate-pulse bg-[#1c8a3a]"}`}
+          />
           <div className="min-w-0 flex-1">
-            <div className="text-[16px] font-semibold">
-              {ringing ? "Входящий вызов — нажмите «Принять» (Insert)" : noScenarios ? "Нет одобренных сценариев для вызовов" : "Ожидание вызова…"}
+            <div className="text-[16px] font-semibold" role="status">
+              {ringing
+                ? "Входящий вызов — нажмите «Принять» (Insert)"
+                : noScenarios
+                  ? "Нет одобренных сценариев для вызовов"
+                  : dealtOut
+                    ? "Новых вызовов пока нет: все задания этого места уже были"
+                    : "Ожидание вызова…"}
             </div>
             <div className="text-[13px] text-arm-desc">
               {lesson?.title}
               {lesson?.selfTraining ? " · вызовы идут по одобренным учебным сценариям" : ""} · норматив набора карточки {mmss(lesson?.typingSec ?? 65)}
+              {dealtOut && !lesson?.selfTraining ? " · преподаватель видит на доске, что задания места закончились" : ""}
             </div>
           </div>
           {/* The way out, as at the ДДС place: end the practice, go to the cabinet, sign out. */}

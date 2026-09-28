@@ -12,6 +12,7 @@ import { placeLabel } from "@/lib/scenarios/location";
 import { describePassRules, passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
 import { CoverageNotice } from "../ScenarioCoverage";
+import { serviceLabel } from "../ServicePicker";
 import { LessonBoard } from "./LessonBoard";
 import { LessonControls } from "./LessonControls";
 
@@ -30,7 +31,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
     db.seat.findMany({
       where: { lessonId: id },
       orderBy: { createdAt: "asc" },
-      include: { student: { select: { fullName: true } }, service: { select: { shortName: true } } },
+      include: { student: { select: { fullName: true } }, service: { select: { shortName: true, fullName: true } } },
     }),
   ]);
   const scenarioIds = [...new Set(seats.flatMap((s) => s.scenarioIds))];
@@ -93,7 +94,7 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
                 <th className="py-1 pr-3 font-medium">Ученик</th>
                 <th className="py-1 pr-3 font-medium">Роль</th>
                 <th className="py-1 pr-3 font-medium">Служба</th>
-                <th className="py-1 pr-3 font-medium" title="Текущий рейтинг ученика в роли места «как в шахматах» и сложность заданий, которую он подсказывает">
+                <th className="py-1 pr-3 font-medium" title="Рейтинг ученика в роли этого места и сложность заданий, которую он подсказывает">
                   Уровень сейчас
                 </th>
                 <th className="py-1 font-medium">Задания</th>
@@ -105,7 +106,9 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
                   <td className="py-1.5 pr-3 font-medium">{s.label}</td>
                   <td className="py-1.5 pr-3">{s.student.fullName}</td>
                   <td className="py-1.5 pr-3">{s.role === "OP112" ? "Оператор 112" : "Диспетчер ДДС"}</td>
-                  <td className="py-1.5 pr-3">{s.service?.shortName ?? "—"}</td>
+                  <td className="py-1.5 pr-3" title={s.service?.fullName ?? undefined}>
+                    {s.service ? serviceLabel(s.service.shortName, s.service.fullName) : "—"}
+                  </td>
                   <td className="whitespace-nowrap py-1.5 pr-3 tabular-nums">
                     <LevelCell level={levels.get(s.studentId)?.[s.role]} />
                   </td>
@@ -121,6 +124,13 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
             </tbody>
           </table>
         </div>
+        {seats.some((s) => levels.get(s.studentId)?.[s.role]) && (
+          <p className="mt-2 text-xs text-arm-desc">
+            Уровень — рейтинг ученика в роли места по его прошлым попыткам, как в шахматах: новичок начинает с 1200, удачная работа поднимает
+            рейтинг, ошибки — снижают. «Сложность ≈ 5 из 10» — задания такой сложности место без заданий получает при адаптивной сложности
+            (у каждого сценария сложность от 1 до 10).
+          </p>
+        )}
       </Section>
     </div>
   );
@@ -132,7 +142,7 @@ function LevelCell({ level }: { level: Rating | undefined }) {
     <>
       {level.rating}{" "}
       <span className="text-xs text-arm-desc">
-        · задания ≈ {level.difficulty}
+        · сложность заданий ≈ {level.difficulty} из 10
         {level.attempts ? "" : " · новичок"}
       </span>
     </>

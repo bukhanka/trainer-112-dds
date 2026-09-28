@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coverageWarnings, lessonCoverage, type CoverageScenario } from "./coverage";
+import { coverageWarnings, lessonCoverage, NO_112_WARNING, type CoverageScenario } from "./coverage";
 
 const s = (id: string, category: string, okrug: string | null, district: string | null, approved = true): CoverageScenario => ({ id, category, okrug, district, approved });
 
@@ -62,9 +62,20 @@ describe("will every place get cards", () => {
   it("does not bother when every place has tasks, or ДДС places take cards from students only", () => {
     const settings = { categories: ["медицина"] };
     expect(lessonCoverage(library, settings, [{ role: "DDS", scenarioIds: ["f1"] }]).blocked).toBeNull();
-    const fromStudents = lessonCoverage(library, { ...settings, cardSource: "students" }, [dds]);
+    const withOperator = [dds, { role: "OP112" as const, scenarioIds: ["f1"] }];
+    const fromStudents = lessonCoverage(library, { ...settings, cardSource: "students" }, withOperator);
     expect(fromStudents.blocked).toBeNull();
     expect(coverageWarnings(fromStudents, settings)).toEqual([]);
+  });
+
+  it("warns when cards come from 112 places only and the lesson has none", () => {
+    const settings = { categories: [], cardSource: "students" as const };
+    const alone = lessonCoverage(library, settings, [dds, dds]);
+    expect(alone.no112).toBe(true);
+    expect(alone.blocked).toBeNull();
+    expect(coverageWarnings(alone, settings)).toEqual([NO_112_WARNING]);
+    expect(lessonCoverage(library, { ...settings, cardSource: "mixed" }, [dds]).no112).toBe(false);
+    expect(lessonCoverage(library, settings, [{ role: "OP112", scenarioIds: [] }]).no112).toBe(false);
   });
 
   it("names the location in the warning", () => {

@@ -76,7 +76,8 @@ export function CoverageNotice({ coverage, warnings, location = null }: { covera
           <li key={w}>{w}</li>
         ))}
       </ul>
-      <WayOut category={coverage.empty[0]} location={location} />
+      {/* Without a 112 place new scenarios do not help: the way out is a 112 place or another source of cards. */}
+      {!coverage.no112 && <WayOut category={coverage.empty[0]} location={location} />}
     </div>
   );
 }

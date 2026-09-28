@@ -23,8 +23,8 @@ describe("a ticket and its variant with an error in the card are one situation",
     expect(withoutPairsOf(pool, [])).toEqual(pool);
   });
 
-  it("keeps the pool when the other half is all that is left", () => {
-    expect(withoutPairsOf([variant], [ticket])).toEqual([variant]);
+  it("leaves nothing when the other half is all that is left: the place has had the situation", () => {
+    expect(withoutPairsOf([variant], [ticket])).toEqual([]);
   });
 
   it("counts the other half of a busy scenario as busy", () => {

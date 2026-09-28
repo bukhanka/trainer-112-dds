@@ -12,11 +12,12 @@ import { db } from "@/lib/db";
 import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
-import { ddsCardOf, hasOwnReference, platesForPlace, reachesPlace } from "@/lib/dds/scenario";
+import { ddsCardOf, hasOwnReference, reachesPlace } from "@/lib/dds/scenario";
+import { hasStreets, movable, moveCard, moveFor, placeOfAddress, platesFor, territoryMatch, territoryOf, type Territory } from "@/lib/dds/territory";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
-import { inPlayAt112, latestScenario, notRightAfter, preferNotInPlay } from "@/lib/lessons/in-play";
+import { inPlayAt112, preferNotInPlay, takenAt112 } from "@/lib/lessons/in-play";
 import { withoutPairsOf, withPairs } from "@/lib/scenarios/pairs";
 import { inLessonLocation } from "@/lib/scenarios/place";
 
@@ -31,6 +32,8 @@ export type FlowInfo = {
   /** Seconds until the next generated card; null when the queue is full or cards come from students only. */
   nextCardInSec: number | null;
   noScenarios: boolean;
+  /** Every task and scenario this place can get in the lesson has come: no new generated cards (Seat.dealtOutAt). */
+  exhausted?: boolean;
   /** New cards are paused by the administrator (Состояние → Службы); open cards and calls go on. */
   paused?: boolean;
 };
@@ -63,6 +66,11 @@ async function openCount(tx: Tx, seat: SeatRef, settings: LessonSettings): Promi
   });
 }
 
+/** A place that has had everything looks again this often: a situation busy at a 112 place may come free. */
+const DEALT_OUT_RETRY_MS = 20_000;
+/** When each such place last looked in vain, in this process. */
+const lookedInVain = new Map<string, number>();
+
 async function maybeGenerate(
   tx: Tx,
   seat: Seat & { lesson: { id: string; settings: Prisma.JsonValue } },
@@ -71,8 +79,8 @@ async function maybeGenerate(
   paused = false,
 ): Promise<FlowInfo> {
   const queue = await openCount(tx, seat, settings);
-  const base: FlowInfo = { running: true, queue, maxQueue: settings.maxQueue, nextCardInSec: null, noScenarios: false };
-  if (settings.cardSource === "students") return base;
+  const base: FlowInfo = { running: true, queue, maxQueue: settings.maxQueue, nextCardInSec: null, noScenarios: false, exhausted: !!seat.dealtOutAt };
+  if (settings.cardSource === "students") return { ...base, exhausted: false };
   if (paused) return { ...base, paused: true };
   if (queue >= settings.maxQueue) return base;
 
@@ -83,13 +91,28 @@ async function maybeGenerate(
   });
   if (last) {
     const wait = settings.tempoSec - (now.getTime() - last.createdAt.getTime()) / 1000;
-    if (wait > 0) return { ...base, nextCardInSec: Math.ceil(wait) };
+    if (wait > 0) return { ...base, nextCardInSec: seat.dealtOutAt ? null : Math.ceil(wait) };
   }
+  if (seat.dealtOutAt && now.getTime() - (lookedInVain.get(seat.id) ?? seat.dealtOutAt.getTime()) < DEALT_OUT_RETRY_MS) return base;
 
-  const scenario = await pickScenario(tx, seat, settings, adaptiveChoice(seat.lesson.settings));
-  if (!scenario) return { ...base, noScenarios: true };
-  await createCard(tx, seat, scenario, now);
-  return { ...base, queue: queue + 1, nextCardInSec: queue + 1 >= settings.maxQueue ? null : settings.tempoSec };
+  const draw = await drawCard(tx, seat, settings, adaptiveChoice(seat.lesson.settings));
+  if (!draw.scenario) {
+    await markDealtOut(tx, seat, now);
+    if (lookedInVain.size > 5_000) lookedInVain.clear();
+    lookedInVain.set(seat.id, now.getTime());
+    return draw.pool ? { ...base, exhausted: true } : { ...base, noScenarios: true, exhausted: false };
+  }
+  lookedInVain.delete(seat.id);
+  await createCard(tx, seat, draw.scenario, now);
+  // The last of the place's tasks is dealt: the board and the place learn it at once, not a tempo later.
+  await markDealtOut(tx, seat, draw.left ? null : now);
+  const next = queue + 1 >= settings.maxQueue || !draw.left ? null : settings.tempoSec;
+  return { ...base, queue: queue + 1, nextCardInSec: next, exhausted: !draw.left };
+}
+
+/** Seat.dealtOutAt: set once when the place runs out of tasks, cleared when something new comes up. */
+async function markDealtOut(tx: Tx, seat: Pick<Seat, "id" | "dealtOutAt">, at: Date | null) {
+  if (at ? !seat.dealtOutAt : seat.dealtOutAt) await tx.seat.update({ where: { id: seat.id }, data: { dealtOutAt: at } });
 }
 
 const scenarioSelect = {
@@ -106,59 +129,107 @@ const scenarioSelect = {
 
 type PickedScenario = Prisma.ScenarioGetPayload<{ select: typeof scenarioSelect }>;
 
-/**
- * Tasks assigned to the place come first, in order; otherwise an approved scenario of the lesson's
- * categories and location — near the student's level when the lesson is adaptive (src/lib/adaptive), at random
- * when it is not. Scenarios already shown at this place are used again only when the pool is exhausted; a ticket and
- * its variant with an error in the card show the same card, so the place gets only one of the two (scenarios/pairs.ts).
- */
+const ownSelect = { id: true, shortName: true, okrug: true, district: true } satisfies Prisma.ServiceSelect;
+type OwnService = Prisma.ServiceGetPayload<{ select: typeof ownSelect }>;
+
+export type Draw = {
+  scenario: PickedScenario | null;
+  /** How many scenarios the place can get in this lesson at all; 0 — nothing to deal from the start. */
+  pool: number;
+  /** How many are left after this one; 0 — every task of the place has come. */
+  left: number;
+};
+
+/** The next scenario for a ДДС place, or null when it has had them all (see drawCard). */
 export async function pickScenario(tx: Tx, seat: Seat, settings: LessonSettings, adaptive: boolean): Promise<PickedScenario | null> {
+  return (await drawCard(tx, seat, settings, adaptive)).scenario;
+}
+
+/**
+ * The next card of a ДДС place. Every task and every scenario comes to a place once per lesson: tasks assigned by the
+ * teacher in their order, otherwise an approved scenario of the lesson's categories and location — near the student's
+ * level when the lesson is adaptive (src/lib/adaptive), at random when it is not. A ticket and its variant with an error
+ * in the card show the same card, so a place drawing by itself gets only one of the two (scenarios/pairs.ts). When
+ * nothing new is left, nothing comes: the place and the board say so.
+ *
+ * A district or prefecture place gets cards of its territory (dds/territory.ts): first the situations that happen there,
+ * then situations whose house can move there — with the reference entry of its level first; a scenario that can neither
+ * be there nor move there is not drawn for it. In a lesson of mixed cards the situations of the 112 places come from them
+ * and are never generated (lessons/in-play.ts).
+ */
+export async function drawCard(tx: Tx, seat: Seat, settings: LessonSettings, adaptive: boolean): Promise<Draw> {
+  const assigned = seat.scenarioIds.length > 0;
   const where: Prisma.ScenarioWhereInput = { status: "APPROVED" };
-  if (seat.scenarioIds.length) where.id = { in: seat.scenarioIds };
+  if (assigned) where.id = { in: seat.scenarioIds };
   else if (settings.categories.length) where.category = { in: settings.categories };
 
   // A scenario without a ДДС card (a silent line, a call that breaks off) is a task for the 112 place only.
   const withCard = (await tx.scenario.findMany({ where, select: scenarioSelect })).filter((s) => s.ddsCard !== null);
-  const found = inLessonLocation(withCard, seat, settings);
-  if (!found.length) return null;
+  const own = seat.serviceId ? await tx.service.findUnique({ where: { id: seat.serviceId }, select: ownSelect }) : null;
+  const territory = own ? territoryOf(own) : null;
+  const located = inLessonLocation(withCard, seat, settings);
+  // A territorial place draws only what it can get on its territory; tasks marked by hand come as they are.
+  const fit = territory && !assigned ? located.filter((s) => onTerritory(s, territory) !== "no") : located;
+  const at112 = settings.cardSource === "mixed" ? withPairs(await takenAt112(tx, seat.lessonId), withCard) : new Set<string>();
+  const pool = fit.filter((s) => !at112.has(s.id));
+
   const feed = await tx.incident.findMany({
     where: seatFeedWhere(seat, settings),
     select: { scenarioId: true, createdAt: true, scenario: { select: { ticketRef: true } } },
   });
-  // A place drawing by itself never gets the other half of a pair it has had in its feed (dealt to it or saved at a 112
-  // place), skips what the 112 places of the lesson are working on right now (lessons/in-play.ts) and takes first the
-  // situations that would reach its ДДС in real work. A narrow choice never deals the same situation twice in a row
-  // while there is another: the preferences give way first. Tasks assigned by the teacher come as they are.
+  // Dealt to the place or come from a 112 place: never again in this lesson, nor the other half of its pair.
   const had = feed.flatMap((i) => (i.scenarioId ? [{ id: i.scenarioId, ticketRef: i.scenario?.ticketRef }] : []));
-  const drawn = seat.scenarioIds.length ? found : withoutPairsOf(found, had);
-  const free = seat.scenarioIds.length ? drawn : preferNotInPlay(drawn, withPairs(await inPlayAt112(tx, seat.lessonId), withCard));
-  const wanted = seat.scenarioIds.length ? drawn : await preferReaching(tx, seat, free);
-  const pool = notRightAfter([wanted, free, drawn], latestScenario(feed));
-  if (!seat.scenarioIds.length && adaptive) {
-    const lastUsed = new Map<string, number>();
-    for (const i of feed) if (i.scenarioId) lastUsed.set(i.scenarioId, Math.max(lastUsed.get(i.scenarioId) ?? 0, i.createdAt.getTime()));
-    const level = await studentRating(seat.studentId, "DDS", tx);
-    return pickAdaptive(pool, { target: level.difficulty, lastUsed });
-  }
-  const used = new Set(feed.map((i) => i.scenarioId));
-  const fresh = pool.filter((s) => !used.has(s.id));
-  if (seat.scenarioIds.length && fresh.length) {
+  const used = new Set(had.map((h) => h.id));
+  const unseen = pool.filter((s) => !used.has(s.id));
+  const fresh = assigned ? unseen : withoutPairsOf(unseen, had);
+  if (!fresh.length) return { scenario: null, pool: fit.length, left: 0 };
+
+  let scenario: PickedScenario;
+  if (assigned) {
     const order = new Map(seat.scenarioIds.map((id, i) => [id, i]));
-    return fresh.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))[0];
+    scenario = [...fresh].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))[0];
+  } else {
+    // In a lesson of generated cards a situation busy at a 112 place waits while there is another.
+    const busy = settings.cardSource === "generated" ? withPairs(await inPlayAt112(tx, seat.lessonId), withCard) : new Set<string>();
+    const free = preferNotInPlay(fresh, busy);
+    const wanted = territory ? byTerritory(free, territory, own!) : await preferReaching(tx, own, free);
+    if (adaptive) {
+      const level = await studentRating(seat.studentId, "DDS", tx);
+      scenario = pickAdaptive(wanted, { target: level.difficulty }) ?? wanted[0];
+    } else {
+      scenario = wanted[Math.floor(Math.random() * wanted.length)];
+    }
   }
-  const list = fresh.length ? fresh : pool;
-  return list[Math.floor(Math.random() * list.length)];
+  const left = assigned ? fresh.length - 1 : withoutPairsOf(fresh.filter((s) => s.id !== scenario.id), [scenario]).length;
+  return { scenario, pool: fit.length, left };
+}
+
+/** «in» — the scenario happens on the territory; «move» — its house can move there; «no» — neither. */
+function onTerritory(s: PickedScenario, t: Territory): "in" | "move" | "no" {
+  const spec = ddsCardOf(s);
+  if (territoryMatch(placeOfAddress(spec.address), t) === "in") return "in";
+  return movable(spec) && hasStreets(t) ? "move" : "no";
 }
 
 /**
- * First the situations whose reference has an entry for the place (its service or its territorial level): only
- * there the place's decision and crew are judged. Then those whose card carries the place's own service or a
- * territorial plate of its level; all of them when there are none (the teacher chose, say, only «медицина»).
+ * A territorial place: first the situations that happen on its territory, then those that move there with a reference
+ * entry of its level (its decision and crew are judged), then the rest that move.
  */
-async function preferReaching(tx: Tx, seat: Seat, pool: PickedScenario[]): Promise<PickedScenario[]> {
-  const own = seat.serviceId ? await tx.service.findUnique({ where: { id: seat.serviceId }, select: { shortName: true } }) : null;
+function byTerritory(pool: PickedScenario[], t: Territory, own: OwnService): PickedScenario[] {
+  const inside = pool.filter((s) => onTerritory(s, t) === "in");
+  if (inside.length) return inside;
+  const withEntry = pool.filter((s) => hasOwnReference(s.ddsReference, own));
+  return withEntry.length ? withEntry : pool;
+}
+
+/**
+ * First the situations whose reference has an entry for the place's service: only there the place's decision and crew
+ * are judged. Then those whose card carries the place's service; all of them when there are none (the teacher chose,
+ * say, only «медицина»).
+ */
+async function preferReaching(tx: Tx, own: OwnService | null, pool: PickedScenario[]): Promise<PickedScenario[]> {
   if (!own) return pool;
-  const withEntry = pool.filter((s) => hasOwnReference(s.ddsReference, { id: seat.serviceId!, shortName: own.shortName }));
+  const withEntry = pool.filter((s) => hasOwnReference(s.ddsReference, own));
   if (withEntry.length) return withEntry;
   const specs = pool.map((scenario) => ({ scenario, spec: ddsCardOf(scenario) }));
   const ids = [...new Set(specs.flatMap((x) => x.spec.services))];
@@ -169,19 +240,27 @@ async function preferReaching(tx: Tx, seat: Seat, pool: PickedScenario[]): Promi
   return reaching.length ? reaching : pool;
 }
 
+type PlateRow = { id: number; shortName: string; okrug: string | null; district: string | null };
+
 async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Date) {
-  const spec = ddsCardOf(scenario);
-  const select = { id: true, shortName: true } as const;
+  let spec = ddsCardOf(scenario);
+  const select = { id: true, shortName: true, okrug: true, district: true } as const;
   const own = await tx.service.findUnique({ where: { id: seat.serviceId! }, select });
   if (!own) return;
+  // A district or prefecture place gets the card on its territory: the house moves there when it can (territory.ts).
+  const { move, foreign } = moveFor(spec, scenario.id, own);
+  if (move) spec = moveCard(spec, move);
+
   const listed = spec.services.length
     ? await tx.service.findMany({ where: { id: { in: spec.services } }, select })
     : await tx.service.findMany({ where: { shortName: { in: spec.serviceNames } }, select });
   // Keep the scenario's order of plates; unknown ids or names are skipped.
   const ordered = (spec.services.length ? spec.services.map((id) => listed.find((s) => s.id === id)) : spec.serviceNames.map((n) => listed.find((s) => s.shortName === n)))
-    .filter((s): s is { id: number; shortName: string } => !!s);
-  // Own plate is always on the card (#684): a territorial place takes the plate of its level, others are added.
-  const serviceIds = [...new Set(platesForPlace(ordered, own).map((s) => s.id))];
+    .filter((s): s is PlateRow => !!s);
+  // The district and prefecture plates follow the new address; own plate is always on the card (#684).
+  const around = move ? await tx.service.findMany({ where: { okrug: move.okrug }, select }) : [];
+  const plates = platesFor(ordered, own, { move, foreign, around });
+  const serviceIds = [...new Set(plates.map((s) => s.id))];
   const count = await tx.incident.count({ where: { ddsSeatId: seat.id } });
   const savedAt = new Date(now.getTime() - 4_000);
 
