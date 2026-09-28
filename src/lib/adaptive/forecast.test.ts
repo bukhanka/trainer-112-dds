@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { accuracy, confirmedAt, FORECAST, forecastScore, forecastStudent, forecastTime, lessonSeries, normalCdf, riskOf, smoothWithTrend, t80, type ForecastAttempt } from "./forecast";
+import check from "./forecast-check.json";
+import { accuracy, combineForecast, confirmedAt, FORECAST, forecastScore, forecastScores, forecastStudent, forecastTime, lessonSeries, normalCdf, riskOf, smoothWithTrend, t80, type ForecastAttempt } from "./forecast";
 
 const day = (d: number, h = 7) => new Date(Date.UTC(2026, 8, d, h));
 
@@ -100,6 +101,73 @@ describe("expected score on the next lesson", () => {
   });
 });
 
+describe("the group: classmates' lessons", () => {
+  /** A classmate with these lesson averages on lessons 1…n. */
+  const mate = (means: number[]) => lessons(means);
+
+  it("pulls a newcomer towards the group, less so with every own lesson", () => {
+    const group = [mate([75]), mate([80]), mate([70])];
+    const one = forecastScore(lessons([40]), { peers: group })!;
+    expect(one.group).toBe(75);
+    expect(one.expected).toBeGreaterThan(40);
+    expect(one.expected).toBeLessThan(75);
+    const three = forecastScore(lessons([40, 40, 40]), { peers: [mate([75, 75, 75]), mate([80, 80, 80]), mate([70, 70, 70])] })!;
+    expect(Math.abs(three.pull)).toBeLessThan(Math.abs(one.pull));
+    // Without classmates there is nothing to pull to.
+    expect(forecastScore(lessons([40]))!.pull).toBe(0);
+  });
+
+  it("barely moves a student at the top of the scale", () => {
+    // The same distance to the group (about 40 points) moves a student in the middle of the scale far more.
+    const top = forecastScore(lessons([100, 100]), { peers: [mate([55, 60]), mate([60, 65]), mate([50, 55])] })!;
+    const middle = forecastScore(lessons([50, 50]), { peers: [mate([85, 90]), mate([90, 95]), mate([80, 85])] })!;
+    expect(top.expected).toBeGreaterThan(95);
+    expect(middle.pull).toBeGreaterThan(10);
+    expect(Math.abs(top.pull)).toBeLessThan(middle.pull / 3);
+  });
+
+  it("mixes the plain average and the trend half and half", () => {
+    const values = [45, 55, 62, 70, 76];
+    const f = combineForecast(values, null);
+    const holt = smoothWithTrend(values).next;
+    expect(f.expected).toBeCloseTo((f.plain + holt) / 2, 6);
+  });
+
+  it("widens the interval when the group's lessons jump and keeps it narrower for a steady group", () => {
+    const own = lessons([70, 72]);
+    const steady = forecastScore(own, { peers: [mate([70, 71]), mate([60, 61]), mate([80, 79]), mate([65, 66])] })!;
+    const jumpy = forecastScore(own, { peers: [mate([40, 90]), mate([95, 45]), mate([30, 80]), mate([85, 35])] })!;
+    expect(jumpy.high - jumpy.low).toBeGreaterThan(steady.high - steady.low);
+    expect(jumpy.misses).toEqual({ own: 1, peers: 4 });
+  });
+
+  it("uses only what classmates had confirmed by the cutoff", () => {
+    const later = attempt(9, 10, { createdAt: day(9, 8), reviewedAt: day(9, 12) });
+    const f = forecastScore(lessons([60, 62]), { cutoff: day(5), peers: [[...mate([70, 72]), later]] })!;
+    expect(f.group).toBe(71);
+  });
+
+  it("gives the same numbers for one student and for the whole class at once", () => {
+    const histories = new Map<string, ForecastAttempt[]>([
+      ["a", lessons([50, 60, 65])],
+      ["b", lessons([80, 78, 85])],
+      ["c", lessons([70, 65, 72])],
+    ]);
+    const all = forecastScores(histories, { peersOf: () => ["a", "b", "c"] });
+    const alone = forecastScore(histories.get("a")!, { peers: [histories.get("b")!, histories.get("c")!] })!;
+    expect(all.get("a")).toEqual(alone);
+  });
+});
+
+describe("the synthetic check shown on «Отчёты»", () => {
+  it("was run with the current weights of the method (scripts/forecast-check.ts)", () => {
+    const { trendWeight, groupPull, priorSd, priorWeight, peerWeight } = FORECAST;
+    expect(check.params).toEqual({ trendWeight, groupPull, priorSd, priorWeight, peerWeight });
+    expect(check.overall.mae).toBeLessThan(check.overall.naive);
+    expect(Object.keys(check.profiles)).toHaveLength(5);
+  });
+});
+
 describe("interval width", () => {
   it("uses Student's quantile: wider with little history, the normal 1.28 in the long run", () => {
     expect(t80(2)).toBeCloseTo(1.886, 3);
@@ -169,7 +237,8 @@ describe("forecast against the fact", () => {
       { expected: 80, low: 70, high: 90, baseline: 80, fact: null }, // not reviewed yet
       { expected: null, low: null, high: null, baseline: null, fact: 90 }, // no history
     ]);
-    expect(acc).toEqual({ n: 2, mae: 8.5, baselineMae: 16, inside: 1, bias: -3.5 });
-    expect(accuracy([])).toEqual({ n: 0, mae: null, baselineMae: null, inside: 0, bias: null });
+    // Paired: 10 − 5 and 22 − 12 points closer than the plain average → 7.5 ± 2.5.
+    expect(acc).toEqual({ n: 2, mae: 8.5, baselineMae: 16, gain: 7.5, gainSe: 2.5, inside: 1, bias: -3.5 });
+    expect(accuracy([])).toEqual({ n: 0, mae: null, baselineMae: null, gain: null, gainSe: null, inside: 0, bias: null });
   });
 });

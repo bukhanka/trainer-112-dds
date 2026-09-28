@@ -1,0 +1,134 @@
+{
+  "seed": 2026,
+  "classes": 2000,
+  "params": {
+    "trendWeight": 0.5,
+    "groupPull": 1,
+    "priorSd": 13,
+    "priorWeight": 3,
+    "peerWeight": 0.5
+  },
+  "overall": {
+    "n": 148423,
+    "mae": 11.9,
+    "naive": 12.9,
+    "before": 12.7,
+    "coverage": 82,
+    "coverageBefore": 81,
+    "width": 38.7
+  },
+  "families": {
+    "gauss": {
+      "n": 84296,
+      "mae": 12.3,
+      "naive": 13.1,
+      "before": 13.1,
+      "coverage": 82,
+      "coverageBefore": 79,
+      "width": 40.3
+    },
+    "checks": {
+      "n": 64127,
+      "mae": 11.3,
+      "naive": 12.5,
+      "before": 12.2,
+      "coverage": 81,
+      "coverageBefore": 83,
+      "width": 36.6
+    }
+  },
+  "profiles": {
+    "учится": {
+      "n": 24094,
+      "mae": 12.7,
+      "naive": 14.7,
+      "before": 14.3,
+      "coverage": 79,
+      "coverageBefore": 78,
+      "width": 40.6
+    },
+    "адаптивная сложность": {
+      "n": 29576,
+      "mae": 11.9,
+      "naive": 13.5,
+      "before": 13.4,
+      "coverage": 81,
+      "coverageBefore": 77,
+      "width": 39.6
+    },
+    "у потолка": {
+      "n": 21773,
+      "mae": 9.6,
+      "naive": 9.5,
+      "before": 9.6,
+      "coverage": 89,
+      "coverageBefore": 88,
+      "width": 30.5
+    },
+    "без роста": {
+      "n": 37301,
+      "mae": 12.1,
+      "naive": 12.2,
+      "before": 12.7,
+      "coverage": 82,
+      "coverageBefore": 80,
+      "width": 40.6
+    },
+    "снижается": {
+      "n": 35679,
+      "mae": 12.4,
+      "naive": 13.9,
+      "before": 12.8,
+      "coverage": 79,
+      "coverageBefore": 82,
+      "width": 39.8
+    }
+  },
+  "history": {
+    "1": {
+      "n": 32077,
+      "mae": 12.8,
+      "naive": 14.5,
+      "before": 14.5,
+      "coverage": 81,
+      "coverageBefore": 80,
+      "width": 39.5
+    },
+    "2": {
+      "n": 32077,
+      "mae": 11.1,
+      "naive": 12.4,
+      "before": 12.5,
+      "coverage": 85,
+      "coverageBefore": 82,
+      "width": 39.5
+    },
+    "3": {
+      "n": 25096,
+      "mae": 11.6,
+      "naive": 12.2,
+      "before": 12,
+      "coverage": 83,
+      "coverageBefore": 81,
+      "width": 38.4
+    },
+    "4": {
+      "n": 18313,
+      "mae": 12.6,
+      "naive": 13,
+      "before": 12.7,
+      "coverage": 78,
+      "coverageBefore": 81,
+      "width": 37.9
+    },
+    "5+": {
+      "n": 40860,
+      "mae": 11.6,
+      "naive": 12.2,
+      "before": 11.8,
+      "coverage": 80,
+      "coverageBefore": 80,
+      "width": 38.1
+    }
+  }
+}

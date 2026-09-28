@@ -34,7 +34,7 @@ export function ForecastVsFact({ data, status }: { data: LessonForecast; status:
             />
           )}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead className="text-left text-xs text-arm-desc">
                 <tr className="border-b border-arm-gray/60">
                   <th className="py-1.5 pr-3 font-medium">Ученик</th>
@@ -43,6 +43,7 @@ export function ForecastVsFact({ data, status }: { data: LessonForecast; status:
                   <th className="py-1.5 pr-3 text-right font-medium">Интервал</th>
                   <th className="py-1.5 pr-3 text-right font-medium">Факт</th>
                   <th className="py-1.5 pr-3 text-right font-medium">Ошибка</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Простое среднее</th>
                   <th className="py-1.5 font-medium">В норматив: прогноз → факт</th>
                 </tr>
               </thead>
@@ -61,6 +62,15 @@ export function ForecastVsFact({ data, status }: { data: LessonForecast; status:
                         {r.fact != null ? Math.round(r.fact) : <span className="text-xs font-normal text-amber-700">{r.pending ? `на проверке ${r.pending}` : "нет попыток"}</span>}
                       </td>
                       <td className={`py-1.5 pr-3 text-right tabular-nums ${r.inside === false ? "font-semibold text-red-700" : ""}`}>{r.error != null ? signedPoints(r.error) : "—"}</td>
+                      <td className="whitespace-nowrap py-1.5 pr-3 text-right tabular-nums text-arm-desc">
+                        {s?.baseline != null ? Math.round(s.baseline) : "—"}
+                        {s?.baseline != null && r.fact != null && (
+                          <span className="text-xs">
+                            {" "}
+                            (ошибка {signedPoints(Math.round((r.fact - s.baseline) * 10) / 10)})
+                          </span>
+                        )}
+                      </td>
                       <td className="py-1.5 tabular-nums">
                         {s?.pOnTime != null ? `${Math.round(s.pOnTime * 100)} %` : "—"}
                         {r.onTime && (
@@ -78,8 +88,9 @@ export function ForecastVsFact({ data, status }: { data: LessonForecast; status:
           </div>
           <p className="text-xs text-arm-desc">
             Прогноз сохранён в момент старта занятия по подтверждённым попыткам прошлых занятий и больше не пересчитывается. Факт — средний подтверждённый
-            балл ученика на этом занятии. Ошибка = факт − прогноз; средняя абсолютная ошибка — среднее |ошибок| в баллах. «Простое среднее» — прогноз без
-            тренда (средний балл прошлых занятий), чтобы было с чем сравнить.
+            балл ученика на этом занятии. Ошибка = факт − прогноз; средняя абсолютная ошибка — среднее |ошибок| в баллах. «Простое среднее» — прогноз «средний
+            балл прошлых занятий» и его ошибка, чтобы было видно, где он оказался ближе. Прогноз — наполовину среднее, наполовину тренд, с поправкой к
+            среднему группы, пока занятий мало (методика — docs/methods.md, раздел 6).
             {noHistory.length > 0 && ` Без прогноза (не было проверенных занятий): ${noHistory.map((r) => shortName(r.name)).join(", ")}.`}
           </p>
         </div>

@@ -7,7 +7,7 @@ import type { SessionUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import type { ReportInput } from "@/lib/reports/lesson";
 import { attemptScope, groupScope, lessonScope } from "@/lib/teacher/access";
-import { forecastStudent, accuracy, type Accuracy, type Risk, type ScoreForecast, type TimeForecast } from "./forecast";
+import { forecastScores, forecastStudent, accuracy, type Accuracy, type Risk, type ScoreForecast, type TimeForecast } from "./forecast";
 import { loadHistory, type HistoryAttempt } from "./history";
 import { ratingsByRole, type RatingRole } from "./rating";
 import { buildLessonForecast, type LessonForecast, type SnapshotRow } from "./snapshot";
@@ -25,9 +25,15 @@ export type GroupForecastRow = {
 export type GroupForecast = { rows: GroupForecastRow[]; atRisk: number; withForecast: number };
 
 export function buildGroupForecast(students: { id: string; name: string; groups: string[] }[], history: Map<string, HistoryAttempt[]>): GroupForecast {
+  // Classmates: the students who share a group with this one.
+  const members = new Map<string, string[]>();
+  for (const st of students) for (const g of st.groups) members.set(g, [...(members.get(g) ?? []), st.id]);
+  const scores = forecastScores(new Map(students.map((st) => [st.id, history.get(st.id) ?? []])), {
+    peersOf: (id) => students.find((st) => st.id === id)!.groups.flatMap((g) => members.get(g) ?? []),
+  });
   const rows = students.map((st) => {
     const list = history.get(st.id) ?? [];
-    const f = forecastStudent(list);
+    const f = forecastStudent(list, { score: scores.get(st.id) ?? null });
     const ratings = ratingsByRole(list);
     const level = (role: RatingRole) => ({ rating: ratings[role].rating, difficulty: ratings[role].difficulty, attempts: ratings[role].attempts });
     return { studentId: st.id, name: st.name, groups: st.groups, score: f.score, time: f.time, levels: { OP112: level("OP112"), DDS: level("DDS") }, risk: f.risk };

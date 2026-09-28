@@ -6,14 +6,17 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
-import { accuracy, forecastScore, forecastTime, type Accuracy } from "./forecast";
+import { accuracy, forecastScores, forecastTime, type Accuracy } from "./forecast";
 import { loadHistory, normFor, type HistoryAttempt } from "./history";
 import { teacherLessons } from "./levels";
 import { computeRating, type RatingRole } from "./rating";
 
 type Client = PrismaClient | Prisma.TransactionClient;
 
-/** The forecast of every seat of a lesson from the history before `at`. Pure. */
+/**
+ * The forecast of every seat of a lesson from the history before `at`. The classmates are the other
+ * students of the lesson: their past lessons give the group's level and the misses behind the interval. Pure.
+ */
 export function snapshotRows(input: {
   lessonId: string;
   settings: unknown;
@@ -21,10 +24,12 @@ export function snapshotRows(input: {
   history: Map<string, HistoryAttempt[]>;
   at: Date;
 }): Prisma.ForecastSnapshotCreateManyInput[] {
+  const students = [...new Set(input.seats.map((s) => s.studentId))];
+  const scores = forecastScores(new Map(students.map((id) => [id, input.history.get(id) ?? []])), { cutoff: input.at, peersOf: () => students });
   return input.seats.map((seat) => {
     const list = input.history.get(seat.studentId) ?? [];
     const normSec = normFor(input.settings, seat.role);
-    const score = forecastScore(list, { cutoff: input.at });
+    const score = scores.get(seat.studentId) ?? null;
     const time = forecastTime(list, seat.role, { cutoff: input.at, normSec });
     const level = computeRating(seat.role, list, { until: input.at });
     return {
