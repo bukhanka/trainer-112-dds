@@ -39,6 +39,7 @@ export const DEFAULT_WEIGHTS: Record<string, number> = {
   services: 3, // services and incident type
   completeness: 1, // required fields, questions asked
   literacy: 1, // text clear for the next dispatcher
+  timeZeroAt: 2, // past the time norm the points fall linearly and reach zero at twice the norm (src/lib/scoring/score.ts)
 };
 
 /** Accounts, group, settings, weights, reference data. */

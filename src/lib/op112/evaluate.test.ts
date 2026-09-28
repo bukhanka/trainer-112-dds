@@ -202,6 +202,25 @@ describe("evaluateOp112Rules", () => {
     expect(byCode(evaluateOp112Rules(input({ savedAfterSec: 95 })), "op112.typing_time")?.ok).toBe(false);
   });
 
+  it("names the time and the norm and scores a late card by how late it is", () => {
+    const quick = byCode(evaluateOp112Rules(input({ savedAfterSec: 53 })), "op112.typing_time");
+    expect(quick).toMatchObject({ ok: true, title: "Карточка сохранена за 0:53 при нормативе 1:05", evidence: "В нормативе, таймер не покраснел: запас 0:12" });
+    const slow = byCode(evaluateOp112Rules(input({ savedAfterSec: 195 })), "op112.typing_time");
+    expect(slow).toMatchObject({
+      ok: false,
+      title: "Карточка сохранена за 3:15 при нормативе 1:05",
+      evidence: "Дольше норматива на 2:10, таймер покраснел",
+      expected: "сохранить не позже 1:05, пока таймер не покраснел",
+      timing: { sec: 195, normSec: 65 },
+    });
+    // Jury's case: a right card at 3:15 was scored like one at 1:06. Now 1:06 loses almost nothing, 3:15 — the time part.
+    const score = (sec: number) => computeScore(evaluateOp112Rules(input({ savedAfterSec: sec })), WEIGHTS)!;
+    expect(score(66)).toBeGreaterThan(score(98));
+    expect(score(98)).toBeGreaterThan(score(195));
+    expect(score(66)).toBeGreaterThanOrEqual(99);
+    expect(score(195)).toBe(score(130));
+  });
+
   it("wants the gist and victims in the first 100 characters", () => {
     const description = `${"Звонит очевидец, говорит что у депо Киевского вокзала что-то случилось, просит приехать поскорее."} Горит мусор, есть пострадавший.`;
     const res = evaluateOp112Rules(input({ description, top: { victims: true } }));

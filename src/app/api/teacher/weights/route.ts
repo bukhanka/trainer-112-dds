@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { recomputeAllScores } from "@/lib/scoring/recompute";
-import { getActiveWeights, lockScores, runningLesson, weightsSchema } from "@/lib/scoring/weights";
+import { TIME_ZERO_AT, TIME_ZERO_MAX, TIME_ZERO_MIN } from "@/lib/scoring/score";
+import { getActiveWeights, GROUP_KEYS, lockScores, runningLesson, weightsSchema } from "@/lib/scoring/weights";
 import { auditInTx, jsonError, readJson, teacherApi } from "@/lib/teacher/access";
 
 export async function GET() {
@@ -19,9 +20,13 @@ export async function POST(request: Request) {
   if (user instanceof Response) return user;
   const body = (await readJson(request)) as { weights?: unknown } | null;
   const parsed = weightsSchema.safeParse(body?.weights);
-  if (!parsed.success) return jsonError("Веса — числа от 0 до 5");
-  const weights = parsed.data;
-  if (!Object.values(weights).some((w) => w > 0)) return jsonError("Хотя бы одна группа должна иметь вес больше нуля");
+  if (!parsed.success) {
+    const zero = parsed.error.issues.some((i) => i.path[0] === "timeZeroAt");
+    return jsonError(zero ? `Ноль баллов за время — от ${TIME_ZERO_MIN} до ${TIME_ZERO_MAX} нормативов` : "Веса — числа от 0 до 5");
+  }
+  // The profile always names its time zero point, so the journal shows it and a later default does not move old scores.
+  const weights = { ...parsed.data, timeZeroAt: parsed.data.timeZeroAt ?? TIME_ZERO_AT };
+  if (!GROUP_KEYS.some((k) => weights[k] > 0)) return jsonError("Хотя бы одна группа должна иметь вес больше нуля");
 
   const stamp = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow", dateStyle: "short", timeStyle: "short" });
   try {

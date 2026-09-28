@@ -358,7 +358,8 @@ export function auditChanges(row: AuditRow, names: AuditNames): AuditChange[] {
       return [{ field: SETTING_LABELS[row.entityId ?? ""] ?? row.entityId ?? "Значение", before: v(row.before), after: v(row.after) }];
     }
     case "weights.update": {
-      const out = pairs(obj(b.weights), obj(a.weights), row, names, (k) => `Вес: ${(WEIGHT_GROUPS as Record<string, string>)[k] ?? k}`, new Set());
+      const label = (k: string) => (k === "timeZeroAt" ? "Ноль баллов за время, нормативов" : `Вес: ${(WEIGHT_GROUPS as Record<string, string>)[k] ?? k}`);
+      const out = pairs(obj(b.weights), obj(a.weights), row, names, label, new Set());
       if (a.attempts != null) out.push({ field: "Пересчитано попыток", after: `${Number(a.attempts)}, балл изменился у ${Number(a.rescored ?? 0)}` });
       return out;
     }

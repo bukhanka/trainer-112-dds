@@ -8,7 +8,7 @@ import { Badge, Button, REVIEW_STATUS } from "@/components/ui";
 import { learnerOf, verdictWord } from "@/lib/review/corrections";
 import type { AiDraft } from "@/lib/review/draft";
 import { describePassRules, passVerdict, type PassRules } from "@/lib/scoring/pass";
-import { applyOverrides, computeScore, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup, type Weights } from "@/lib/scoring/score";
+import { applyOverrides, computeScore, timePointsLine, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup, type Weights } from "@/lib/scoring/score";
 
 type Verdict = boolean | null;
 
@@ -146,6 +146,12 @@ export function AttemptReview(p: AttemptReviewProps) {
   const shown = editing ? p.criteria.map((c) => ({ ...c, ok: verdicts[c.code] })) : applyOverrides(p.criteria, p.override);
   const groups = (Object.keys(WEIGHT_GROUPS) as WeightGroup[]).filter((g) => shown.some((c) => c.group === g));
   const original = new Map(p.criteria.map((c) => [c.code, c.ok]));
+  const draftOf = new Map(p.criteria.map((c) => [c.code, c]));
+  // A late time check keeps part of its points unless the teacher changed its verdict: «Балл за время — 49 %…».
+  const timeLine = (code: string) => {
+    const c = draftOf.get(code);
+    return c ? timePointsLine(c, p.weights, editing ? verdicts : p.override) : null;
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -203,6 +209,7 @@ export function AttemptReview(p: AttemptReviewProps) {
                           )}
                         </div>
                         {c.evidence && <p className="mt-1 border-l-2 border-arm-gray pl-2 text-sm text-arm-dark">{c.evidence}</p>}
+                        {timeLine(c.code) && <p className="mt-1 text-sm text-amber-800">{timeLine(c.code)}</p>}
                         {c.expected && (
                           <p className="mt-1 text-sm text-emerald-800">
                             <span className="text-arm-desc">Как надо: </span>

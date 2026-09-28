@@ -12,7 +12,8 @@ import { allowedNext, NO_CREW_COMMENT, STATUS_LABEL } from "@/lib/dds/status";
 import { plural } from "@/lib/format";
 import { OP112_KEYS } from "@/lib/help/op112-keys";
 import { defaultTeacherSettings } from "@/lib/lessons/defaults";
-import { CRITICAL_CAP, WEIGHT_GROUPS } from "@/lib/scoring/score";
+import { CRITICAL_CAP, timeZeroAt, WEIGHT_GROUPS } from "@/lib/scoring/score";
+import { getActiveWeights } from "@/lib/scoring/weights";
 import { PrintButton } from "./PrintButton";
 
 /** When each status is set, in the words of the dispatcher memo. */
@@ -59,7 +60,8 @@ function H3({ children }: { children: ReactNode }) {
 const table = "w-full border-collapse text-sm print:text-[12px] [&_td]:border-t [&_td]:border-arm-gray/60 [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:font-medium [&_th]:text-arm-desc";
 
 export async function TraineeMemo() {
-  const norms = await defaultTeacherSettings();
+  const [norms, active] = await Promise.all([defaultTeacherSettings(), getActiveWeights()]);
+  const zeroAt = timeZeroAt(active.weights);
   const ack = inWords(norms.ackSec);
   const work = inWords(norms.workSec);
   const typing = inWords(norms.typingSec);
@@ -205,7 +207,10 @@ export async function TraineeMemo() {
           </li>
           <li>Опросная карта открывается после заполнения адреса, как в инструкции.</li>
           <li>
-            Таймер набора в правом верхнем углу считает от «Принять» до «сохранить» и краснеет после норматива: <b>{typing}</b>.
+            Таймер набора в правом верхнем углу считает от «Принять» до «сохранить» и краснеет после норматива: <b>{typing}</b>.{" "}
+            {zeroAt > 1
+              ? `Сверх норматива баллы за время убывают равномерно: чем дольше, тем меньше, а через ${inWords(Math.round(norms.typingSec * zeroAt), true)} — ноль.`
+              : "Сверх норматива баллов за время нет."}
           </li>
           <li>Точный адрес заявитель называет только на уточняющий вопрос: переспросите дом, корпус, подъезд. Похожие улицы — частая причина критичной ошибки.</li>
           <li>

@@ -3,7 +3,8 @@ import type { Prisma } from "@prisma/client";
 import { aiOffNote } from "@/lib/ai/provider";
 import { db } from "@/lib/db";
 import { attemptSituation, loadGuidance } from "@/lib/review/corrections-db";
-import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Weights } from "@/lib/scoring/score";
+import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
+import { getActiveWeights } from "@/lib/scoring/weights";
 import type { IncidentAddress, IncidentCaller, IncidentFlags } from "@/lib/incident/types";
 import { tagsToAnswers } from "./card";
 import type { Persona } from "./caller";
@@ -30,15 +31,9 @@ import type { CallLine, StoredTag } from "./types";
 /** How an empty card is labelled in the journal, as on the customer's workstation. */
 export const EMPTY_TEXT = { noContact: "<Нет контакта>", dropped: "<Срыв связи>" } as const;
 
+/** The active weights with the zero point of the time checks, as everywhere else (src/lib/scoring/weights.ts). */
 export async function activeWeights(): Promise<Weights> {
-  const profile = await db.weightProfile.findFirst({ where: { isActive: true }, orderBy: { updatedAt: "desc" } });
-  const raw = (profile?.weights ?? {}) as Record<string, unknown>;
-  const weights = {} as Weights;
-  for (const g of Object.keys(WEIGHT_GROUPS) as (keyof Weights)[]) {
-    const v = Number(raw[g]);
-    weights[g] = Number.isFinite(v) ? v : 1;
-  }
-  return weights;
+  return (await getActiveWeights()).weights;
 }
 
 /** Flags the chosen panels can set: rows with a flag and buttons that switch one on. */

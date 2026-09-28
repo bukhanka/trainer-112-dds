@@ -17,6 +17,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient, type Prisma, type ServiceDelivery, type ServiceStatus } from "@prisma/client";
 import { computeScore, type CriterionResult, type Weights } from "../src/lib/scoring/score";
+import { normalizeWeights } from "../src/lib/scoring/weight-config";
+import { typingTimeCheck } from "../src/lib/op112/typing-time";
 import { ruleDraft } from "../src/lib/review/draft";
 import { loadRatingAttempts } from "../src/lib/adaptive/levels";
 import { pickAdaptive } from "../src/lib/adaptive/pick";
@@ -321,15 +323,8 @@ function simulate112(fx: Fx, p: Profile, ctx: Ctx) {
   const wrongServices = chance(p.wrongServices);
   const sloppy = chance(p.sloppyText);
   const crits: CriterionResult[] = [
-    {
-      code: "op112.typing_time",
-      group: "timeliness",
-      title: "Карточка сохранена до красного таймера",
-      ok: typing <= ctx.typingSec,
-      evidence: `Карточка сохранена через ${mmss(typing)}`,
-      expected: `не позже ${mmss(ctx.typingSec)}`,
-      source: "rule",
-    },
+    // The same check as at the workstation: past the norm the time keeps part of its points (timeCredit).
+    typingTimeCheck("Карточка сохранена", typing, ctx.typingSec),
     {
       code: "op112.address_street",
       group: "address",
@@ -868,7 +863,7 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const fx = new Map(scenarioRows.map((s) => [s.ticketRef!, toFx(s, known)]));
 
   const profile = await db.weightProfile.findFirst({ where: { isActive: true } });
-  const weights = (profile?.weights ?? { timeliness: 3, statusOrder: 2, comments: 2, address: 3, services: 3, completeness: 1, literacy: 1 }) as Weights;
+  const weights: Weights = normalizeWeights(profile?.weights);
   const ctx: Ctx = { weights, teacherId: teacher.id, ackSec: 30, workSec: 180, typingSec: 65 };
 
   const demoAttempts = await db.attempt.findMany({ where: { lessonId: { in: DEMO_IDS } }, select: { id: true } });
