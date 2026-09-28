@@ -12,7 +12,7 @@ const lesson = {
   createdAt: new Date("2026-09-25T06:00:00Z"),
 };
 const seats = [{ id: "s1", lessonId: "l1", label: "Место 1", role: "DDS", studentId: "u1", student: { fullName: "Иванов А. С." }, service: { shortName: "Поселение Вороновское" }, createdAt: new Date() }];
-const check = (ok: boolean) => [{ code: "ack", group: "timeliness", title: "Ответ за 30 с", ok, source: "rule" }];
+const check = (ok: boolean) => [{ code: "ack", group: "timeliness", title: "Карточка открыта за 30 с", ok, source: "rule" }];
 const base = { lessonId: "l1", seatId: "s1", studentId: "u1", kind: "DDS", override: null, teacherComment: null, scenario: { title: "Прорыв трубы" }, incident: null, incidentService: null };
 const attempts = [
   { ...base, id: "a1", reviewStatus: "CONFIRMED", score: 90, criteria: check(true), createdAt: new Date("2026-09-25T07:10:00Z") },

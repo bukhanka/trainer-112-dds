@@ -1,7 +1,8 @@
 /**
  * Tickets worked through by hand: how the caller talks, what they know only when asked,
- * and the reference for the duty services (ДДС): first decision within 30 s, the status
- * chain the brigade reports make possible, what the final comment must contain, traps.
+ * and the reference for the duty services (ДДС): the time norms (open the card within 30 s, the first record —
+ * status and text — within 3 min), the decision, the status chain the brigade reports make possible, what the final
+ * comment must contain, traps.
  * Every ticket listed here becomes APPROVED in data/scenarios.json.
  * Status names follow the ServiceStatus enum of prisma/schema.prisma.
  */
@@ -42,10 +43,11 @@ const NO_REJECT_103 = "Служба 103 не ставит «Не принята�
  * «К сведению» is not an answer of the memo: «Принята» means the service will act (pp. 21–22, 25), a service that
  * does not serve the object says «Не принята» with the reason (p. 28), and «Не принята» is not to be feared (p. 29).
  * Where the materials do not say whether the service acts — an okrug prefecture, Мос.Без., Мосжилинспекция, a district
- * without a described role — the reference leaves the decision open: the 30 seconds and the comment are judged.
+ * without a described role — the reference leaves the decision open: the time norms (the card opened within 30 s, the first
+ * record — status and text — within 3 min, customer's answer of 27.09) and the comment are judged.
  */
 const OPEN_NOTE =
-  "Решение не оценивается: «Принята» — только если служба будет что-то делать, иначе «Не принята» с причиной (памятка ДДС); что делает эта служба в таком случае, в материалах нет. Оцениваются ответ за 30 с и комментарий";
+  "Решение не оценивается: «Принята» — только если служба будет что-то делать, иначе «Не принята» с причиной (памятка ДДС); что делает эта служба в таком случае, в материалах нет. Оцениваются открытие за 30 с, первая запись за 3 мин и комментарий";
 const open = (service: string): DdsServiceReference => ({
   service, decision: "OPEN", chain: [], brigadeReport: "—", commentMustHave: [], traps: [OPEN_NOTE],
 });
@@ -945,7 +947,7 @@ export const DEEP: Record<string, DeepScenario> = {
 
 /** Rules every ДДС reference relies on (dispatcher memo). */
 export const DDS_RULES = [
-  "«Принята» или «Не принята» — не позже 30 секунд после «Добавлена»",
+  "Открыть карточку — не позже 30 секунд после «Добавлена»; первая запись (статус и текст) — не позже 3 минут после «Добавлена»",
   "«Не принята» и «Отказ от выполнения работ» — только с комментарием: причина и кому передано",
   "«Не принята» можно сменить только на «Принята»; назад по статусам не ходят",
   "«Работы завершены» закрывает карточку: итог пишется в комментарий до сохранения",

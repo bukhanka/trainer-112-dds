@@ -685,6 +685,9 @@ async function seedCorrections(lessonId: string, ctx: Ctx) {
 }
 
 function ownEvents(plateId: string, events: Event[], addedAt: Date, seat: { id: string; studentId: string; fullName: string }, ctx: Ctx): Prisma.StatusEventCreateManyInput[] {
+  // The history shows in red what came late by the two norms of 27.09, as the workstation marks it (dds/plate.ts):
+  // the opening after ackSec, the first record — a status with a text — after workSec.
+  const record = events.find((e) => e.status !== "RECEIVED" && !!e.comment?.trim());
   return events.map((e) => ({
     incidentServiceId: plateId,
     status: e.status,
@@ -693,7 +696,7 @@ function ownEvents(plateId: string, events: Event[], addedAt: Date, seat: { id: 
     actorLabel: seat.fullName,
     actorUserId: seat.studentId,
     seatId: seat.id,
-    late: e.status === "ACCEPTED" || e.status === "REJECTED" ? e.sec > ctx.ackSec : false,
+    late: e.status === "RECEIVED" ? e.sec > ctx.ackSec : e === record ? e.sec > ctx.workSec : false,
     at: at(addedAt, e.sec),
   }));
 }
@@ -798,10 +801,11 @@ async function buildLive(ctx: Ctx, groupId: string, fx: Map<string, Fx>) {
       answeredAt: ago(48),
     },
   });
-  // Places 2–4 (ДДС): one on time with a second card in the queue, one late with the answer, one refusal without an addressee.
+  // Places 2–4 (ДДС): one on time with a second card in the queue, one opened in time but without the first record after
+  // 3 min, one refusal without an addressee.
   const live: { seat: (typeof seats)[number]; ticket: string; addedAgo: number; events: Event[] }[] = [
     { seat: seats[1], ticket: "Б2-1", addedAgo: 95, events: [{ status: "RECEIVED", sec: 4 }, { status: "ACCEPTED", sec: 17, comment: "Направлена бригада, наряд 23", crew: "23" }] },
-    { seat: seats[2], ticket: "Б5-1", addedAgo: 44, events: [{ status: "RECEIVED", sec: 6 }] },
+    { seat: seats[2], ticket: "Б5-1", addedAgo: 200, events: [{ status: "RECEIVED", sec: 6 }] },
     { seat: seats[3], ticket: "Б1-1", addedAgo: 130, events: [{ status: "RECEIVED", sec: 5 }, { status: "REJECTED", sec: 26, comment: HANDOVER_BAD }] },
     { seat: seats[1], ticket: "Б31-3", addedAgo: 12, events: [] },
   ];

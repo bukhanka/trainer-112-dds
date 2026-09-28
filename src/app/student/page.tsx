@@ -18,7 +18,7 @@ export default async function StudentHome() {
         </Link>
         <Link href="/dds" className="rounded border bg-white p-6 hover:border-arm-blue">
           <div className="text-lg font-semibold">Диспетчер ДДС</div>
-          <div className="text-sm text-arm-desc">Принять карточку за 30 секунд, вести статусы по докладам бригады</div>
+          <div className="text-sm text-arm-desc">Открыть карточку за 30 секунд, первая запись за 3 минуты, статусы по докладам бригады</div>
         </Link>
       </div>
     </div>

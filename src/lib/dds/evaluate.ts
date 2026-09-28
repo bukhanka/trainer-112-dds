@@ -492,7 +492,7 @@ export function summarize(criteria: CriterionResult[], score: number | null): st
   const failed = criteria.filter((c) => c.ok === false);
   const passed = criteria.filter((c) => c.ok === true).length;
   const points = score !== null ? ` Балл ${score}.` : "";
-  if (!failed.length && !passed) return "Проверять пока нечего: карточка ещё не обработана или время на ответ не истекло.";
+  if (!failed.length && !passed) return "Проверять пока нечего: карточка ещё не обработана, а нормативы не истекли.";
   if (!failed.length) return `Замечаний нет: ${countLabel(passed, ["проверка пройдена", "проверки пройдены", "проверок пройдено"])}.${points}`;
   return `Пройдено ${passed} из ${passed + failed.length}. Ошибки: ${failed.map(errorTitle).join("; ")}.${points}`;
 }

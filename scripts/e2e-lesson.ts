@@ -181,7 +181,7 @@ async function main() {
     const row2 = ((emptied.body.journal as { chips: string }[] | undefined) ?? [])[0];
     check(emptied.status === 200 && row2?.chips === "<Нет контакта>", "«нет контакта» → пустая карточка в журнале", row2?.chips ?? "");
 
-    // 4. The ДДС place gets the card and accepts it within 30 s.
+    // 4. The ДДС place gets the card and makes the first record at once: «Принята» with a text and a crew.
     await disp.call("GET", "/api/dds/state");
     const feed = await disp.call("GET", "/api/dds/feed");
     const rows = (feed.body.rows ?? feed.body.items ?? []) as { number: number; typeLabel?: string; address?: string }[];

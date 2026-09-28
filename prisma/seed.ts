@@ -19,8 +19,8 @@ export const DEMO_ACCOUNTS: { login: string; password: string; fullName: string;
 ];
 
 export const DEFAULT_SETTINGS: Record<string, unknown> = {
-  "norm.ackSec": 30, // «Принята / Не принята» after «Добавлена»
-  "norm.workSec": 180, // processing a card at the ДДС place
+  "norm.ackSec": 30, // ДДС: open the card within 30 s of «Добавлена» (customer's answer of 27.09)
+  "norm.workSec": 180, // ДДС: the first record — status and text — within 3 min of «Добавлена»
   "norm.typingSec": 65, // 112 card typing timer turns red
   "norm.finishHours": 48, // «Не завершено»
   "audit.retentionDays": 190, // security journal ≥ 6 months
