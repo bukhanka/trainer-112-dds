@@ -2,7 +2,7 @@
 import useSWR from "swr";
 import { plural } from "@/lib/format";
 import { errorTitle } from "@/lib/scoring/errors";
-import { WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
+import { timePointsLine, WEIGHT_GROUPS, type CriterionResult, type WeightGroup } from "@/lib/scoring/score";
 import { getJson } from "./client";
 import { Modal } from "./Services";
 import { IconCheck, IconClose } from "./icons";
@@ -19,6 +19,8 @@ type ReviewData =
       score: number | null;
       criteria: CriterionResult[];
       overrides: Record<string, boolean | null> | null;
+      /** Where the points of a late time check reach zero, in norms (src/lib/scoring/score.ts). */
+      timeZeroAt?: number;
       ai: string;
       reviewStatus: string;
       teacherComment: string | null;
@@ -50,6 +52,13 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
   const hidden = data?.ready && data.hidden;
   const ready = data?.ready && !data.hidden ? data : null;
   const criteria = ready ? applyOverrides(ready.criteria, ready.overrides) : [];
+  // «Балл за время — 49 %…» for a late time check, by the draft check and the teacher's corrections.
+  const timeLines = new Map(
+    (ready?.criteria ?? []).flatMap((c) => {
+      const line = timePointsLine(c, { timeZeroAt: ready?.timeZeroAt }, ready?.overrides);
+      return line ? [[c.code, line] as const] : [];
+    }),
+  );
   const said = criteria.filter((c) => c.code.startsWith("op112.said.") || c.code === "op112.ai.said");
   const rest = criteria.filter((c) => !said.includes(c));
   const fix = criteria.filter((c) => c.ok === false).sort((a, b) => Number(Boolean(b.critical)) - Number(Boolean(a.critical)));
@@ -116,14 +125,14 @@ export function ReviewModal(p: { incidentId: string; number: number | null; onCl
             <section>
               <h3 className="mb-1.5 text-[15px] font-bold text-arm-dark">Сказал ↔ заполнил</h3>
               <p className="mb-2 text-[12.5px] text-arm-desc">Всё, что заявитель сообщил в разговоре, должно быть в карточке.</p>
-              <CriteriaList items={said} />
+              <CriteriaList items={said} notes={timeLines} />
             </section>
           )}
 
           {groups.map(({ g, items }) => (
             <section key={g}>
               <h3 className="mb-1.5 text-[15px] font-bold text-arm-dark">{WEIGHT_GROUPS[g]}</h3>
-              <CriteriaList items={items} />
+              <CriteriaList items={items} notes={timeLines} />
             </section>
           ))}
 
@@ -181,7 +190,7 @@ export function ScoreBadge({ score }: { score: number | null }) {
 
 const RANK = (c: CriterionResult) => (c.ok === false ? 0 : c.ok === null ? 2 : 1);
 
-function CriteriaList({ items }: { items: CriterionResult[] }) {
+function CriteriaList({ items, notes }: { items: CriterionResult[]; notes?: Map<string, string> }) {
   return (
     <ul className="divide-y divide-[#eceef0] border border-[#e3e6e8]">
       {[...items].sort((a, b) => RANK(a) - RANK(b)).map((c) => (
@@ -199,6 +208,7 @@ function CriteriaList({ items }: { items: CriterionResult[] }) {
               {c.source === "ai" && <span className="ml-2 border border-[#c9ced1] px-1 text-[10.5px] font-normal text-arm-desc">ИИ</span>}
             </div>
             {c.evidence && <div className="text-arm-desc">{c.evidence}</div>}
+            {notes?.get(c.code) && <div className="text-[#8a5a00]">{notes.get(c.code)}</div>}
             {c.expected && c.ok === false && <div className="text-arm-dark">Надо: {c.expected}</div>}
           </div>
         </li>

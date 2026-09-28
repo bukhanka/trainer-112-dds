@@ -16,6 +16,17 @@ describe("readCriteria", () => {
     expect(readCriteria({ not: "an array" })).toEqual([]);
   });
 
+  it("keeps the time and the norm of a time check, so new weights rescore it exactly", () => {
+    const [ok, broken] = readCriteria([
+      { code: "op112.typing_time", group: "timeliness", title: "Карточка сохранена за 1:38 при нормативе 1:05", ok: false, timing: { sec: 98, normSec: 65 } },
+      { code: "op112.typing_time", group: "timeliness", title: "Время", ok: false, timing: { sec: "98", normSec: 0 } },
+    ]);
+    expect(ok.timing).toEqual({ sec: 98, normSec: 65 });
+    // A broken time is dropped, the check stays: it is scored all or nothing, as before.
+    expect(broken).toMatchObject({ code: "op112.typing_time", ok: false });
+    expect(broken.timing).toBeUndefined();
+  });
+
   it("reads only boolean or null corrections", () => {
     expect(readOverrides({ a: true, b: null, c: "yes" })).toEqual({ a: true, b: null });
     expect(readOverrides([])).toBeNull();

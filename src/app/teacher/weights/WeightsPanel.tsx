@@ -4,8 +4,19 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui";
 import { shortName } from "@/lib/format";
-import { computeScore, WEIGHT_GROUPS, type CriterionResult, type Overrides, type WeightGroup, type Weights } from "@/lib/scoring/score";
-import { DEFAULT_WEIGHTS, GROUP_KEYS, WEIGHT_MAX } from "@/lib/scoring/weight-config";
+import {
+  computeScore,
+  TIME_ZERO_MAX,
+  TIME_ZERO_MIN,
+  timeCredit,
+  timeZeroAt,
+  WEIGHT_GROUPS,
+  type CriterionResult,
+  type Overrides,
+  type WeightGroup,
+  type Weights,
+} from "@/lib/scoring/score";
+import { DEFAULT_WEIGHTS, GROUP_KEYS, sameWeights, WEIGHT_MAX } from "@/lib/scoring/weight-config";
 
 export type PreviewAttempt = {
   id: string;
@@ -32,9 +43,30 @@ const HINTS: Record<WeightGroup, string> = {
 const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
 const delta = (a: number | null, b: number | null) => (a == null || b == null ? null : b - a);
 const sign = (d: number | null) => (d == null ? "" : d > 0 ? `+${d}` : d < 0 ? `−${Math.abs(d)}` : "0");
-const same = (a: Weights, b: Weights) => GROUP_KEYS.every((k) => a[k] === b[k]);
+const same = sameWeights;
+const mmss = (sec: number) => `${Math.floor(Math.round(sec) / 60)}:${String(Math.round(sec) % 60).padStart(2, "0")}`;
+const times = (n: number) => String(n).replace(".", ",");
 
-export function WeightsPanel({ saved, savedName, attempts, runningLesson }: { saved: Weights; savedName: string | null; attempts: PreviewAttempt[]; runningLesson: string | null }) {
+/** «1:06 — 98 %, 1:38 — 49 %, 2:10 — 0 %»: what the chosen zero point gives on the 112 typing norm. */
+function timeExamples(normSec: number, zeroAt: number): string {
+  const at = zeroAt > 1 ? [normSec + 1, normSec * (1 + (zeroAt - 1) / 2), normSec * zeroAt] : [normSec + 1];
+  return at.map((t) => `${mmss(t)} — ${Math.round(timeCredit(Math.round(t), normSec, zeroAt) * 100)} %`).join(", ");
+}
+
+export function WeightsPanel({
+  saved,
+  savedName,
+  attempts,
+  runningLesson,
+  typingSec,
+}: {
+  saved: Weights;
+  savedName: string | null;
+  attempts: PreviewAttempt[];
+  runningLesson: string | null;
+  /** The centre's 112 typing norm, for the example under the time zero point. */
+  typingSec: number;
+}) {
   const router = useRouter();
   const [weights, setWeights] = useState<Weights>(saved);
   const [busy, setBusy] = useState(false);
@@ -127,9 +159,38 @@ export function WeightsPanel({ saved, savedName, attempts, runningLesson }: { sa
             </li>
           ))}
         </ul>
+        <div className="mt-5 grid gap-1 border-t border-arm-gray/60 pt-4 sm:grid-cols-[minmax(0,1fr)_14rem] sm:items-center sm:gap-4">
+          <label htmlFor="w-timeZeroAt" className="text-sm">
+            <span className="font-medium">Время сверх норматива</span>
+            <span className="block text-xs text-arm-desc">
+              В нормативе — все баллы за время, дольше — меньше, равномерно; ноль — когда время больше норматива во столько раз. ×1 — «уложился или нет»: чуть
+              дольше норматива — ноль.
+            </span>
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              id="w-timeZeroAt"
+              type="range"
+              min={TIME_ZERO_MIN}
+              max={TIME_ZERO_MAX}
+              step={0.25}
+              value={timeZeroAt(weights)}
+              onChange={(e) => setWeights((w) => ({ ...w, timeZeroAt: Number(e.target.value) }))}
+              className="h-2 w-full cursor-pointer accent-arm-blue"
+            />
+            <span
+              className={`w-14 shrink-0 text-right font-mono text-lg font-semibold tabular-nums ${timeZeroAt(weights) !== timeZeroAt(saved) ? "text-arm-blue" : ""}`}
+            >
+              ×{times(timeZeroAt(weights))}
+            </span>
+          </div>
+          <p className="text-xs text-arm-desc sm:col-span-2" aria-live="polite">
+            Набор карточки 112 при нормативе {mmss(typingSec)}: {timeExamples(typingSec, timeZeroAt(weights))} баллов за время.
+          </p>
+        </div>
         <p className="mt-4 text-xs text-arm-desc">
-          Балл попытки — доля пройденных проверок в каждой группе, взвешенная по этим весам. «Не применимо» не считается. Критичная ошибка (например, похожая улица)
-          ограничивает балл 40 из 100.
+          Балл попытки — доля пройденных проверок в каждой группе, взвешенная по этим весам; проверка времени сверх норматива получает часть баллов. «Не
+          применимо» не считается. Критичная ошибка (например, похожая улица) ограничивает балл 40 из 100.
         </p>
       </section>
 

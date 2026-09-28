@@ -6,7 +6,7 @@
  * card reaches the ДДС place, which accepts it. A second 112 place gets a silent line and closes it with «нет
  * контакта». The teacher watches the board, stops the lesson and gets the attempts.
  *
- *   pnpm exec tsx scripts/e2e-lesson.ts --base http://localhost:3100 [--source students|mixed|generated] [--keep]
+ *   pnpm e2e --base http://localhost:3100 [--source students|mixed|generated] [--keep]      (reads .env)
  *
  * --source is the lesson's source of cards (students by default). With «mixed» the ДДС place also gets cards of its
  * own flow; with «generated» the card of the 112 place must not reach the ДДС place at all.

@@ -46,6 +46,9 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://trainer:${POSTGRES_PASSWORD:-trainer}@db:5432/trainer?schema=public&connection_limit=15&pool_timeout=20
+      # true — a show: demo lessons with attempts are loaded at start, so reports, forecast and groups are not empty;
+      # false — a training centre. Taken from .env or the command line: DEMO_MODE=true docker compose --profile app up -d
+      DEMO_MODE: ${DEMO_MODE:-false}
       # Google service-account key, mounted read-only below (GOOGLE_KEY_FILE on the host); unused without Google models.
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-sa.json
     ports:

@@ -49,6 +49,8 @@ const criterionSchema = z.object({
   source: z.enum(["rule", "ai"]).catch("rule"),
   learned: z.array(z.string()).max(20).optional().catch(undefined),
   basis: z.string().max(80).optional().catch(undefined),
+  // Time checks: the measured time and the norm, for the partial points past the norm (src/lib/scoring/score.ts).
+  timing: z.object({ sec: z.number().min(0), normSec: z.number().positive() }).optional().catch(undefined),
 });
 
 /** Attempt.criteria is JSON written by the workstations; skip anything malformed instead of crashing a page. */

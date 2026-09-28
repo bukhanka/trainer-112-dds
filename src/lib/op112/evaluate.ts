@@ -19,6 +19,7 @@ import type { Persona } from "./caller";
 import type { ServiceLite } from "./routing";
 import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
 import { linkCheck } from "./links";
+import { typingTimeCheck } from "./typing-time";
 import { phoneCheck, type PhoneNotice } from "./workoffs";
 
 export type EvalCard = {
@@ -236,7 +237,6 @@ function cutWords(s: string, max: number): string {
 const quote = (s: string, max = 140) => `«${cutWords(s, max)}»`;
 const digits = (s: string | undefined) => (s ?? "").replace(/\D/g, "").slice(-10);
 const same = (a: string | undefined, b: string | undefined) => low(a ?? "").trim() === low(b ?? "").trim();
-const mmss = (sec: number) => `${Math.floor(sec / 60)}:${sec % 60 < 10 ? "0" : ""}${sec % 60}`;
 
 const EMPTY_BUTTON = { noContact: "нет контакта", dropped: "срыв звонка" } as const;
 const EMPTY_EXPECTED = {
@@ -396,13 +396,9 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
   }
 
   // Time to «сохранить» (for an empty card — to «сохранить карточку как пустую»).
-  const timeCheck = (title: (time: string) => string) => {
-    if (card.openedAt && card.savedAt) {
-      const sec = Math.max(0, Math.round((card.savedAt.getTime() - card.openedAt.getTime()) / 1000));
-      add("op112.typing_time", "timeliness", title(mmss(sec)), sec <= input.typingSec, {
-        evidence: `Норматив набора — ${mmss(input.typingSec)}; таймер ${sec <= input.typingSec ? "не покраснел" : "покраснел"}`,
-      });
-    } else add("op112.typing_time", "timeliness", "Время набора карточки", null);
+  const timeCheck = (done: string) => {
+    if (card.openedAt && card.savedAt) out.push(typingTimeCheck(done, (card.savedAt.getTime() - card.openedAt.getTime()) / 1000, input.typingSec));
+    else add("op112.typing_time", "timeliness", "Время набора карточки", null);
   };
 
   // «Нет контакта» / «срыв звонка»: the instruction keeps these buttons for calls that bring nothing
@@ -421,7 +417,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
           expected: operatorLines.length ? undefined : "Сказать в трубку, например: «Служба 112, говорите, вас не слышно»",
         });
       }
-      timeCheck((t) => `Пустая карточка закрыта за ${t}`);
+      timeCheck("Пустая карточка закрыта");
     } else {
       // A caller who was on the line with something to report: an empty card leaves the incident without services.
       add("op112.empty", "completeness", "Карточка не сохранена пустой по ошибке", false, {
@@ -447,7 +443,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     });
   }
 
-  timeCheck((t) => `Карточка сохранена за ${t}`);
+  timeCheck("Карточка сохранена");
 
   // Address against the clarified place.
   if (truth && Object.keys(truth.address).length) {

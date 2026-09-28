@@ -165,24 +165,27 @@ export function ChatPanel(p: {
 
   return (
     <aside className="flex w-[300px] shrink-0 flex-col border-l border-[#b9c0c5] bg-white xl:w-[340px] 2xl:w-[390px]" aria-label={title}>
-      <div className="flex items-center justify-between gap-2 bg-arm-dark px-3 py-2 text-white">
+      {/* The title has the whole width next to the handset; «Голос / Текст» sits under it, by the phone number. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 bg-arm-dark px-3 py-2 text-white">
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-[14px] font-semibold">{title}</div>
+          <div className="truncate text-[14px] font-semibold" title={title}>
+            {title}
+          </div>
           <div className="truncate text-[12px] text-white/75">{mode === "voice" && p.title ? `${p.title} · ${status}` : status}</div>
-          {p.call?.phone && <div className="truncate text-[12px] text-white/75">{p.call.phone}</div>}
-        </div>
-        <div className="ml-auto">
-          <TalkModeSwitch mode={mode} onChange={switchTo} />
         </div>
         <button
           type="button"
           onClick={p.onHangup}
           disabled={!active}
           title="Завершить разговор"
-          className="flex h-9 w-12 items-center justify-center bg-arm-late/90 hover:bg-arm-late disabled:bg-white/15 disabled:text-white/50"
+          className="row-span-2 flex h-9 w-12 items-center justify-center bg-arm-late/90 hover:bg-arm-late disabled:bg-white/15 disabled:text-white/50"
         >
           <IconHangup className="h-6 w-6" />
         </button>
+        <div className="mt-1 flex min-w-0 items-center justify-between gap-2">
+          <div className="truncate text-[12px] text-white/75">{p.call?.phone ?? ""}</div>
+          <TalkModeSwitch mode={mode} onChange={switchTo} />
+        </div>
       </div>
 
       {p.tabs}

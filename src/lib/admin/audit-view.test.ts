@@ -150,7 +150,7 @@ describe("audit journal in words", () => {
       row({ action: "scenario.approve", entity: "Scenario", entityId: "s1", before: { status: "DRAFT", approvedSections: [] }, after: { status: "APPROVED", approvedSections: ["caller", "truth"], sections: ["caller", "truth"] } }),
       row({ action: "scenario.regenerate", entity: "Scenario", entityId: "s1", before: { caller: {}, status: "DRAFT" }, after: { caller: { a: 1 }, status: "DRAFT", comment: "Короче", model: "local" } }),
       row({ action: "scenario.generate", entity: "Scenario", entityId: "s1", after: { via: "category", category: "пожар", location: "СЗАО", difficulty: 3, finalType: "Пожар", services: 3, usedModel: true } }),
-      row({ action: "weights.update", entity: "WeightProfile", entityId: "w1", before: { profileId: "w1", weights: { address: 3 } }, after: { weights: { address: 4 }, attempts: 72, rescored: 10 } }),
+      row({ action: "weights.update", entity: "WeightProfile", entityId: "w1", before: { profileId: "w1", weights: { address: 3, timeZeroAt: 2 } }, after: { weights: { address: 4, timeZeroAt: 2.5 }, attempts: 72, rescored: 10 } }),
       row({ action: "attempt.draft", entity: "Attempt", entityId: "a1", after: { source: "ai", model: "local" } }),
       row({ action: "system.integrity.fail", actor: "system", entity: "Integrity", entityId: "scheduled", after: { trigger: "scheduled", checks: 5, failed: ["Диск: мало места"] } }),
       row({ action: "system.cleanup", actor: "system", after: { backupFiles: 1, backupRows: 1, journal: 0, sessions: 3, counters: 0, keepDays: 14, retentionDays: 190 } }),

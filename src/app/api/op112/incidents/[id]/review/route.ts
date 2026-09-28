@@ -6,7 +6,7 @@ import { addressLine } from "@/lib/op112/gazetteer";
 import { activeWeights, aiState, loadEvalInput } from "@/lib/op112/review";
 import { isSelfTraining } from "@/lib/op112/seat";
 import { serviceCatalog } from "@/lib/op112/services";
-import { computeScore, type CriterionResult, type Overrides } from "@/lib/scoring/score";
+import { computeScore, timeZeroAt, type CriterionResult, type Overrides } from "@/lib/scoring/score";
 
 const EMPTY_ANSWER = {
   noContact: "«нет контакта» → «сохранить карточку как пустую»: контакта с заявителем не было, службы не оповещаются",
@@ -33,7 +33,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
   const criteria = (attempt.criteria ?? []) as unknown as CriterionResult[];
   const isEmpty = own.incident.status === "empty";
   const overrides = (attempt.override ?? null) as Overrides | null;
-  const score = computeScore(criteria, await activeWeights(), overrides);
+  const weights = await activeWeights();
+  const score = computeScore(criteria, weights, overrides);
   const scenario = own.incident.scenarioId ? await db.scenario.findUnique({ where: { id: own.incident.scenarioId } }) : null;
   const catalog = await serviceCatalog();
   const truth = normalizeTruth(scenario?.truth, catalog);
@@ -57,6 +58,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/op112/incidents
     score,
     criteria,
     overrides,
+    // Where the points of a late time check reach zero, in norms: the review line «Балл за время — 49 %…».
+    timeZeroAt: timeZeroAt(weights),
     // An empty card has no conversation to read: the model checks are not needed, whether a model is set or not.
     ai: isEmpty ? "empty" : attempt.incidentId ? aiState(criteria) : "off",
     reviewStatus: attempt.reviewStatus,

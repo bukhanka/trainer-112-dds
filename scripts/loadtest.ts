@@ -2,11 +2,11 @@
  * Load test: N virtual users log in and poll the pages and APIs a class uses, for D seconds.
  * Reports latency percentiles and errors against the ТЗ targets (100 users, response ≤ 2 s).
  *
- *   pnpm exec tsx scripts/loadtest.ts --base http://localhost:3000 --users 100 --duration 60 \
+ *   pnpm loadtest --base http://localhost:3000 --users 100 --duration 60 \
  *     --paths /student,/api/dds/feed
- *   pnpm exec tsx scripts/loadtest.ts --users 30 --setup dds --think 1000 --paths /api/dds/state,/api/dds/feed
+ *   pnpm loadtest --users 30 --setup dds --think 1000 --paths /api/dds/state,/api/dds/feed
  *                                                          # a class of ДДС places, each with its own card flow
- *   pnpm exec tsx scripts/loadtest.ts --db-writes 5000      # database insert throughput (rows/s)
+ *   pnpm loadtest --db-writes 5000      # database insert throughput (rows/s); pnpm loadtest reads .env
  *
  * Virtual users reuse the demo student accounts, each with its own session.
  */

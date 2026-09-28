@@ -1,15 +1,19 @@
 /**
  * Offline address suggestions for the 112 card.
  *
- * The real workstation asks Yandex / FIAS; the trainer must work without the internet, so it
- * keeps a small street list with the district and okrug of each street. Look-alike names
- * (Дубнинская / Дубининская, Коломенская улица / набережная) are here on purpose: picking the
- * wrong one is a critical mistake in the review.
+ * The real workstation asks online address services; the trainer must work without the internet, so it
+ * keeps a small street list with the district and okrug of each street, and says so: every suggestion is
+ * marked «справочник адресов». Look-alike names (Дубнинская / Дубининская, Коломенская улица / набережная)
+ * are here on purpose: picking the wrong one is a critical mistake in the review.
  */
 import type { IncidentAddress } from "@/lib/incident/types";
 import { sayable } from "@/lib/speech/sayable";
 import addressesJson from "../../../data/addresses.json";
 import confusableJson from "../../../data/confusable-streets.json";
+import servicesJson from "../../../data/services.json";
+
+/** Where the suggestions come from: the trainer's own list, not an online service. */
+export const ADDRESS_SOURCE = "справочник адресов";
 
 type Place = {
   street: string;
@@ -21,7 +25,6 @@ type Place = {
   okrug?: string;
   subject?: string;
   city?: string;
-  source?: string;
 };
 
 type KnownAddress = {
@@ -72,7 +75,7 @@ const OWN: Place[] = [
   MSK("Большая Дорогомиловская улица", "Дорогомилово", "ЗАО"),
   MSK("площадь Киевского Вокзала", "Дорогомилово", "ЗАО"),
   MSK("Киевская улица", "Дорогомилово", "ЗАО"),
-  { ...MSK("МЖД Киевское направление 1-й км", "Дорогомилово", "ЗАО"), source: "ФИАС" },
+  MSK("МЖД Киевское направление 1-й км", "Дорогомилово", "ЗАО"),
   MSK("Ярцевская улица", "Кунцево", "ЗАО"),
   MSK("Рублёвское шоссе", "Кунцево", "ЗАО"),
   MSK("улица Покрышкина", "Тропарёво-Никулино", "ЗАО"),
@@ -133,7 +136,7 @@ const OWN: Place[] = [
   MSK("улица Корнейчука", "Бибирево", "СВАО"),
   MSK("Широкая улица", "Северное Медведково", "СВАО"),
   // ТиНАО
-  { ...MSK("посёлок ЛМС, микрорайон Солнечный", "Вороновское", "ТиНАО"), source: "ФИАС" },
+  MSK("посёлок ЛМС, микрорайон Солнечный", "Вороновское", "ТиНАО"),
   // Московская область and other regions: no Moscow district, territorial services are not added
   { street: "Станционная улица", subject: "Московская область", city: "Королёв", okrug: "МО" },
   { street: "Мирской проезд", subject: "Московская область", city: "Балашиха", okrug: "МО" },
@@ -243,6 +246,25 @@ export function normHouse(h: string | undefined): string {
 
 export type AddressSuggestion = { label: string; source: string; address: IncidentAddress };
 
+type DirectoryService = { kind?: string; subtype?: string | null; district?: string | null };
+const districtKey = (s: string) => s.trim().toLowerCase().replace(/ё/g, "е");
+let directory: Map<string, string> | null = null;
+
+/**
+ * A district as the services directory spells it — the «Район» list of the card and the district plates:
+ * «Хорошёво-Мнёвники» of a ticket becomes «Хорошево-Мневники», so the list never shows one district twice.
+ * A district the directory does not know keeps its own spelling.
+ */
+export function directoryDistrict(name: string | undefined): string | undefined {
+  if (!name) return name;
+  directory ??= new Map(
+    (servicesJson as DirectoryService[])
+      .filter((s) => s.kind === "территориальная" && s.district && !(s.subtype ?? "").startsWith("префектура"))
+      .map((s) => [districtKey(s.district!), s.district!]),
+  );
+  return directory.get(districtKey(name)) ?? name;
+}
+
 const HOUSE_RE = /^(?:д\.?|дом)?(\d+[а-я]?(?:\/\d+)?)$/;
 
 /** «грина 11», «Берзарина д 21 к1», «коломенская наб 18» → suggestions with the fields filled. */
@@ -289,6 +311,7 @@ export function suggestAddress(query: string, limit = 8): AddressSuggestion[] {
     const h = house;
     const b = building;
     const st = structure;
+    const district = directoryDistrict(p.district);
     const address: IncidentAddress = {
       country: "Россия",
       subject: p.subject ?? "Москва",
@@ -298,13 +321,13 @@ export function suggestAddress(query: string, limit = 8): AddressSuggestion[] {
       building: b,
       structure: st,
       okrug: p.okrug,
-      district: p.district,
+      district,
     };
     const tail = [h && `д. ${h}`, b && `к. ${b}`, st && `стр. ${st}`].filter(Boolean).join(", ");
-    const where = p.district ? `${p.okrug}, р-н ${p.district}` : [p.subject, p.city, p.okrug].filter(Boolean).join(", ");
+    const where = district ? `${p.okrug}, р-н ${district}` : [p.subject, p.city, p.okrug].filter(Boolean).join(", ");
     const label = `${p.city && p.city !== "Москва" ? `${p.city}, ` : ""}${p.street}${tail ? `, ${tail}` : ""} — ${where}`;
     if (out.some((x) => x.label === label)) continue;
-    out.push({ label, source: p.source ?? (p.subject && p.subject !== "Москва" ? "ФИАС" : "Яндекс"), address });
+    out.push({ label, source: ADDRESS_SOURCE, address });
     if (out.length >= limit) break;
   }
   return out;

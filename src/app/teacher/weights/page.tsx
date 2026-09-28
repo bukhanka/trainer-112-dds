@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { defaultTeacherSettings } from "@/lib/lessons/defaults";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { getActiveWeights, runningLesson } from "@/lib/scoring/weights";
 import { attemptScope } from "@/lib/teacher/access";
@@ -8,7 +9,7 @@ import { WeightsPanel, type PreviewAttempt } from "./WeightsPanel";
 
 export default async function WeightsPage() {
   const user = await requireUser(["TEACHER", "ADMIN"]);
-  const [active, rows, running] = await Promise.all([
+  const [active, rows, running, norms] = await Promise.all([
     getActiveWeights(),
     db.attempt.findMany({
       where: attemptScope(user),
@@ -24,6 +25,7 @@ export default async function WeightsPage() {
       },
     }),
     runningLesson(),
+    defaultTeacherSettings(),
   ]);
 
   // Only what the score needs travels to the browser.
@@ -35,7 +37,7 @@ export default async function WeightsPage() {
     lessonTitle: a.lesson.title,
     studentId: a.student.id,
     student: a.student.fullName,
-    criteria: readCriteria(a.criteria).map((c) => ({ code: c.code, group: c.group, ok: c.ok, critical: c.critical, title: "", source: c.source })),
+    criteria: readCriteria(a.criteria).map((c) => ({ code: c.code, group: c.group, ok: c.ok, critical: c.critical, timing: c.timing, title: "", source: c.source })),
     override: readOverrides(a.override),
   }));
 
@@ -45,7 +47,7 @@ export default async function WeightsPage() {
         title="Веса оценки"
         subtitle="Двигайте ползунки — баллы всех уже сданных попыток пересчитываются сразу, до сохранения. Веса общие для всех занятий."
       />
-      <WeightsPanel saved={active.weights} savedName={active.name} attempts={attempts} runningLesson={running?.title ?? null} />
+      <WeightsPanel saved={active.weights} savedName={active.name} attempts={attempts} runningLesson={running?.title ?? null} typingSec={norms.typingSec} />
     </div>
   );
 }

@@ -41,6 +41,18 @@ describe("planReview", () => {
     expect(plan.ok && plan.next.score).toBe(75);
   });
 
+  it("keeps the partial time points on «Верно» and gives them all on «ИИ неправ: верно»", () => {
+    // 1:38 at the 65-second norm: half of the time points are left (src/lib/scoring/score.ts, timeCredit).
+    const late: CriterionResult[] = [
+      { code: "op112.typing_time", group: "timeliness", title: "Карточка сохранена за 1:38 при нормативе 1:05", ok: false, timing: { sec: 98, normSec: 65 }, source: "rule" },
+      { code: "a", group: "address", title: "Адрес", ok: true, source: "rule" },
+    ];
+    const confirmed = planReview(late, pending, { action: "confirm" }, DEFAULT_WEIGHTS);
+    expect(confirmed.ok && confirmed.next.score).toBe(75); // (0.49 · 3 + 3) / 6
+    const fixed = planReview(late, pending, { action: "override", override: { "op112.typing_time": true, a: true }, comment: "Задержка из-за сбоя стенда" }, DEFAULT_WEIGHTS);
+    expect(fixed.ok && fixed.next).toMatchObject({ score: 100, override: { "op112.typing_time": true } });
+  });
+
   it("reopens only a reviewed attempt", () => {
     expect(planReview(criteria, pending, { action: "reopen" }, DEFAULT_WEIGHTS)).toMatchObject({ ok: false });
     const plan = planReview(criteria, { ...pending, reviewStatus: "CONFIRMED" }, { action: "reopen" }, DEFAULT_WEIGHTS);

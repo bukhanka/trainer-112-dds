@@ -13,7 +13,10 @@
     "db:up": "docker compose up -d db",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "db:reset": "prisma migrate reset --force"
+    "db:seed-demo": "tsx --env-file=.env prisma/seed-demo.ts",
+    "db:reset": "prisma migrate reset --force",
+    "e2e": "tsx --env-file=.env scripts/e2e-lesson.ts",
+    "loadtest": "tsx --env-file=.env scripts/loadtest.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
