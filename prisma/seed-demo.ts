@@ -6,8 +6,8 @@
  * the forecast snapshot it would have got at its start (src/lib/adaptive), computed by the same code
  * from the attempts confirmed before that moment, so «прогноз ↔ факт» has real pairs to compare.
  *
- *   pnpm exec tsx prisma/seed-demo.ts          finished lessons + draft
- *   pnpm exec tsx prisma/seed-demo.ts --live   also a running lesson with timers relative to now
+ *   pnpm db:seed-demo            finished lessons + draft (reads .env, like the other db:* commands)
+ *   pnpm db:seed-demo --live     also a running lesson with timers relative to now
  *
  * Idempotent: the demo lessons are deleted and rebuilt. Reference data is only read, never written.
  * The work at the places is simulated here with student profiles (strong / weak); on a real lesson

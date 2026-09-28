@@ -36,14 +36,23 @@
 
 ## Запуск
 
+Для показа — `DEMO_MODE=true`: демо-занятия группы с попытками, поэтому отчёты, прогноз, группы и проверка сразу не пустые. Для учебного центра — `DEMO_MODE=false` (так в `.env.example`): только учётки и справочники, занятия — свои.
+
+| | `DEMO_MODE=true` — показ, проверка | `DEMO_MODE=false` — учебный центр |
+|---|---|---|
+| При старте | учётки, справочники, демо-занятия с попытками | учётки и справочники |
+| Демо-учётки | не блокируются, пароли не меняются | обычные — смените пароли в «Пользователях» |
+| Каждую ночь в 04:30 МСК | стенд возвращается к исходному виду | ничего не удаляется |
+
 ### Docker (рекомендуется)
 
 ```bash
 cp .env.example .env
-docker compose --profile app up -d --build        # http://localhost:3000
+DEMO_MODE=true docker compose --profile app up -d --build    # показ: http://localhost:3000
+# учебный центр: docker compose --profile app up -d --build  (DEMO_MODE=false из .env)
 ```
 
-С HTTPS (для микрофона) и в изолированном контуре без интернета — [docs/install.md](docs/install.md).
+Вместо переменной в команде можно поставить `DEMO_MODE=true` в `.env`. С HTTPS (для микрофона) и в изолированном контуре без интернета — [docs/install.md](docs/install.md).
 
 ### Для разработки
 
@@ -53,9 +62,11 @@ docker compose --profile app up -d --build        # http://localhost:3000
 cp .env.example .env
 pnpm install
 pnpm db:up && pnpm db:migrate && pnpm db:seed    # PostgreSQL на 5442, учётки и справочники
-pnpm exec tsx prisma/seed-demo.ts                # по желанию: демо-занятия с попытками
+pnpm db:seed-demo                                # по желанию: демо-занятия с попытками (отчёты, прогноз)
 pnpm dev                                         # http://localhost:3100
 ```
+
+Команды `pnpm db:*`, `pnpm e2e` и `pnpm loadtest` сами читают `.env`.
 
 ## Демо-учётки
 
@@ -92,8 +103,8 @@ pnpm dev                                         # http://localhost:3100
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm test        # 762 автотеста
-pnpm exec tsx scripts/e2e-lesson.ts             # сквозное занятие 112 → ДДС через API (нужен запущенный сервер; --source students | mixed | generated)
-pnpm exec tsx scripts/loadtest.ts --users 100  # нагрузка, варианты — в docs/performance.md
+pnpm e2e                                        # сквозное занятие 112 → ДДС через API (нужен запущенный сервер; --source students | mixed | generated)
+pnpm loadtest --users 100                       # нагрузка, варианты — в docs/performance.md
 ```
 
 Нагрузка на production-сборке: 100 одновременных рабочих мест — p95 0,1 с без ошибок (в Docker — 0,69 с); база — около 5300 записей в секунду; отчёт занятия — меньше 0,1 с.

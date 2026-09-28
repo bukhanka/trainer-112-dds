@@ -18,9 +18,9 @@
 Команды:
 
 ```bash
-pnpm exec tsx scripts/loadtest.ts --base http://<сервер>:3000 --users 30 --setup dds --think 1000 --duration 60 --paths /api/dds/state,/api/dds/feed
-pnpm exec tsx scripts/loadtest.ts --base http://<сервер>:3000 --users 100 --setup dds --think 1500 --duration 45 --paths /api/dds/state,/api/dds/feed,/student
-pnpm exec tsx scripts/loadtest.ts --db-writes 5000
+pnpm loadtest --base http://<сервер>:3000 --users 30 --setup dds --think 1000 --duration 60 --paths /api/dds/state,/api/dds/feed
+pnpm loadtest --base http://<сервер>:3000 --users 100 --setup dds --think 1500 --duration 45 --paths /api/dds/state,/api/dds/feed,/student
+pnpm loadtest --db-writes 5000
 ```
 
 ## Что для этого сделано
