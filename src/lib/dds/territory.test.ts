@@ -5,7 +5,10 @@ import { ddsCardOf, personaOf, referenceFor, type ScenarioLike } from "./scenari
 import {
   cardReference,
   foreignReference,
+  hasStreets,
   houseKey,
+  LOW_RISE_FLOORS,
+  lowRise,
   movable,
   moveCard,
   movedPersona,
@@ -14,6 +17,8 @@ import {
   namesPlace,
   placeOfAddress,
   platesFor,
+  scenarioStoreys,
+  storeysOf,
   territoryMatch,
   territoryOf,
   wasMoved,
@@ -84,13 +89,52 @@ describe("a card moved onto the place's territory", () => {
   it("keeps two incidents of one feed off the same house", () => {
     const t = territoryOf(voronovo)!;
     const seen = new Set<string>();
-    for (const x of tickets.filter((x) => movable(ddsCardOf(x)))) {
-      const to = moveTarget(t, `${x.id}|${voronovo.id}`, seen)!;
+    for (const x of tickets.filter((x) => movable(ddsCardOf(x)) && scenarioStoreys(x) <= LOW_RISE_FLOORS)) {
+      const to = moveTarget(t, `${x.id}|${voronovo.id}`, seen, scenarioStoreys(x))!;
       const key = houseKey(to.street, to.house);
       expect(seen.has(key), `${x.ticketRef}: ${key}`).toBe(false);
       seen.add(key);
     }
-    expect(seen.size).toBeGreaterThan(30);
+    expect(seen.size).toBeGreaterThan(25);
+  });
+
+  it("reads how high the house is from the card and the applicant's words", () => {
+    expect(scenarioStoreys(ticket("Б4-1"))).toBe(14); // «Дом 14 этажей», the fire on the 13th floor
+    expect(scenarioStoreys(ticket("Б5-1"))).toBe(17);
+    expect(scenarioStoreys(ticket("Б2-1"))).toBe(17); // «в доме 17 этажей», «семнадцатиэтажный»
+    expect(scenarioStoreys(ticket("Б31-3"))).toBe(2);
+    expect(scenarioStoreys(ticket("Б17-1"))).toBe(0);
+    expect(storeysOf({ address: {}, description: "Дом семнадцатиэтажный, горит на тринадцатом этаже" })).toBe(17);
+    expect(storeysOf({ address: { floor: "3" }, description: "Лежит в подъезде на 1 этаже" })).toBe(3);
+    expect(storeysOf({ address: {}, description: "Задымление на минус первом этаже торгового центра" })).toBe(0);
+    expect(lowRise("село Вороново")).toBe(true);
+    expect(lowRise("посёлок ЛМС, микрорайон Солнечный")).toBe(true);
+    expect(lowRise("улица Народного Ополчения")).toBe(false);
+    expect(lowRise("город Троицк, Октябрьский проспект")).toBe(false);
+  });
+
+  it("never puts a high house into a village: a settlement of villages does not get it, a city district does", { timeout: 30_000 }, () => {
+    const high = ["Б2-1", "Б4-1", "Б5-1", "Б2-1-ош", "Б4-1-ош", "Б5-1-ош"];
+    for (const ref of high) {
+      const t = ticket(ref);
+      expect(scenarioStoreys(t), ref).toBeGreaterThan(LOW_RISE_FLOORS);
+      expect(moveFor(ddsCardOf(t), t.id, voronovo, new Set(), scenarioStoreys(t)), ref).toEqual({ move: null, foreign: true });
+      const { move } = moveFor(ddsCardOf(t), t.id, service("Поселение Мещанский"), new Set(), scenarioStoreys(t));
+      expect(move && !lowRise(move.street), `${ref} → Мещанский: ${move?.street}`).toBe(true);
+    }
+    expect(hasStreets(territoryOf(voronovo)!, 14)).toBe(false);
+    expect(hasStreets(territoryOf(voronovo)!, 2)).toBe(true);
+    // A low house still moves there, floor and flat kept.
+    const b31 = ticket("Б31-3");
+    const low = moveFor(ddsCardOf(b31), b31.id, voronovo, new Set(), scenarioStoreys(b31)).move!;
+    expect(moveCard(ddsCardOf(b31), low).address).toMatchObject({ district: "Вороновское", floor: "2", flat: "5" });
+    // Whatever the place: a house higher than a village's lands on a city street.
+    for (const x of tickets.filter((x) => movable(ddsCardOf(x)) && scenarioStoreys(x) > LOW_RISE_FLOORS)) {
+      for (const s of territorial) {
+        const { move } = moveFor(ddsCardOf(x), x.id, s, new Set(), scenarioStoreys(x));
+        if (move) expect(lowRise(move.street), `${x.ticketRef} → ${s.shortName}: ${move.street}`).toBe(false);
+      }
+    }
   });
 
   it("keeps the entrance and the code, drops the object and the descriptive address of the old place", () => {

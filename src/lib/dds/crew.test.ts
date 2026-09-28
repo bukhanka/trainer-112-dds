@@ -5,6 +5,7 @@ import {
   claimsCardChange,
   crewGreeting,
   crewMockReply,
+  crewByNumber,
   crewPrompt,
   crewRoster,
   mentionsCardError,
@@ -13,8 +14,10 @@ import {
   operatorPrompt,
   owesCardError,
   reportLine,
+  toward,
   type CrewContext,
 } from "./personas";
+import { sayable } from "@/lib/speech/sayable";
 import { cardErrorFrom, referenceFor, saysCardErrorRight } from "./scenario";
 
 const at = (sec: number) => new Date(Date.UTC(2026, 8, 17, 8, 0, sec));
@@ -71,6 +74,26 @@ describe("personas", () => {
     const roster = crewRoster({ id: 191, shortName: "Поселение Вороновское" });
     expect(roster.map((c) => c.crew)).toEqual(["23", "17", "8"]);
     expect(crewRoster({ id: 191, shortName: "Поселение Вороновское" })).toEqual(roster);
+  });
+
+  it("never lets one leader head a book crew and a crew typed by hand", () => {
+    for (const service of [{ id: 191, shortName: "Поселение Вороновское" }, { id: 87, shortName: "Поселение Хорошево-Мневники" }, { id: 1, shortName: "Служба 101" }]) {
+      const book = crewRoster(service).map((c) => c.leader);
+      const typed = Array.from({ length: 24 }, (_, i) => String(i + 1)).filter((n) => !["8", "17", "23"].includes(n)).map((n) => crewByNumber(service, n));
+      for (const c of typed) expect(book, `${service.shortName}, наряд ${c.crew}: ${c.leader}`).not.toContain(c.leader);
+      expect(new Set(typed.map((c) => c.leader)).size).toBe(typed.length);
+      expect(crewByNumber(service, "Наряд № 16")).toEqual(crewByNumber(service, "16"));
+      expect(crewByNumber(service, "8").leader).toBe(book[2]);
+    }
+  });
+
+  it("says where the crew is going as it is said aloud", () => {
+    expect(toward("ул. Грина, д. 11")).toBe("на ул. Грина, д. 11");
+    expect(toward("село Вороново, д. 7")).toBe("в село Вороново, д. 7");
+    expect(toward("посёлок ЛМС, микрорайон Солнечный, д. 14")).toBe("в посёлок ЛМС, микрорайон Солнечный, д. 14");
+    expect(reportLine("STARTED", { ...ctx, address: "ул. Грина, д. 11" })).toMatch(/Выехали на ул\. Грина, д\. 11, скоро будем\./);
+    expect(sayable(reportLine("STARTED", { ...ctx, address: "ул. Грина, д. 11" }))).toMatch(/Выехали на улицу Грина, дом 11/);
+    expect(sayable(reportLine("STARTED", { ...ctx, address: "село Вороново, д. 7" }))).toMatch(/Выехали в село Вороново, дом 7/);
   });
 
   it("reports the stage the crew has reached", () => {

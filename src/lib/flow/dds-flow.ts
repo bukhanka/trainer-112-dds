@@ -14,8 +14,23 @@ import { db } from "@/lib/db";
 import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
-import { ddsCardOf, hasOwnReference, reachesPlace } from "@/lib/dds/scenario";
-import { hasStreets, houseKey, movable, moveCard, moveFor, placeOfAddress, platesFor, territoryMatch, territoryOf, type Territory } from "@/lib/dds/territory";
+import { ddsCardOf, hasOwnReference, reachesPlace, serviceReport, victimsOnSite, type ScenarioLike } from "@/lib/dds/scenario";
+import {
+  hasStreets,
+  houseKey,
+  movable,
+  moveCard,
+  moveFor,
+  namesPlace,
+  placeOfAddress,
+  platesFor,
+  scenarioStoreys,
+  territoryMatch,
+  territoryOf,
+  wasMoved,
+  type Territory,
+} from "@/lib/dds/territory";
+import type { IncidentAddress } from "@/lib/incident/types";
 import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERATOR, type SeatRef } from "@/lib/dds/scope";
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
@@ -213,11 +228,14 @@ export async function drawCard(tx: Tx, seat: Seat, settings: LessonSettings, ada
   return { scenario, pool: fit.length, left };
 }
 
-/** «in» — the scenario happens on the territory; «move» — its house can move there; «no» — neither. */
-function onTerritory(s: PickedScenario, t: Territory): "in" | "move" | "no" {
+/**
+ * «in» — the scenario happens on the territory; «move» — its house can move there (a high house only onto a city
+ * street); «no» — neither.
+ */
+export function onTerritory(s: ScenarioLike, t: Territory): "in" | "move" | "no" {
   const spec = ddsCardOf(s);
   if (territoryMatch(placeOfAddress(spec.address), t) === "in") return "in";
-  return movable(spec) && hasStreets(t) ? "move" : "no";
+  return movable(spec) && hasStreets(t, scenarioStoreys(s)) ? "move" : "no";
 }
 
 /**
@@ -264,7 +282,7 @@ async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Dat
       return houseKey(a.street, a.house);
     }),
   );
-  const { move, foreign } = moveFor(spec, scenario.id, own, feedHouses);
+  const { move, foreign } = moveFor(spec, scenario.id, own, feedHouses, scenarioStoreys(scenario));
   if (move) spec = moveCard(spec, move);
 
   const listed = spec.services.length
@@ -330,13 +348,16 @@ async function advanceBots(tx: Tx, seat: SeatRef, settings: LessonSettings, now:
       addedAt: { gte: new Date(now.getTime() - 6 * 3_600_000) },
       service: { delivery: { not: "PHONE" } },
     },
-    include: { service: { select: { shortName: true, delivery: true } }, incident: { select: { ddsSeatId: true } } },
+    include: {
+      service: { select: { shortName: true, delivery: true } },
+      incident: { select: { ddsSeatId: true, flags: true, address: true, scenario: { select: scenarioSelect } } },
+    },
     orderBy: { id: "asc" }, // the same order in every place's transaction: no deadlocks on shared cards
   });
 
   for (const plate of plates) {
     if (!plate.incident.ddsSeatId && live.has(plate.serviceId)) continue;
-    const plan = botPlan({ id: plate.id, serviceId: plate.serviceId, ...plate.service });
+    const plan = botPlan({ id: plate.id, serviceId: plate.serviceId, ...plate.service, ...botFacts(plate.incident, { id: plate.serviceId, shortName: plate.service.shortName }) });
     const due = dueSteps(plan, plate.status, (now.getTime() - plate.addedAt.getTime()) / 1000);
     if (!due.length) continue;
 
@@ -359,4 +380,21 @@ async function advanceBots(tx: Tx, seat: SeatRef, settings: LessonSettings, now:
     });
     if (moved.count) await tx.statusEvent.createMany({ data: events });
   }
+}
+
+/**
+ * How another service's plate ends on this card: its report from the scenario's reference — unless the card was moved
+ * to the place's territory and the report names the old place — and whether someone is hurt on site.
+ */
+export function botFacts(
+  incident: { flags: unknown; address: unknown; scenario: ScenarioLike | null },
+  service: { id: number; shortName: string },
+): { report: string | null; victims: boolean } {
+  const raw = incident.scenario?.ddsReference;
+  let report = serviceReport(raw, service);
+  if (report && incident.scenario) {
+    const from = ddsCardOf(incident.scenario).address;
+    if (wasMoved(incident.address as IncidentAddress | null, from) && namesPlace(report, from)) report = null;
+  }
+  return { report, victims: victimsOnSite(incident.flags, raw) };
 }
