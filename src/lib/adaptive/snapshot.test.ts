@@ -57,7 +57,8 @@ describe("snapshot at the start of a lesson", () => {
   it("keeps only what was known and confirmed at the start", () => {
     const iv = rows[0];
     expect(iv.lessons).toBe(3);
-    expect(iv.expected).toBeGreaterThan(70); // rising 60 → 70 → 76
+    // Rising 60 → 70 → 76: above the plain average (68.7), half of the forecast follows the trend.
+    expect(iv.expected).toBeGreaterThan(iv.baseline!);
     expect(iv.expected).toBeLessThan(90);
     expect(iv.low).toBeLessThan(iv.expected!);
     expect(iv.high).toBeGreaterThan(iv.expected!);
@@ -120,7 +121,7 @@ describe("forecast against the fact of a lesson", () => {
   });
 
   it("counts the accuracy only where both exist", () => {
-    expect(data.accuracy).toEqual({ n: 2, mae: 15, baselineMae: 15, inside: 1, bias: -10 });
+    expect(data.accuracy).toEqual({ n: 2, mae: 15, baselineMae: 15, gain: 0, gainSe: 3, inside: 1, bias: -10 });
     expect(data.snapshots).toBe(4);
   });
 });

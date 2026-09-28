@@ -14,6 +14,8 @@ export async function regenerateSection(
   section: SectionKey,
   current: unknown,
   comment: string,
+  /** Extra rules for this section, e.g. the classifier leaves the reference card may take. */
+  extra?: string,
 ): Promise<RegenerateResult> {
   if (aiMode().llm === "mock") {
     return {
@@ -35,7 +37,8 @@ export async function regenerateSection(
             "Ты методист учебного центра, который готовит тренировочные вызовы для операторов Системы 112 и диспетчеров ДДС Москвы. " +
             `Перепиши раздел «${meta.title}» (${meta.hint}) учебного сценария с учётом замечания преподавателя. ` +
             "Замечание преподавателя главнее исходного текста, не спорь с ним. Сохрани структуру: те же поля и типы значений, пиши по-русски. " +
-            "Верни только JSON раздела, без пояснений.",
+            "Верни только JSON раздела, без пояснений." +
+            (extra ? `\n${extra}` : ""),
         },
         { role: "user", content: JSON.stringify({ scenario: { title: scenario.title, category: scenario.category, caller: scenario.caller }, section: current, comment }) },
       ],

@@ -30,11 +30,11 @@ const VIEW: Record<SectionKey, (p: { value: unknown }) => ReactNode> = {
   ddsReference: DdsReferenceView,
 };
 
-async function call(url: string, body: unknown, method: "POST" | "PATCH"): Promise<{ ok: boolean; error?: string }> {
+async function call(url: string, body: unknown, method: "POST" | "PATCH"): Promise<{ ok: boolean; error?: string; notes?: string[] }> {
   try {
     const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
-    return res.ok ? { ok: true } : { ok: false, error: data.error ?? "Не получилось" };
+    const data = (await res.json().catch(() => ({}))) as { error?: string; notes?: string[] };
+    return res.ok ? { ok: true, notes: data.notes } : { ok: false, error: data.error ?? "Не получилось" };
   } catch {
     return { ok: false, error: "Нет связи с сервером" };
   }
@@ -56,7 +56,9 @@ export function ScenarioEditor({ s, lockedBy, aiMock, categories }: { s: EditorS
     // Plain edits go to the scenario itself (PATCH); approvals, archive and «исправь» are actions (POST).
     const r = await call(url, body, url === base ? "PATCH" : "POST");
     setBusy(false);
-    setMessage(r.ok ? { ok: true, text: done } : { ok: false, text: r.error ?? "Ошибка" });
+    // «Исправь» of the reference card also says what the rules did with the remark (a service the classifier cannot give…).
+    const notes = r.notes?.length ? ` ${r.notes.map((n) => n[0].toUpperCase() + n.slice(1)).join(". ")}.` : "";
+    setMessage(r.ok ? { ok: true, text: `${done}${notes}` } : { ok: false, text: r.error ?? "Ошибка" });
     if (r.ok) setMode(null);
     // Even a refused «исправь» keeps the remark in the teacher's note, so the page is re-read either way.
     router.refresh();

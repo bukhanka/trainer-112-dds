@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ForecastScatter } from "@/components/charts";
-import { AccuracyStats, points } from "@/components/forecast";
+import { AccuracyStats, GainCell, points, SyntheticCheck } from "@/components/forecast";
 import { Section } from "@/components/ui";
 import type { ForecastHistory } from "@/lib/adaptive/teacher";
 import { formatDate, shortName } from "@/lib/format";
@@ -34,6 +34,7 @@ export function ForecastHistorySection({ data }: { data: ForecastHistory }) {
                     <th className="py-1.5 pr-3 text-right font-medium">Сравнено</th>
                     <th className="py-1.5 pr-3 text-right font-medium">Ошибка</th>
                     <th className="py-1.5 pr-3 text-right font-medium">Простое среднее</th>
+                    <th className="py-1.5 pr-3 text-right font-medium">Разница</th>
                     <th className="py-1.5 text-right font-medium">В интервале</th>
                   </tr>
                 </thead>
@@ -51,6 +52,9 @@ export function ForecastHistorySection({ data }: { data: ForecastHistory }) {
                       </td>
                       <td className="whitespace-nowrap py-1.5 pr-3 text-right font-semibold tabular-nums">{l.accuracy.mae == null ? "—" : points(l.accuracy.mae)}</td>
                       <td className="whitespace-nowrap py-1.5 pr-3 text-right tabular-nums text-arm-desc">{l.accuracy.baselineMae == null ? "—" : points(l.accuracy.baselineMae)}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">
+                        <GainCell gain={l.accuracy.gain} />
+                      </td>
                       <td className="py-1.5 text-right tabular-nums">{l.accuracy.n ? `${l.accuracy.inside} из ${l.accuracy.n}` : "—"}</td>
                     </tr>
                   ))}
@@ -58,10 +62,12 @@ export function ForecastHistorySection({ data }: { data: ForecastHistory }) {
               </table>
               <p className="mt-2 text-xs text-arm-desc">
                 «Сравнено» — ученики, у которых есть и прогноз (было хотя бы одно проверенное занятие до старта), и подтверждённый факт. Ошибка — средняя
-                абсолютная разница прогноза и факта в баллах; «простое среднее» — та же ошибка у прогноза без тренда.
+                абсолютная разница прогноза и факта в баллах; «простое среднее» — та же ошибка у прогноза «средний балл прошлых занятий»; «разница» —
+                на сколько баллов прогноз оказался ближе к факту (зелёное) или дальше (красное). Занятия, где прогноз хуже, не скрываются.
               </p>
             </div>
           </div>
+          <SyntheticCheck />
         </div>
       ) : (
         <p className="text-sm text-arm-desc">
