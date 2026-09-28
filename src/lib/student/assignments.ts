@@ -1,14 +1,13 @@
 /**
  * «Мои задания»: where the student works now — own places in running and draft lessons of the teachers
- * (a self-practice is not an assignment), with the tasks the teacher gave the place. Every query is
- * filtered by the student's own id; only titles of the tasks leave, never the reference answers.
+ * (a self-practice is not an assignment) and how many tasks the teacher gave the place. Every query is
+ * filtered by the student's own id. Only the number of tasks leaves: a title («Дерутся в квартире»), a category
+ * or a difficulty would tell the operator what happened before the call and the dispatcher what is in the card.
  */
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { isPractice } from "@/lib/lessons/form";
 import { adaptiveChoice, lessonSettingsSchema } from "@/lib/lessons/settings";
-
-export type AssignmentTask = { id: string; title: string; category: string; difficulty: number };
 
 export type Assignment = {
   lessonId: string;
@@ -20,12 +19,12 @@ export type Assignment = {
   role: "OP112" | "DDS";
   seatLabel: string | null;
   serviceName: string | null;
-  tasks: AssignmentTask[];
+  /** How many tasks the teacher gave the place — never which ones. */
+  taskCount: number;
   /** Where the cards come from when the place has no tasks: by the student's level, by categories, or any approved. */
   source: "tasks" | "level" | "categories" | "all";
   /** A ДДС place of a lesson where cards come from the 112 places: only them, or them as well. */
   from112: "only" | "also" | null;
-  categories: string[];
 };
 
 const seatSelect = {
@@ -49,16 +48,15 @@ const seatSelect = {
 
 type SeatRow = Prisma.SeatGetPayload<{ select: typeof seatSelect }>;
 
-/** Pure: own places → what the cabinet shows; a running lesson first, then the planned ones. */
-export function buildAssignments(seats: SeatRow[], scenarios: AssignmentTask[]): Assignment[] {
-  const byId = new Map(scenarios.map((s) => [s.id, s]));
+/** Pure: own places → what the cabinet shows; a running lesson first, then the planned ones. `existing` — task ids still in the library. */
+export function buildAssignments(seats: SeatRow[], existing: Set<string>): Assignment[] {
   return seats
     .filter((s) => (s.lesson.status === "RUNNING" || s.lesson.status === "DRAFT") && !isPractice(s.lesson.settings))
     .map((s): Assignment => {
       const parsed = lessonSettingsSchema.safeParse(s.lesson.settings ?? {});
       const categories = parsed.success ? parsed.data.categories : [];
       const cardSource = parsed.success ? parsed.data.cardSource : "generated";
-      const tasks = s.scenarioIds.map((id) => byId.get(id)).filter((t): t is AssignmentTask => !!t);
+      const taskCount = s.scenarioIds.filter((id) => existing.has(id)).length;
       return {
         lessonId: s.lesson.id,
         lessonTitle: s.lesson.title,
@@ -69,9 +67,8 @@ export function buildAssignments(seats: SeatRow[], scenarios: AssignmentTask[]):
         role: s.role,
         seatLabel: s.label,
         serviceName: s.role === "DDS" ? (s.service?.shortName ?? null) : null,
-        tasks,
-        source: tasks.length ? "tasks" : adaptiveChoice(s.lesson.settings) ? "level" : categories.length ? "categories" : "all",
-        categories,
+        taskCount,
+        source: taskCount ? "tasks" : adaptiveChoice(s.lesson.settings) ? "level" : categories.length ? "categories" : "all",
         from112: s.role !== "DDS" ? null : cardSource === "students" ? "only" : cardSource === "mixed" ? "also" : null,
       };
     })
@@ -88,8 +85,6 @@ export async function getAssignments(studentId: string): Promise<Assignment[]> {
     select: seatSelect,
   });
   const ids = [...new Set(seats.flatMap((s) => s.scenarioIds))];
-  const scenarios = ids.length
-    ? await db.scenario.findMany({ where: { id: { in: ids } }, select: { id: true, title: true, category: true, difficulty: true } })
-    : [];
-  return buildAssignments(seats, scenarios);
+  const existing = ids.length ? await db.scenario.findMany({ where: { id: { in: ids } }, select: { id: true } }) : [];
+  return buildAssignments(seats, new Set(existing.map((s) => s.id)));
 }
