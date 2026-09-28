@@ -28,6 +28,18 @@ const STATUS_RU: Record<string, string> = {
   REFUSED: "Отказ от выполнения работ",
 };
 
+/**
+ * Caption size on a plate that narrowed to fit the bar: the size of the ДДС plates (plateCaptionClass), and smaller —
+ * down to 9 px — only when the longest word would not fit whole. A word is never cut in the middle; «Хорошево-Мневники»
+ * may still wrap after the hyphen. Bold letters are about 0.6 em wide; cqw is a share of the plate's width.
+ */
+function captionFont(caption: string): React.CSSProperties {
+  const longestWord = Math.max(1, ...caption.split(/\s+/).map((w) => w.length));
+  const base = longestWord > 13 ? 10 : longestWord > 11 || caption.length > 11 ? 11.5 : 13;
+  const longestPiece = Math.max(1, ...caption.split(/(?<=-)|\s+/).map((w) => w.length));
+  return { fontSize: `max(9px, min(${base}px, ${(100 / (0.62 * longestPiece)).toFixed(1)}cqw))` };
+}
+
 export function ServicesBar(p: {
   plates: Plate[];
   saved: boolean;
@@ -54,11 +66,12 @@ export function ServicesBar(p: {
       data-hk="Alt+Z"
     >
       <div className="flex items-center pr-2 text-[14px]">Службы:</div>
-      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+      {/* Plates narrow down to fit the bar before the buttons; if there are still too many, the row scrolls with a visible bar. */}
+      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-color:rgba(255,255,255,0.55)_transparent] [scrollbar-width:thin]">
         {p.plates.map((s) => (
           <div
             key={s.serviceId}
-            className={`relative flex w-[112px] shrink-0 flex-col items-center justify-center border-r border-white/25 px-1 ${s.phoneOnly ? "bg-arm-plate-gray" : ""}`}
+            className={`@container relative flex w-[112px] min-w-[88px] shrink flex-col items-center justify-center border-r border-white/25 px-1 ${s.phoneOnly ? "bg-arm-plate-gray" : ""}`}
             title={`${s.fullName ? `${s.shortName} (${s.fullName})` : s.shortName}${s.phoneOnly ? " — оповещается по телефону" : ""}`}
           >
             {p.saved ? (
@@ -92,36 +105,38 @@ export function ServicesBar(p: {
             )}
             <span
               className={`line-clamp-2 w-full break-words text-center font-bold leading-[1.1] ${plateCaptionClass(plateCaption(s.shortName))} ${s.isMain ? "underline decoration-double underline-offset-4" : ""}`}
+              style={captionFont(plateCaption(s.shortName))}
             >
               {plateCaption(s.shortName)}
             </span>
             {p.saved && s.status && (
-              <span className="mt-0.5 text-[10.5px] text-white/85">
+              <span className="mt-0.5 text-center text-[10.5px] leading-tight text-white/85">
                 {hhmm(s.addedAt)} {STATUS_RU[s.status] ?? s.status}
               </span>
             )}
           </div>
         ))}
-        {!p.saved && (
-          <div className="flex items-center px-2">
-            <button type="button" id="op112-add-service" onClick={p.onAdd} disabled={p.disabled} title="Добавить службу" className="arm-bar-btn w-[50px]">
-              <IconPlus className="h-6 w-6" />
-            </button>
-          </div>
-        )}
       </div>
+      {/* «+» stays in sight however many plates the card has. */}
+      {!p.saved && (
+        <div className="flex items-center">
+          <button type="button" id="op112-add-service" onClick={p.onAdd} disabled={p.disabled} title="Добавить службу" className="arm-bar-btn w-[50px]">
+            <IconPlus className="h-6 w-6" />
+          </button>
+        </div>
+      )}
       <div className="flex items-center gap-1.5">
         <span data-hk="Alt+S" className="flex">
           {p.saved && p.supplement ? (
-            <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" onClick={p.onSupplementSave}>
+            <button type="button" className="arm-bar-btn px-3 text-[19px] font-bold 2xl:px-5 2xl:text-[21px]" onClick={p.onSupplementSave}>
               сохранить
             </button>
           ) : p.saved ? (
-            <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" onClick={p.onWorked}>
+            <button type="button" className="arm-bar-btn px-3 text-[19px] font-bold 2xl:px-5 2xl:text-[21px]" onClick={p.onWorked}>
               отработана
             </button>
           ) : (
-            <button type="button" className="arm-bar-btn px-5 text-[21px] font-bold" disabled={p.disabled} onClick={p.onSave}>
+            <button type="button" className="arm-bar-btn px-3 text-[19px] font-bold 2xl:px-5 2xl:text-[21px]" disabled={p.disabled} onClick={p.onSave}>
               сохранить
             </button>
           )}

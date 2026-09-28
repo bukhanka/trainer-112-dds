@@ -3,7 +3,7 @@ import { selectServices } from "@/lib/routing/engine";
 import { loadJsonReference, readDataJson } from "@/lib/routing/reference-json";
 import { choiceOptions, panelFor, pruneAnswers, searchKinds, signsTree, visibleRows, type LeafType } from "./catalog";
 import { resolveCard, tagsToAnswers } from "./card";
-import { compareStreets, suggestAddress } from "./gazetteer";
+import { compareStreets, directoryDistrict, suggestAddress } from "./gazetteer";
 import { mergeManual } from "./routing";
 
 const FLAME = "Открытое пламя / Дым";
@@ -86,6 +86,18 @@ describe("address suggestions", () => {
   it("offers a ticket address with its district", () => {
     const [s] = suggestAddress("грина 11");
     expect(s.address).toMatchObject({ street: "ул. Грина", house: "11", district: "Северное Бутово", okrug: "ЮЗАО" });
+  });
+
+  it("spells a district as the district list does and says the list is the trainer's own", () => {
+    // The ticket says «Хорошёво-Мнёвники», the services directory — «Хорошево-Мневники»: one district, one spelling.
+    const [s] = suggestAddress("берзарина 21");
+    expect(s.address).toMatchObject({ street: "ул. Берзарина", house: "21", district: "Хорошево-Мневники", okrug: "СЗАО" });
+    expect(s.label).toBe("ул. Берзарина, д. 21 — СЗАО, р-н Хорошево-Мневники");
+    expect(s.source).toBe("справочник адресов");
+    expect(directoryDistrict("Тёплый Стан")).toBe("Теплый Стан");
+    expect(directoryDistrict("Нет такого района")).toBe("Нет такого района");
+    // No suggestion claims an online service it never asked.
+    for (const q of ["грина", "киевская", "станционная", "лмс"]) for (const x of suggestAddress(q)) expect(x.source).toBe("справочник адресов");
   });
 
   it("offers both streets of a look-alike pair", () => {

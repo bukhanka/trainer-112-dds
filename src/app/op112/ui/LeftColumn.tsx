@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller } from "@/lib/incident/types";
 import type { AddressSuggestion } from "@/lib/op112/gazetteer";
+import { sameName } from "@/lib/scenarios/location";
 import { capitalizeWords } from "./format";
 import { IconClose, IconMap, IconTranslate } from "./icons";
 import { getJson } from "./client";
@@ -127,9 +128,20 @@ export function AddressBlock(p: {
   }, []);
 
   const set = (patch: Partial<IncidentAddress>) => p.onChange({ ...a, ...patch });
+  // The district as the «Район» list spells it: «Хорошёво-Мнёвники» and «Хорошево-Мневники» are one district.
+  const listed = (name: string | undefined) => (name ? (p.districts.find((d) => sameName(d.district, name))?.district ?? name) : name);
   const pick = (s: AddressSuggestion) => {
     // Keep what the operator already typed below (flat, entrance…) and the descriptive address.
-    const next: IncidentAddress = { ...a, ...s.address, flat: a.flat, entrance: a.entrance, floor: a.floor, code: a.code, descriptive: a.descriptive };
+    const next: IncidentAddress = {
+      ...a,
+      ...s.address,
+      district: listed(s.address.district),
+      flat: a.flat,
+      entrance: a.entrance,
+      floor: a.floor,
+      code: a.code,
+      descriptive: a.descriptive,
+    };
     // A supplement fills only what was empty: a saved field keeps its value.
     const keep = p.editable
       ? (Object.fromEntries((Object.keys(next) as (keyof IncidentAddress)[]).map((k) => [k, p.editable!(k) ? next[k] : a[k]])) as IncidentAddress)
@@ -140,6 +152,7 @@ export function AddressBlock(p: {
     setItems([]);
   };
   const districtsOf = a.okrug ? p.districts.filter((d) => d.okrug === a.okrug) : p.districts;
+  const district = listed(a.district);
   const shown = open && query.trim().length >= 2 ? items : [];
 
   return (
@@ -194,21 +207,24 @@ export function AddressBlock(p: {
           )}
         </div>
         {shown.length > 0 && (
-          <ul className="absolute left-0 right-0 top-full z-40 max-h-72 overflow-y-auto border border-[#c9ced1] bg-white shadow-lg" role="listbox">
-            {shown.map((s, i) => (
-              <li key={s.label} role="option" aria-selected={i === active}>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pick(s)}
-                  className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[14px] ${i === active ? "bg-[#e8f2f9]" : "hover:bg-[#f3f5f6]"}`}
-                >
-                  <span>{s.label}</span>
-                  <span className="shrink-0 text-[11px] text-arm-desc">{s.source}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="absolute left-0 right-0 top-full z-40 border border-[#c9ced1] bg-white shadow-lg">
+            <ul className="max-h-72 overflow-y-auto" role="listbox" aria-label="Подсказки адреса">
+              {shown.map((s, i) => (
+                <li key={s.label} role="option" aria-selected={i === active}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(s)}
+                    className={`w-full px-3 py-2 text-left text-[14px] ${i === active ? "bg-[#e8f2f9]" : "hover:bg-[#f3f5f6]"}`}
+                  >
+                    {s.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {/* Honest about the source: the trainer's own offline list, not an online map service. */}
+            <div className="border-t border-[#e3e6e8] px-3 py-1 text-right text-[11px] text-arm-desc">{shown[0].source}, без интернета</div>
+          </div>
         )}
       </div>
       <div className="grid grid-cols-[1fr_1fr_1.4fr] gap-x-4 gap-y-2">
@@ -222,7 +238,7 @@ export function AddressBlock(p: {
           <input className="arm-field" maxLength={80} value={a.city ?? ""} readOnly={ro("city")} onChange={(e) => set({ city: e.target.value })} />
         </F>
       </div>
-      <div className="grid grid-cols-[1.6fr_1fr_1fr] gap-x-4">
+      <div className="grid grid-cols-[1.2fr_0.75fr_1.45fr] gap-x-4">
         <F label="Объект:">
           <input className="arm-field" maxLength={200} value={a.object ?? ""} readOnly={ro("object")} onChange={(e) => set({ object: e.target.value })} />
         </F>
@@ -242,7 +258,7 @@ export function AddressBlock(p: {
         <F label="Район:">
           <select
             className="arm-field"
-            value={a.district ?? ""}
+            value={district ?? ""}
             disabled={ro("district")}
             onChange={(e) => {
               const d = p.districts.find((x) => x.district === e.target.value);
@@ -250,7 +266,7 @@ export function AddressBlock(p: {
             }}
           >
             <option value="" />
-            {a.district && !districtsOf.some((d) => d.district === a.district) && <option>{a.district}</option>}
+            {district && !districtsOf.some((d) => d.district === district) && <option>{district}</option>}
             {districtsOf.map((d) => (
               <option key={d.district}>{d.district}</option>
             ))}

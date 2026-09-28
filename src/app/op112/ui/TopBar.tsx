@@ -44,13 +44,14 @@ export function TopBar(p: Props) {
           onClick={p.onHangup}
           disabled={!p.canHangup}
           title="Сбросить вызов"
-          className="flex w-[70px] shrink-0 items-center justify-center border-r border-arm-gray text-arm-dark enabled:hover:text-arm-late disabled:opacity-40"
+          className="flex w-14 shrink-0 items-center justify-center border-r border-arm-gray text-arm-dark enabled:hover:text-arm-late disabled:opacity-40 2xl:w-[70px]"
         >
           <IconHangup className="h-8 w-8" />
         </button>
-        <div className="flex w-[196px] shrink-0 flex-col justify-center gap-1.5 border-r border-arm-gray px-2.5">
-          <div className={`truncate text-[15px] ${TONE[p.telephony.tone]}`}>{p.telephony.label}</div>
-          <div className="flex gap-1.5">
+        {/* Below 1536 px the two buttons stand one above the other: the phone numbers need the width. */}
+        <div className="flex w-[136px] shrink-0 flex-col justify-center gap-1.5 border-r border-arm-gray px-2.5 2xl:w-[196px]">
+          <div className={`truncate text-[15px] leading-tight ${TONE[p.telephony.tone]}`}>{p.telephony.label}</div>
+          <div className="flex flex-col gap-1 2xl:flex-row 2xl:gap-1.5">
             <button type="button" onClick={() => p.onNotAvailable("Записи звонков")} className="arm-mini-btn">
               записи звонков
             </button>
@@ -137,7 +138,7 @@ export function TopBar(p: Props) {
         </div>
       </div>
       {p.viewMenu && (
-        <div className="flex w-[118px] shrink-0 flex-col gap-1.5" role="group" aria-label="Режим карточки">
+        <div className="flex w-[104px] shrink-0 flex-col gap-1.5 2xl:w-[118px]" role="group" aria-label="Режим карточки">
           <span data-hk="Shift+F1" className="flex flex-1">
             <button
               type="button"
@@ -179,37 +180,37 @@ function PhoneBlock(props: {
   const foreign = Boolean(props.value) && !props.value.startsWith("+7");
   return (
     <div className="flex min-w-0 flex-1 border-r border-arm-gray" data-hk={props.hk}>
-      <div className="flex w-[38px] shrink-0 flex-col items-center justify-around bg-[#e4e7e9] text-[#6b7680]">
+      <div className="flex w-8 shrink-0 flex-col items-center justify-around bg-[#e4e7e9] text-[#6b7680] 2xl:w-[38px]">
         <IconPhone className="h-5 w-5" />
         <IconSms className="h-5 w-5 text-arm-dark" />
       </div>
       <div className="flex min-w-0 flex-1 flex-col justify-center px-2.5">
-        <div className="flex items-center justify-between text-[12.5px] text-arm-desc">
-          <label htmlFor={props.id}>{props.label}</label>
-          <span className="flex items-center gap-1.5 text-arm-dark">
+        <div className="flex items-center justify-between gap-1.5 text-[12.5px] text-arm-desc">
+          <label htmlFor={props.id} className="truncate">
+            {props.label}
+          </label>
+          <span className="flex shrink-0 items-center gap-1.5 text-arm-dark">
             {props.extraIcons}
             <IconGlobe className={`h-3.5 w-3.5 ${foreign ? "text-arm-blue" : ""}`} />
           </span>
         </div>
         <div className="flex items-end gap-2">
-          <input
-            id={props.id}
-            value={props.value}
-            placeholder="+7 (   )    -  -"
-            maxLength={40}
-            readOnly={props.readOnly}
-            inputMode="tel"
-            onChange={(e) => props.onChange?.(formatPhone(e.target.value))}
-            className="min-w-0 flex-1 border-b border-[#9aa3a9] bg-transparent pb-0.5 text-[16px] tracking-wide text-arm-dark outline-none placeholder:text-[#9aa3a9] focus:border-arm-blue read-only:cursor-default xl:text-[18px] 2xl:text-[20px]"
-          />
-          {props.onCopyAon && (
-            <button
-              type="button"
-              onClick={props.onCopyAon}
-              disabled={props.readOnly}
-              title="Скопировать номер АОН"
-              className="arm-mini-btn mb-0.5 shrink-0 disabled:opacity-40"
-            >
+          {/* The number is never cut: its size follows the width of the field (1440 px with «просмотр / дополнение», 1280 px). */}
+          <div className="@container min-w-0 flex-1">
+            <input
+              id={props.id}
+              value={props.value}
+              placeholder="+7 (   )    -  -"
+              maxLength={40}
+              readOnly={props.readOnly}
+              inputMode="tel"
+              onChange={(e) => props.onChange?.(formatPhone(e.target.value))}
+              className="w-full border-b border-[#9aa3a9] bg-transparent pb-0.5 text-[length:clamp(12px,9.5cqw,18px)] text-arm-dark outline-none placeholder:text-[#9aa3a9] focus:border-arm-blue read-only:cursor-default 2xl:text-[length:clamp(12px,9.5cqw,20px)]"
+            />
+          </div>
+          {/* A saved card cannot take the АОН number: the button appears only where the field can be filled. */}
+          {props.onCopyAon && !props.readOnly && (
+            <button type="button" onClick={props.onCopyAon} title="Скопировать номер АОН" className="arm-mini-btn mb-0.5 shrink-0">
               АОН
             </button>
           )}

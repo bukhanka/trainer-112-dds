@@ -113,6 +113,12 @@
   align-items: center;
   justify-content: center;
 }
+/* Below 1536 px the bar gives the width to the service plates. */
+@media (max-width: 1535px) {
+  .arm-bar-btn {
+    min-width: 42px;
+  }
+}
 .arm-bar-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
 }
