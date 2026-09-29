@@ -10,8 +10,10 @@ import { lessonForecast } from "@/lib/adaptive/teacher";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { formatDateTime, formatDelta, formatDuration, plural, shortName } from "@/lib/format";
-import { followUpCases, followUpCandidates } from "@/lib/followup/options";
+import { followUpCandidates } from "@/lib/followup/options";
+import { teacherFollowUps } from "@/lib/followup/teacher";
 import { AssignFollowUp } from "@/app/teacher/followups/AssignFollowUp";
+import { FollowUpList } from "@/app/teacher/followups/FollowUpList";
 import { certificateVerdict } from "@/lib/reports/certificate";
 import { buildLessonReport } from "@/lib/reports/lesson";
 import { loadReportInput } from "@/lib/reports/load";
@@ -48,7 +50,10 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
     seats: input.seats.map((x) => ({ studentId: x.studentId, name: x.studentName, seat: x.label, role: x.role })),
     attempts: await loadRatingAttempts(input.seats.map((x) => x.studentId), { scope: teacherLessons(lesson.teacherId) }),
   });
-  const [followUpCasesList, followUpCandidatesList] = await Promise.all([followUpCases(), followUpCandidates(lesson.id)]);
+  const [followUpCandidatesList, assigned] = await Promise.all([
+    lesson.status === "FINISHED" ? followUpCandidates(lesson.id) : Promise.resolve([]),
+    teacherFollowUps({ sourceAttempt: { lessonId: lesson.id } }),
+  ]);
   const s = report.summary;
   const duration = lesson.startedAt ? ((lesson.finishedAt ?? new Date()).getTime() - lesson.startedAt.getTime()) / 1000 : null;
   const withTime = report.students.filter((r) => r.avgTimeSec != null);
@@ -111,7 +116,12 @@ export default async function LessonReportPage(props: PageProps<"/teacher/lesson
         />
       </div>
 
-      {lesson.status === "FINISHED" && <AssignFollowUp candidates={followUpCandidatesList} scenarios={followUpCasesList} />}
+      {lesson.status === "FINISHED" && <AssignFollowUp candidates={followUpCandidatesList} />}
+      <FollowUpList
+        items={assigned}
+        title="Назначенные отработки"
+        note="По ошибкам этого занятия. Занятия «Отработка» и «Контроль» запускаете вы; наблюдения, повтор этапа и отмена — на странице ошибки ученика."
+      />
 
       <Section title="Выводы по занятию">
         <p className="text-sm">{report.insight}</p>

@@ -7,29 +7,36 @@ export const SKILLS = {
     title: "Уточнить и записать место происшествия",
     role: "OP112",
     required: ["op112.address.street", "op112.address.house"],
+    /** What to do differently next time — shown to the student next to the error the practice is for. */
+    advice: "Если заявитель называет место неточно — переспросите улицу, номер дома, корпус и ориентир, дождитесь ответа и запишите в карточку то, что он подтвердил.",
   },
   "dds.report_record": {
     title: "Отразить доклад бригады в статусе и записи",
     role: "DDS",
     required: ["dds.status_by_facts", "dds.literacy"],
+    advice: "Ставьте статус только после доклада бригады о выезде, прибытии и окончании работ, а в итоге полными словами напишите, что сделано и кому передано.",
   },
 } as const;
 export type SkillKey = keyof typeof SKILLS;
 export { skillKeySchema, learningMetaSchema, learningMeta, isControl } from "./metadata";
-import type { LearningMeta } from "./metadata";
 
-/** The same caseKey survives copying, so a copy is never a fresh control situation. */
-export function eligiblePair(practice: LearningMeta | null, control: LearningMeta | null, skill: SkillKey): boolean {
-  const role = SKILLS[skill].role;
-  return !!practice && !!control && practice.purpose === "practice" && control.purpose === "control"
-    && practice.role === role && control.role === role && practice.skillKeys.includes(skill)
-    && control.skillKeys.includes(skill) && practice.equivalenceKey === control.equivalenceKey
-    && practice.caseKey !== control.caseKey;
+/** The failed checks of the goal in a reviewed attempt: the error a follow-up is assigned for. */
+export function goalErrors(skill: SkillKey, checks: CriterionResult[]): CriterionResult[] {
+  return checks.filter((c) => c.ok === false && (SKILLS[skill].required as readonly string[]).includes(c.code));
+}
+
+/** Every check of the goal applies and passed: what is left is the teacher's observation of the action itself. */
+export function goalChecksPassed(skill: SkillKey, checks: CriterionResult[]): boolean {
+  return !checks.some((c) => c.critical && c.ok === false) && SKILLS[skill].required.every((code) => checks.find((c) => c.code === code)?.ok === true);
 }
 
 export function effectiveChecks(criteria: CriterionResult[], override: Overrides | null): CriterionResult[] {
   return applyOverrides(criteria, override);
 }
+
+/** What a follow-up froze of a scenario: a changed caller, reference or card means the case must be checked again. */
+export const scenarioDigest = (s: { caller: unknown; truth: unknown; ddsCard: unknown; ddsReference: unknown; learningMeta: unknown }) =>
+  createHash("sha256").update(JSON.stringify([s.caller, s.truth, s.ddsCard, s.ddsReference, s.learningMeta])).digest("hex");
 
 /** Hash only a teacher-reviewed decision, never a client-supplied version. */
 export function reviewDigest(value: { criteria: CriterionResult[]; override: Overrides | null; reviewedAt: Date | null; teacherComment: string | null }): string {
@@ -64,4 +71,14 @@ export function goalOutcome(skill: SkillKey, checks: CriterionResult[], judgment
   if (relevant.some((c) => c?.ok !== true)) return "insufficient";
   if (!judgment) return "insufficient";
   return judgment.observed ? "achieved" : "failed";
+}
+
+/**
+ * What an observation says. Only the control, a new situation without hints, can confirm the goal; an observation of
+ * the practice records whether the student did the action with hints — it never reads as a confirmed skill.
+ */
+export type ObservationOutcome = GoalOutcome | "practice_done" | "practice_not_done" | "practice_insufficient";
+export function observationOutcome(stage: "practice" | "control", verdict: GoalOutcome): ObservationOutcome {
+  if (stage === "control") return verdict;
+  return verdict === "achieved" ? "practice_done" : verdict === "failed" ? "practice_not_done" : "practice_insufficient";
 }

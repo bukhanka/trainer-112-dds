@@ -24,7 +24,9 @@ type Link = Parameters<typeof followUpState>[1];
 
 describe("follow-up state and control gate", () => {
   it("does not progress without a checked attempt, or after the source review changes", async () => {
-    expect(await followUpState(client([]) as unknown as Db, link as unknown as Link)).toBe("review_practice");
+    // A finished practice without the student's attempt has nothing to review: the teacher repeats it or cancels.
+    expect(await followUpState(client([]) as unknown as Db, link as unknown as Link)).toBe("practice_missed");
+    expect(await followUpState(client([{ ...attempt, reviewStatus: "PENDING" }]) as unknown as Db, link as unknown as Link)).toBe("review_practice");
     expect(await followUpState(client([attempt]) as unknown as Db, link as unknown as Link)).toBe("control_ready");
     const changed = { ...link, sourceAttempt: { ...source, teacherComment: "Изменил решение" } };
     expect(sourceIsCurrent(changed as unknown as Link)).toBe(false);
@@ -65,5 +67,65 @@ describe("follow-up state and control gate", () => {
       followUp: { findMany: async () => [] },
     };
     expect(await followUpStartProblem(fake as unknown as Db, "copied-lesson", ["hidden"])).toMatch(/только из действующей отработки/);
+  });
+});
+
+describe("after the control", () => {
+  const finished = { ...link, controlLesson: { ...control, status: "FINISHED" } };
+  const controlAttempt = { ...attempt, id: "control-attempt", lessonId: control.id, scenarioId: "scenario-control" };
+  const both = (rows: typeof attempt[]) => ({ attempt: { findMany: async ({ where }: { where: { lessonId: string } }) => rows.filter((a) => a.lessonId === where.lessonId) } });
+
+  it("a missed control is not «ждёт проверки»", async () => {
+    expect(await followUpState(both([attempt]) as unknown as Db, finished as unknown as Link)).toBe("control_missed");
+  });
+
+  it("passed checks wait for the teacher's observation, and only that confirms the goal", async () => {
+    expect(await followUpState(both([attempt, controlAttempt]) as unknown as Db, finished as unknown as Link)).toBe("observe_control");
+    const judged = { ...finished, controlJudgment: {
+      attemptId: controlAttempt.id, reviewDigest: reviewDigest({ criteria: readCriteria(controlAttempt.criteria), override: null, reviewedAt: at, teacherComment: null }),
+      observed: true, evidence: "Сам спросил номер дома и записал ответ", reviewedById: "teacher", reviewedAt: at.toISOString() } };
+    expect(await followUpState(both([attempt, controlAttempt]) as unknown as Db, judged as unknown as Link)).toBe("achieved");
+    // An observation of the practice alone never counts as the goal.
+    const practiceOnly = { ...finished, practiceJudgment: judged.controlJudgment };
+    expect(await followUpState(both([attempt, controlAttempt]) as unknown as Db, practiceOnly as unknown as Link)).toBe("observe_control");
+  });
+});
+
+describe("starting the control of a class", () => {
+  const student = (id: string, name: string, practiceStatus: string, attempts: typeof attempt[]) => ({
+    row: { ...link, id: `follow-${id}`, sourceAttempt: { ...source, studentId: id, student: { fullName: name } },
+      practiceLesson: { ...practice, seats: [{ studentId: id, scenarioIds: ["scenario-practice"] }], status: practiceStatus },
+      controlLesson: { ...control, seats: [{ studentId: id, scenarioIds: ["scenario-control"] }] },
+      sourceSnapshot: { ...link.sourceSnapshot, controlDigest: "d" } },
+    attempts: attempts.map((a) => ({ ...a, studentId: id })),
+  });
+  const scenario = { id: "scenario-control", status: "APPROVED", ticketRef: "Б11-1", learningMeta: null, caller: null, truth: null, ddsCard: null, ddsReference: null };
+  const fake = (rows: ReturnType<typeof student>[], heard: string[] = []) => ({
+    followUp: { findMany: async () => rows.map((r) => r.row) },
+    scenario: {
+      findMany: async ({ where }: { where: { id: { in: string[] } } }) => (where.id.in.includes("scenario-control") ? [scenario] : heard.map((id) => ({ id, ticketRef: "Б11-1", learningMeta: null }))),
+      findUnique: async () => scenario,
+    },
+    attempt: { findMany: async ({ where }: { where: { studentId: string | { in: string[] } } }) => rows.flatMap((r) => r.attempts).filter((a) => typeof where.studentId === "string" ? a.studentId === where.studentId : true) },
+    seat: { findMany: async () => heard.length ? [{ id: "seat-x", studentId: "s2" }] : [] },
+    incident: { findMany: async () => heard.map((id) => ({ scenarioId: id, createdBySeatId: "seat-x", ddsSeatId: null })) },
+    call: { findMany: async () => [] },
+  });
+
+  it("names who is not ready and what to do, instead of a general refusal", async () => {
+    const digestOk = (await import("./skills")).scenarioDigest(scenario);
+    const rows = [student("s1", "Кузнецов Дмитрий Андреевич", "FINISHED", []), student("s2", "Иванов Алексей Сергеевич", "FINISHED", [attempt])];
+    for (const r of rows) r.row.sourceSnapshot = { ...r.row.sourceSnapshot, controlDigest: digestOk };
+    const problem = await followUpStartProblem(fake(rows) as unknown as Db, "control", ["scenario-control"]);
+    expect(problem).toMatch(/Кузнецов Д\. А\.: отработка завершена без попытки ученика — нажмите «Повторить отработку»/);
+    expect(problem).not.toMatch(/Иванов/);
+  });
+
+  it("checks again that the control is new: a case met since the assignment blocks it with the name", async () => {
+    const digestOk = (await import("./skills")).scenarioDigest(scenario);
+    const rows = [student("s2", "Иванов Алексей Сергеевич", "FINISHED", [attempt])];
+    rows[0].row.sourceSnapshot = { ...rows[0].row.sourceSnapshot, controlDigest: digestOk };
+    expect(await followUpStartProblem(fake(rows) as unknown as Db, "control", ["scenario-control"])).toBeNull();
+    expect(await followUpStartProblem(fake(rows, ["other-copy"]) as unknown as Db, "control", ["scenario-control"])).toMatch(/Иванов А\. С\.: контрольную ситуацию ученик уже встретил/);
   });
 });

@@ -10,8 +10,11 @@ const reassign = process.argv.includes("--reassign");
 const draftLock = process.argv.includes("--draft-lock");
 const checkClearedMeta = process.argv.includes("--clear-meta");
 const checkSeenCall = process.argv.includes("--seen-call");
+const missed = process.argv.includes("--missed");
 const role = process.argv.includes("--dds") ? "DDS" as const : "OP112" as const;
-const ticketRefs = role === "DDS" ? ["Б5-2", "Б11-2", "Б14-2"] : ["Б1-1", "Б4-1", "Б11-1"];
+// --territory: a district ДДС place («Поселение Хорошево-Мневники») gets cases of its own territory, not the ambulance's.
+const territory = role === "DDS" && process.argv.includes("--territory");
+const ticketRefs = territory ? ["Б2-1", "Б17-1", "Б5-1"] : role === "DDS" ? ["Б5-2", "Б11-2", "Б14-2"] : ["Б1-1", "Б4-1", "Б11-1"];
 const skillKey = role === "DDS" ? "dds.report_record" : "op112.location";
 const checks = (success: boolean) => role === "DDS"
   ? [{ code: "dds.status_by_facts", title: "Статус по докладу", group: "statusOrder", ok: success, source: "rule" }, { code: "dds.literacy", title: "Понятный комментарий", group: "literacy", ok: true, source: "rule" }]
@@ -49,7 +52,7 @@ async function main() {
   cookie = rawLogin.headers.get("set-cookie")?.split(";")[0] ?? "";
   check(Boolean(cookie), "сессия преподавателя получена");
 
-  const service = role === "DDS" ? await db.service.findUniqueOrThrow({ where: { id: 4 } }) : null;
+  const service = role === "DDS" ? await db.service.findFirstOrThrow({ where: territory ? { shortName: "Поселение Хорошево-Мневники" } : { id: 4 } }) : null;
   // A fixed, already reviewed source error. The ordinary 112→DDS call path has its own e2e-lesson.ts.
   const sourceLesson = await db.lesson.create({ data: { title: "Контрольная точка: исходная ошибка", teacherId: teacher.id, groupId: group.id,
     status: "FINISHED", startedAt: new Date(), finishedAt: new Date(), settings: lessonSettingsSchema.parse({}) } });
@@ -69,6 +72,15 @@ async function main() {
     console.log(`fixture unassignedAttempt=${extraAttempt.id}`);
   }
   const input = { skillKey, items: [{ attemptId: source.id, practiceScenarioId: practiceScenario.id, controlScenarioId: controlScenario.id }] };
+  if (role === "OP112") {
+    const same = await call("POST", "/api/teacher/followups", { ...input, items: [{ ...input.items[0], practiceScenarioId: sourceScenario.id }] });
+    check(same.status === 409 && String(same.data.error).includes("та же ситуация"), "исходный вызов не назначается отработкой повторно", same);
+  }
+  if (territory) {
+    const [ambulancePractice, ambulanceControl] = await Promise.all(["Б11-2", "Б14-2"].map((ref) => db.scenario.findFirstOrThrow({ where: { ticketRef: ref } })));
+    const foreign = await call("POST", "/api/teacher/followups", { skillKey, items: [{ attemptId: source.id, practiceScenarioId: ambulancePractice.id, controlScenarioId: ambulanceControl.id }] });
+    check(foreign.status === 409 && String(foreign.data.error).includes("Поселение Хорошево-Мневники"), "случаи только для Службы 103 районной ДДС не назначаются, причина названа", foreign);
+  }
   if (checkSeenCall && role === "OP112") {
     const heard = await db.call.create({ data: { lessonId: sourceLesson.id, seatId: sourceSeat.id, kind: "CALLER_IN", status: "ENDED", counterpart: { scenarioId: controlScenario.id } } });
     try {
@@ -112,14 +124,33 @@ async function main() {
   }
   const early = await call("POST", `/api/teacher/lessons/${controlLessonId}/start`);
   check(early.status === 409, "контроль нельзя начать до отработки", early);
-  const started = await call("POST", `/api/teacher/lessons/${practiceLessonId}/start`);
+  let practiceId = practiceLessonId;
+  const started = await call("POST", `/api/teacher/lessons/${practiceId}/start`);
   check(started.status === 200, "отработка запускается существующим занятием", started);
-  const stopPractice = await call("POST", `/api/teacher/lessons/${practiceLessonId}/stop`);
+  const stopPractice = await call("POST", `/api/teacher/lessons/${practiceId}/stop`);
   check(stopPractice.status === 200, "отработка завершена", stopPractice);
-  const practiceSeat = await db.seat.findFirstOrThrow({ where: { lessonId: practiceLessonId, studentId: student.id } });
-  await db.attempt.create({ data: { lessonId: practiceLessonId, seatId: practiceSeat.id, studentId: student.id, kind: role, scenarioId: practiceScenario.id,
+  if (missed) {
+    const stuck = await call("GET", `/api/teacher/followups/${followUpId}`);
+    check(stuck.data.state === "practice_missed", "отработка без попытки ученика — не «ждёт проверки»", stuck);
+    const blocked = await call("POST", `/api/teacher/lessons/${controlLessonId}/start`);
+    check(blocked.status === 409 && String(blocked.data.error).includes("Повторить отработку"), "старт контроля говорит, кто не готов и что сделать", blocked);
+    const repeated = await call("PATCH", `/api/teacher/followups/${followUpId}`, { action: "repeat", stage: "practice" });
+    check(repeated.status === 200 && repeated.data.practiceLessonId !== practiceId, "«Повторить отработку» создаёт новое занятие", repeated);
+    practiceId = String(repeated.data.practiceLessonId);
+    createdLessons.push(practiceId);
+    const again = await call("POST", `/api/teacher/lessons/${practiceId}/start`);
+    check(again.status === 200, "повторная отработка запускается", again);
+    const stopAgain = await call("POST", `/api/teacher/lessons/${practiceId}/stop`);
+    check(stopAgain.status === 200, "повторная отработка завершена", stopAgain);
+  }
+  const practiceSeat = await db.seat.findFirstOrThrow({ where: { lessonId: practiceId, studentId: student.id } });
+  const practiceAttempt = await db.attempt.create({ data: { lessonId: practiceId, seatId: practiceSeat.id, studentId: student.id, kind: role, scenarioId: practiceScenario.id,
     criteria: checks(true),
     score: 100, reviewStatus: "CONFIRMED", reviewedById: teacher.id, reviewedAt: new Date() } });
+  const practiceSeen = await call("PATCH", `/api/teacher/followups/${followUpId}`, { action: "observe", stage: "practice", attemptId: practiceAttempt.id,
+    observed: true, evidence: "С подсказкой уточнил недостающее и записал ответ" });
+  check(practiceSeen.status === 200 && practiceSeen.data.outcome === "practice_done" && practiceSeen.data.state === "control_ready",
+    "наблюдение по отработке не подтверждает навык — ждём контроля", practiceSeen);
   const startControl = await call("POST", `/api/teacher/lessons/${controlLessonId}/start`);
   check(startControl.status === 200, "контроль открыт после проверки отработки", startControl);
   const stopControl = await call("POST", `/api/teacher/lessons/${controlLessonId}/stop`);
@@ -129,7 +160,7 @@ async function main() {
     criteria: checks(true),
     score: 100, reviewStatus: "CONFIRMED", reviewedById: teacher.id, reviewedAt: new Date() } });
   const beforeWitness = await call("GET", `/api/teacher/followups/${followUpId}`);
-  check(beforeWitness.data.state === "insufficient", "верные поля без наблюдаемого действия ещё не подтверждают навык", beforeWitness);
+  check(beforeWitness.data.state === "observe_control", "верные поля без наблюдаемого действия ещё не подтверждают навык", beforeWitness);
   const observed = await call("PATCH", `/api/teacher/followups/${followUpId}`, { action: "observe", stage: "control", attemptId: controlAttempt.id,
     observed: true, evidence: role === "DDS" ? "Диспетчер записал статус по докладу бригады и объяснил итог" : "Оператор спросил дом, получил ответ и сверил запись" });
   check(observed.status === 200 && observed.data.outcome === "achieved", "преподаватель подтвердил действие по эпизоду", observed);
