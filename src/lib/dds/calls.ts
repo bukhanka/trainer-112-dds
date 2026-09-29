@@ -47,6 +47,8 @@ import {
   type OperatorState,
 } from "./personas";
 import { cardErrorFrom, ddsCardOf, personaOf, referenceFor, saysCardErrorRight, type CardError } from "./scenario";
+import { OPERATOR_TRUTH, settleOperatorLine } from "./operator-claims";
+import { firstPerson } from "@/lib/speech/first-person";
 import { cardReference, movedPersona, wasMoved } from "./territory";
 import { seatFeedWhere, settingsOf } from "./scope";
 import type { DdsSeat } from "./seat";
@@ -163,7 +165,19 @@ function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "c
   };
 }
 
+/** The applicant of a card: the ticket's notes about him are said in his own words («не знаю», not «не знает»). */
 function callerPersona(incident: CallIncident): CallerPersona {
+  const p = applicantOf(incident);
+  return {
+    ...p,
+    situation: firstPerson(p.situation),
+    visibleAddress: firstPerson(p.visibleAddress),
+    ...(p.hiddenAddress ? { hiddenAddress: firstPerson(p.hiddenAddress) } : {}),
+    facts: (p.facts ?? []).map(firstPerson),
+  };
+}
+
+function applicantOf(incident: CallIncident): CallerPersona {
   const persona = incident.scenario ? personaOf(incident.scenario) : null;
   if (persona && incident.scenario && incident.source === "generated") {
     // A card moved onto the place's territory (territory.ts): the applicant gives the address written on the card.
@@ -652,10 +666,12 @@ async function sayLine(seat: DdsSeat, callId: string, text: string, now: Date): 
     if (owes) settle = (text) => (mentionsCardError(text, ctx) ? text : `${text.replace(/\s+$/, "")} ${cardErrorLine(ctx)}`);
   } else if (c.kind === "operator112") {
     const state = await operatorTurn(seat, [...history.filter((m) => m.role === "trainee").map((m) => m.text), line].join(" "), now);
-    prompt = operatorPrompt(seat.service?.shortName ?? "", state);
+    prompt = `${operatorPrompt(seat.service?.shortName ?? "", state)}\n${OPERATOR_TRUTH}`;
     fallback = operatorMockReply(line, turn, state);
-    // The operator claims a correction only when the card has really been corrected.
-    if (state.kind !== "fixed" && state.kind !== "already") settle = (text) => (claimsCardChange(text) ? fallback : text);
+    // The operator says only what the trainer does: a correction only when the card has really been corrected, and no
+    // dispatch at all («Пожарных продублировал» → «передам старшему смены», operator-claims.ts).
+    const corrected = state.kind === "fixed" || state.kind === "already";
+    settle = (text) => settleOperatorLine(!corrected && claimsCardChange(text) ? fallback : text, corrected, fallback);
   } else if (c.kind === "caller" && incident) {
     const persona = callerPersona(incident);
     if (mentionsCardNumber(line, incident.number)) c.namedCardNumber = true;
