@@ -11,7 +11,7 @@ describe("the 112 operator says only what the trainer does", () => {
     const model =
       "Принято, информацию поменял: есть пострадавший, мужчина с ожогами. Пожарных продублировал. Службы видят изменения в карточке.";
     const said = settleOperatorLine(model, true, fixedLine);
-    expect(said).toBe(`Принято, информацию поменял: есть пострадавший, мужчина с ожогами. Службы видят изменения в карточке. ${PASS_ON}`);
+    expect(said).toBe(`Принято, информацию поменял: есть пострадавший, мужчина с ожогами. ${PASS_ON} Службы видят изменения в карточке.`);
     expect(said).not.toMatch(/продублир/i);
   });
 
@@ -43,6 +43,13 @@ describe("the 112 operator says only what the trainer does", () => {
     const both = settleOperatorLine("Карточку обновил, пожарных направил.", false, none);
     expect(both).toBe(none);
     expect(claimsAction(both)).toBe(false);
+  });
+
+  it("a claim goes by its clause, the true part of the sentence stays", () => {
+    expect(settleOperatorLine("Принято, данные обновил, службы переоповестил. Всего доброго.", true, fixedLine)).toBe(
+      `Принято, данные обновил. ${PASS_ON} Всего доброго.`,
+    );
+    expect(settleOperatorLine("Исправил подъезд и направил бригаду.", true, fixedLine)).toBe(`Исправил подъезд. ${PASS_ON}`);
   });
 
   it("a line with nothing but a claim becomes the rule-based line of the moment, with «передам»", () => {

@@ -3,7 +3,7 @@
  * dispatcher names the card and the right information (card-fix.ts). It does not send, re-send or duplicate crews,
  * does not call other services and does not notify them again — nothing of that happens in the system, and the
  * review would read a line like «Пожарных продублировал» as if it had. A model line with such a claim loses that
- * sentence and the operator says instead that it will pass it on («передам старшему смены»). A claim that the card
+ * clause and the operator says instead that it will pass it on («передам старшему смены»). A claim that the card
  * was changed is allowed only once the card really was corrected; otherwise the whole line is the rule-based one.
  *
  * The prompt asks for the same (OPERATOR_TRUTH), but a prompt alone does not hold every time: this filter does.
@@ -71,16 +71,31 @@ export function claimsCardEdit(text: string): boolean {
 }
 
 /**
- * The model's line as the operator may say it: sentences claiming an action go and «передам старшему смены» takes
+ * The model's line as the operator may say it: clauses claiming an action go and «передам старшему смены» takes
  * their place; before the card is corrected, a claim of a change in the card makes the whole line the rule-based one.
  */
 export function settleOperatorLine(text: string, cardCorrected: boolean, fallback: string): string {
   const sentences = text.match(/[^.!?…]+[.!?…]*\s*/g) ?? [];
   if (!cardCorrected && sentences.some(claimsCardEdit)) return withPassOn(fallback, sentences.some(claimsAction));
-  const kept = sentences.filter((s) => !claimsAction(s));
-  if (kept.length === sentences.length) return text;
-  const base = kept.join("").trim() || fallback;
-  return withPassOn(base, true);
+  if (!sentences.some(claimsAction)) return text;
+  // A claim goes by its clause: «Принято, данные обновил, службы переоповестил.» → «Принято, данные обновил.», and
+  // «передам старшему смены» comes right after it.
+  const out: string[] = [];
+  let passed = false;
+  for (const sentence of sentences) {
+    if (!claimsAction(sentence)) {
+      out.push(sentence.trim());
+      continue;
+    }
+    const end = /[.!?…]+\s*$/.exec(sentence)?.[0].trim() || ".";
+    const clauses = sentence.replace(/[.!?…]+\s*$/, "").split(/,\s*|;\s*|\s+и\s+(?=[а-яё]+(?:л|ла|ли|ен[аоы]?|ано|ены)(?![а-яё]))/i);
+    const kept = clauses.filter((c) => c.trim() && !claimsAction(c));
+    if (kept.length) out.push(`${kept.join(", ").trim()}${end}`);
+    if (!passed) out.push(PASS_ON);
+    passed = true;
+  }
+  const said = out.filter((s) => s !== PASS_ON).join(" ").trim();
+  return said ? out.join(" ").trim() : withPassOn(fallback, true);
 }
 
 function withPassOn(line: string, dropped: boolean): string {
