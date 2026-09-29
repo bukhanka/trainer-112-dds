@@ -242,7 +242,7 @@ export function onTerritory(s: ScenarioLike, t: Territory): "in" | "move" | "no"
  * A territorial place: first the situations that happen on its territory, then those that move there with a reference
  * entry of its level (its decision and crew are judged), then the rest that move.
  */
-function byTerritory(pool: PickedScenario[], t: Territory, own: OwnService): PickedScenario[] {
+export function byTerritory<T extends ScenarioLike>(pool: T[], t: Territory, own: Pick<OwnService, "id" | "shortName">): T[] {
   const inside = pool.filter((s) => onTerritory(s, t) === "in");
   if (inside.length) return inside;
   const withEntry = pool.filter((s) => hasOwnReference(s.ddsReference, own));
@@ -269,7 +269,8 @@ async function preferReaching(tx: Tx, own: OwnService | null, pool: PickedScenar
 
 type PlateRow = { id: number; shortName: string; okrug: string | null; district: string | null };
 
-async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Date) {
+/** A generated card for the place, as it comes to its feed: on its territory, its plates «Добавлена» at `now`. */
+export async function createCard(tx: Tx, seat: Pick<Seat, "id" | "lessonId" | "serviceId">, scenario: ScenarioLike, now: Date) {
   let spec = ddsCardOf(scenario);
   const select = { id: true, shortName: true, okrug: true, district: true } as const;
   const own = await tx.service.findUnique({ where: { id: seat.serviceId! }, select });
@@ -298,7 +299,7 @@ async function createCard(tx: Tx, seat: Seat, scenario: PickedScenario, now: Dat
   const count = await tx.incident.count({ where: { ddsSeatId: seat.id } });
   const savedAt = new Date(now.getTime() - 4_000);
 
-  await tx.incident.create({
+  return tx.incident.create({
     data: {
       lessonId: seat.lessonId,
       scenarioId: scenario.id,
