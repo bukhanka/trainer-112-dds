@@ -685,13 +685,15 @@ async function buildLesson(opts: {
   const students = await db.user.findMany({ where: { login: { in: opts.plan.map((p) => p.login) } } });
   const byLogin = new Map(students.map((s) => [s.login, s]));
   const end = at(opts.start, opts.durationMin * 60);
+  // Built as a draft and finished at the end: a student's screen polling a finished lesson reviews the plates it finds
+  // without a review (dds/review.ts evaluateSeatPlates) — it must not meet one half built.
   await db.lesson.create({
     data: {
       id: opts.id,
       title: opts.title,
       teacherId: ctx.teacherId,
       groupId: opts.groupId,
-      status: opts.status,
+      status: "DRAFT",
       settings: json(opts.settings),
       startedAt: opts.status === "DRAFT" ? null : opts.start,
       finishedAt: opts.status === "FINISHED" ? end : null,
@@ -793,10 +795,14 @@ async function buildLesson(opts: {
 
   // The reviews, with the facts as they stand at the end of the lesson.
   for (const seat of seats.filter((s) => s.role === "DDS")) {
-    const plates = await db.incidentService.findMany({ where: { serviceId: seat.serviceId!, events: { some: { seatId: seat.id } }, incident: { lessonId: run.id } } });
+    const plates = await db.incidentService.findMany({
+      where: { serviceId: seat.serviceId!, events: { some: { seatId: seat.id } }, incident: { lessonId: run.id } },
+      orderBy: [{ addedAt: "asc" }, { incident: { number: "asc" } }],
+    });
     for (const plate of plates) await gradePlate(run, plate, ctx);
   }
   await applyReviews(run, opts.review, ctx);
+  await db.lesson.update({ where: { id: opts.id }, data: { status: "FINISHED" } });
   return { attempts: run.attempts.length };
 }
 
