@@ -1,5 +1,9 @@
 /** Local-only API check of confirmed error → assigned practice → separate control → teacher observation. */
-import { PrismaClient } from "@prisma/client";
+import { db } from "../src/lib/db";
+import { followUpCandidates } from "../src/lib/followup/options";
+import { seenSituations } from "../src/lib/followup/exposure";
+import { pairProblem } from "../src/lib/followup/pairing";
+import { buildPool, poolScenarioSelect } from "../src/lib/followup/pool";
 import { lessonSettingsSchema } from "../src/lib/lessons/settings";
 
 const base = process.env.FOLLOWUP_E2E_BASE ?? "http://127.0.0.1:3112";
@@ -13,13 +17,14 @@ const checkSeenCall = process.argv.includes("--seen-call");
 const missed = process.argv.includes("--missed");
 const role = process.argv.includes("--dds") ? "DDS" as const : "OP112" as const;
 // --territory: a district ДДС place («Поселение Хорошево-Мневники») gets cases of its own territory, not the ambulance's.
+// The student and both cases are chosen as the teacher's form offers them (followup/options.ts): the demo data and
+// earlier runs decide which situations a student has already met.
 const territory = role === "DDS" && process.argv.includes("--territory");
-const ticketRefs = territory ? ["Б2-1", "Б17-1", "Б5-1"] : role === "DDS" ? ["Б5-2", "Б11-2", "Б14-2"] : ["Б1-1", "Б4-1", "Б11-1"];
+const ticketRefs = territory ? ["Б2-1"] : role === "DDS" ? ["Б5-2", "Б11-2", "Б14-2"] : ["Б1-1", "Б4-1", "Б11-1"];
 const skillKey = role === "DDS" ? "dds.report_record" : "op112.location";
 const checks = (success: boolean) => role === "DDS"
   ? [{ code: "dds.status_by_facts", title: "Статус по докладу", group: "statusOrder", ok: success, source: "rule" }, { code: "dds.literacy", title: "Понятный комментарий", group: "literacy", ok: true, source: "rule" }]
   : [{ code: "op112.address.street", title: "Улица", group: "address", ok: true, source: "rule" }, { code: "op112.address.house", title: "Дом", group: "address", ok: success, critical: !success, evidence: success ? "Дом уточнён" : "Дом не уточнён", source: "rule" }];
-const db = new PrismaClient();
 const createdLessons: string[] = [];
 let followUpId: string | null = null;
 let sourceAttemptId: string | null = null;
@@ -37,14 +42,34 @@ function check(ok: boolean, step: string, details: unknown = "") {
 }
 
 async function main() {
-  const [teacher, student, group, sourceScenario, practiceScenario, controlScenario] = await Promise.all([
+  const [teacher, group, sourceScenario] = await Promise.all([
     db.user.findUniqueOrThrow({ where: { login: "teacher" } }),
-    db.user.findUniqueOrThrow({ where: { login: role === "DDS" ? "student3" : "student1" } }),
     db.group.findFirstOrThrow({ where: { name: "Учебная группа № 1" } }),
-    db.scenario.findFirstOrThrow({ where: { ticketRef: ticketRefs[0] } }),
-    db.scenario.findFirstOrThrow({ where: { ticketRef: ticketRefs[1] } }),
-    db.scenario.findFirstOrThrow({ where: { ticketRef: ticketRefs[2] } }),
+    db.scenario.findFirstOrThrow({ where: { ticketRef: ticketRefs[0] }, select: poolScenarioSelect }),
   ]);
+  const service = role === "DDS" ? await db.service.findFirstOrThrow({ where: territory ? { shortName: "Поселение Хорошево-Мневники" } : { id: 4 } }) : null;
+  let student: { id: string; login: string };
+  let practiceScenario: { id: string };
+  let controlScenario: { id: string; learningMeta: unknown };
+  if (territory) {
+    // The first student of the group for whom the district place still has a new control case.
+    const approved = await db.scenario.findMany({ where: { status: "APPROVED" }, select: poolScenarioSelect });
+    const students = await db.user.findMany({ where: { login: { in: ["student3", "student1", "student2", "student4", "student5"] } }, orderBy: { login: "asc" } });
+    const ordered = [...students.filter((u) => u.login === "student3"), ...students.filter((u) => u.login !== "student3")];
+    const met = await seenSituations(db, ordered.map((u) => u.id));
+    const fit = ordered.find((u) => !buildPool("dds.report_record", approved, { source: sourceScenario, service, seen: met.get(u.id) ?? new Set() }).problem);
+    if (!fit) throw new Error("Ни у одного ученика группы нет новой для него контрольной ситуации районной ДДС: форма тоже ничего не предложит");
+    student = fit;
+    practiceScenario = { id: "" };
+    controlScenario = { id: "", learningMeta: null };
+  } else {
+    const [user, practice, control] = await Promise.all([
+      db.user.findUniqueOrThrow({ where: { login: role === "DDS" ? "student3" : "student1" } }),
+      db.scenario.findFirstOrThrow({ where: { ticketRef: ticketRefs[1] } }),
+      db.scenario.findFirstOrThrow({ where: { ticketRef: ticketRefs[2] } }),
+    ]);
+    [student, practiceScenario, controlScenario] = [user, practice, control];
+  }
   const login = await call("POST", "/api/auth/login", { login: "teacher", password: "Teacher2026" });
   check(login.status === 200, "преподаватель вошёл", login);
   // The login endpoint returns a cookie; fetch it again here so the helper can keep the session.
@@ -52,7 +77,6 @@ async function main() {
   cookie = rawLogin.headers.get("set-cookie")?.split(";")[0] ?? "";
   check(Boolean(cookie), "сессия преподавателя получена");
 
-  const service = role === "DDS" ? await db.service.findFirstOrThrow({ where: territory ? { shortName: "Поселение Хорошево-Мневники" } : { id: 4 } }) : null;
   // A fixed, already reviewed source error. The ordinary 112→DDS call path has its own e2e-lesson.ts.
   const sourceLesson = await db.lesson.create({ data: { title: "Контрольная точка: исходная ошибка", teacherId: teacher.id, groupId: group.id,
     status: "FINISHED", startedAt: new Date(), finishedAt: new Date(), settings: lessonSettingsSchema.parse({}) } });
@@ -62,6 +86,16 @@ async function main() {
     criteria: checks(false),
     score: 40, reviewStatus: "CONFIRMED", reviewedById: teacher.id, reviewedAt: new Date(), teacherComment: "Уточнить дом у заявителя" } });
   sourceAttemptId = source.id;
+  if (territory) {
+    // Exactly what the teacher's form offers for this error: the first practice and a control that pairs with it.
+    const [candidate] = await followUpCandidates(sourceLesson.id, source.id);
+    check(Boolean(candidate) && !candidate.pool.problem && candidate.pool.practice.length > 0, `форма предлагает районной ДДС случаи её территории (${student.login})`, candidate?.pool.problem);
+    const practice = candidate.pool.practice[0];
+    const control = candidate.pool.control.find((c) => pairProblem("DDS", practice, c) === null)!;
+    practiceScenario = { id: practice.id };
+    controlScenario = { id: control.id, learningMeta: null };
+    console.log(`  ученик ${student.login}: отработка «${practice.title}», контроль «${control.title}»`);
+  }
   if (keep && role === "OP112") {
     const another = await db.user.findUniqueOrThrow({ where: { login: "student2" } });
     const extraSeat = await db.seat.create({ data: { lessonId: sourceLesson.id, studentId: another.id, role: "OP112", scenarioIds: [sourceScenario.id] } });
