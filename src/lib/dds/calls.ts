@@ -94,6 +94,8 @@ const msgs = (call: Pick<Call, "messages">) => (call.messages ?? []) as CallMess
 const incidentInclude = {
   services: { include: { service: true, events: { orderBy: { at: "asc" } } }, orderBy: [{ addedAt: "asc" }, { id: "asc" }] },
   scenario: { select: { id: true, title: true, category: true, caller: true, truth: true, ddsCard: true, ddsReference: true } },
+  // The 112 call of a card typed at a 112 place: who the applicant was on that call.
+  calls: { where: { kind: "CALLER_IN" }, select: { counterpart: true }, take: 1 },
 } satisfies Prisma.IncidentInclude;
 type CallIncident = Prisma.IncidentGetPayload<{ include: typeof incidentInclude }>;
 
@@ -165,9 +167,22 @@ function crewState(seat: PhoneSeat, incident: CallIncident, calls: Pick<Call, "c
   };
 }
 
-/** The applicant of a card: the ticket's notes about him are said in his own words («не знаю», not «не знает»). */
+/**
+ * The applicant of a card: under the name and number the lesson gave him (op112/identity.ts) — the ones on a card the
+ * system dealt, the ones the 112 call was played with for a card typed at a 112 place — and speaking of himself in his
+ * own words («не знаю», not the ticket's «не знает»).
+ */
 function callerPersona(incident: CallIncident): CallerPersona {
-  const p = applicantOf(incident);
+  const written = applicantOf(incident);
+  const card = (incident.caller as IncidentCaller | null) ?? {};
+  const played = (incident.calls?.[0]?.counterpart as { persona?: CallerPersona } | null)?.persona;
+  const own =
+    incident.source === "generated"
+      ? { fullName: card.fullName ?? written.fullName, phone: card.aon ?? card.provided ?? written.phone }
+      : played?.fullName
+        ? { fullName: played.fullName, phone: played.phone ?? written.phone }
+        : { fullName: written.fullName, phone: written.phone };
+  const p = { ...written, ...own };
   return {
     ...p,
     situation: firstPerson(p.situation),

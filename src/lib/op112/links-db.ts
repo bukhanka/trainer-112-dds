@@ -6,8 +6,17 @@ import { tagsToAnswers } from "./card";
 import { kindTitle } from "./catalog";
 import { addressLine } from "./gazetteer";
 import type { CardRef } from "./links";
+import { situationOf } from "@/lib/scenarios/pairs";
 
-export type LessonCard = { ref: CardRef; caller: IncidentCaller; address: IncidentAddress; mainId: string | null; scenarioRef: string | null };
+export type LessonCard = {
+  ref: CardRef;
+  caller: IncidentCaller;
+  address: IncidentAddress;
+  mainId: string | null;
+  scenarioRef: string | null;
+  /** The situation the card was made of (scenarios/pairs.ts): a ticket and its variant are one. */
+  situation: string | null;
+};
 
 /** «ул. Грина, д. 11 (ЮЗАО, Северное Бутово)» — the address line of a card with its territory. */
 export function placeOf(address: IncidentAddress): string {
@@ -42,7 +51,7 @@ export async function lessonCards(lessonId: string, exceptId?: string): Promise<
       armNo: true,
       linkedToId: true,
       linkedTo: { select: { number: true } },
-      scenario: { select: { ticketRef: true } },
+      scenario: { select: { id: true, ticketRef: true } },
     },
   });
   return rows.map((r) => {
@@ -62,6 +71,7 @@ export async function lessonCards(lessonId: string, exceptId?: string): Promise<
       address,
       mainId: r.linkedToId,
       scenarioRef: r.scenario?.ticketRef ?? null,
+      situation: r.scenario ? situationOf(r.scenario) : null,
     };
   });
 }

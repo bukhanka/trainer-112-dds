@@ -23,6 +23,11 @@ export type CardRef = {
   status: string;
   /** the main card it is linked to, if it is a subordinate one */
   mainNumber: number | null;
+  /**
+   * In «Совпадение» by number: whether the card may be linked from here. Only a card of the same place — the same
+   * number alone is not the same incident («otherPlace»); while the address is empty there is nothing to compare («noPlace»).
+   */
+  link?: "ok" | "otherPlace" | "noPlace";
 };
 
 export type MatchSource = { caller: IncidentCaller; address: IncidentAddress };
@@ -44,14 +49,27 @@ export function samePlace(a: IncidentAddress, b: IncidentAddress): boolean {
   return !ha || !hb || ha === hb;
 }
 
-/** Cards that match by a phone number (the button in the АОН block) and by the place (the button in the address block). */
-export function findMatches<T extends MatchCandidate>(card: MatchSource & { id?: string }, candidates: T[]): { byPhone: T[]; byAddress: T[] } {
+/**
+ * Cards that match by a phone number (the button in the АОН block) and by the place (the button in the address block).
+ * A card of the same situation typed at another place of the lesson is a parallel copy of this very exercise, not an
+ * earlier call: it is not offered (`situation`, scenarios/pairs.ts).
+ */
+export function findMatches<T extends MatchCandidate & { situation?: string | null }>(
+  card: MatchSource & { id?: string; situation?: string | null },
+  candidates: T[],
+): { byPhone: T[]; byAddress: T[] } {
   const mine = new Set(phonesOf(card.caller));
-  const others = candidates.filter((c) => c.id !== card.id);
+  const others = candidates.filter((c) => c.id !== card.id && !(card.situation && c.situation === card.situation));
   return {
     byPhone: mine.size ? others.filter((c) => phonesOf(c.caller).some((p) => mine.has(p))) : [],
     byAddress: others.filter((c) => samePlace(card.address, c.address)),
   };
+}
+
+/** Whether a card found by the number may be linked: only at the same place — the number alone is another incident. */
+export function phoneMatchLink(card: MatchSource, candidate: MatchSource): "ok" | "otherPlace" | "noPlace" {
+  if (!card.address.street?.trim()) return "noPlace";
+  return samePlace(card.address, candidate.address) ? "ok" : "otherPlace";
 }
 
 /** Words of a search in the «создать связь» window: every word must be in the card's number, address or type. */

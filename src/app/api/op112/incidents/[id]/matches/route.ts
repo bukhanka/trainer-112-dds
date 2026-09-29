@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { jsonError, op112User, ownIncident, readJson } from "@/lib/op112/access";
 import { addressSchema, callerSchema } from "@/lib/op112/draft";
-import { findMatches } from "@/lib/op112/links";
+import { db } from "@/lib/db";
+import { findMatches, phoneMatchLink } from "@/lib/op112/links";
+import { situationOf } from "@/lib/scenarios/pairs";
 import { lessonCards } from "@/lib/op112/links-db";
 
 const bodySchema = z.object({ caller: callerSchema.default({}), address: addressSchema.default({}) });
@@ -19,6 +21,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/op112/incidents
   if (!own.incident.lessonId) return Response.json({ byPhone: [], byAddress: [] });
   const aon = (own.incident.caller as { aon?: string } | null)?.aon;
   const cards = (await lessonCards(own.incident.lessonId, id)).map((c) => ({ ...c, id: c.ref.id }));
-  const m = findMatches({ id, caller: { ...body.data.caller, aon: aon ?? body.data.caller.aon }, address: body.data.address }, cards);
-  return Response.json({ byPhone: m.byPhone.map((c) => c.ref), byAddress: m.byAddress.map((c) => c.ref) });
+  const scenario = own.incident.scenarioId ? await db.scenario.findUnique({ where: { id: own.incident.scenarioId }, select: { id: true, ticketRef: true } }) : null;
+  const card = { id, caller: { ...body.data.caller, aon: aon ?? body.data.caller.aon }, address: body.data.address, situation: scenario ? situationOf(scenario) : null };
+  const m = findMatches(card, cards);
+  // By the number alone a card is shown, but it is linked only when the place is the same (links.ts).
+  return Response.json({ byPhone: m.byPhone.map((c) => ({ ...c.ref, link: phoneMatchLink(card, c) })), byAddress: m.byAddress.map((c) => c.ref) });
 }

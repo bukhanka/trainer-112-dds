@@ -2,7 +2,10 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { CallerPersona } from "@/lib/incident/types";
 import { jsonError, op112User } from "@/lib/op112/access";
-import { drawCall, findActiveSeat } from "@/lib/op112/seat";
+import { distinctCaller } from "@/lib/op112/identity";
+import { lessonCallers } from "@/lib/op112/identity-db";
+import { drawCall, findActiveSeat, repeatOf } from "@/lib/op112/seat";
+import { situationOf } from "@/lib/scenarios/pairs";
 import { currentSessionId } from "@/lib/op112/session-key";
 import { callDto } from "@/lib/op112/state";
 
@@ -32,23 +35,31 @@ export async function POST() {
     await markDealtOut(seat.id, new Date());
     return jsonError(draw.pool ? "all_dealt" : "no_scenarios", 404);
   }
-  const persona = scenario.caller as CallerPersona;
-  const phone = persona.phone || randomPhone();
-  const call = await db.call.create({
-    data: {
-      lessonId: seat.lessonId,
-      seatId: seat.id,
-      kind: "CALLER_IN",
-      status: "RINGING",
-      counterpart: {
-        name: persona.fullName,
-        role: persona.role,
-        voice: persona.voice ?? "female",
-        phone,
-        scenarioId: scenario.id,
-        persona: scenario.caller as Prisma.InputJsonValue,
+  // One caller per situation in the lesson: the tickets reuse names and numbers (op112/identity.ts). Under a lock, so
+  // two places ringing at once do not both keep one ticket's number.
+  const call = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lesson-callers:${seat.lessonId}`}))`;
+    const written = scenario.caller as CallerPersona;
+    const persona = repeatOf(scenario.truth)
+      ? written
+      : distinctCaller({ ...written, phone: written.phone || randomPhone() }, situationOf(scenario), seat.lessonId, await lessonCallers(tx, seat.lessonId));
+    const phone = persona.phone || randomPhone();
+    return tx.call.create({
+      data: {
+        lessonId: seat.lessonId,
+        seatId: seat.id,
+        kind: "CALLER_IN",
+        status: "RINGING",
+        counterpart: {
+          name: persona.fullName,
+          role: persona.role,
+          voice: persona.voice ?? "female",
+          phone,
+          scenarioId: scenario.id,
+          persona: { ...persona, phone } as Prisma.InputJsonValue,
+        },
       },
-    },
+    });
   });
   // The last task of the place is ringing: the board shows at once that the place has had them all.
   await markDealtOut(seat.id, draw.left ? null : new Date());
