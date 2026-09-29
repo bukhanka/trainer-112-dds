@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildPublishedFeedback } from "@/lib/review/published-feedback";
 import type { CriterionResult } from "@/lib/scoring/score";
-import { getStudentAttempt } from "./results";
+import { getStudentAttempt, routeFeedback, type StudentFeedback } from "./results";
 
 const { findFirst } = vi.hoisted(() => ({ findFirst: vi.fn() }));
 vi.mock("@/lib/db", () => ({ db: { attempt: { findFirst } } }));
@@ -62,5 +62,33 @@ describe("student attempt detail", () => {
     expect(await getStudentAttempt("student-a", "attempt-a", viewer)).toBeNull();
     findFirst.mockResolvedValue(null);
     expect(await getStudentAttempt("student-a", "foreign", viewer)).toBeNull();
+  });
+});
+
+describe("the main remark of the student's route", () => {
+  const note: StudentFeedback = {
+    summary: "Преподаватель проверил работу. Главное замечание: Карточка набрана дольше норматива.",
+    strength: "Улица совпадает с местом происшествия",
+    priority: { code: "op112.typing_time", title: "Карточка набрана дольше норматива", critical: false, evidence: "Дольше норматива на 3:33", nextAction: "сохранить не позже 1:05" },
+    fromTeacher: false,
+  };
+  const target = { title: "Неверно указаны дом, корпус или строение", critical: false, evidence: "дом: «13»", expected: "дом 11", advice: "Переспросите номер дома" };
+
+  it("is the error the practice is assigned for, with its evidence; the other published remark stays secondary", () => {
+    const main = routeFeedback(note, [{ state: "planned", title: "Уточнить и записать место происшествия", target }]);
+    expect(main?.priority?.title).toBe(target.title);
+    expect(main?.priority?.evidence).toBe("дом: «13»");
+    expect(main?.priority?.expected).toBe("дом 11");
+    expect(main?.priority?.nextAction).toBe("Переспросите номер дома");
+    expect(main?.summary).toMatch(/назначил отработку по главному замечанию: Неверно указаны дом/);
+    expect(main?.assigned).toBe("Уточнить и записать место происшествия");
+    expect(main?.also).toBe("Карточка набрана дольше норматива");
+  });
+
+  it("keeps the teacher's own summary text, and the published note when nothing is assigned or it was cancelled", () => {
+    expect(routeFeedback({ ...note, fromTeacher: true }, [{ state: "planned", title: "Цель", target }])?.summary).toBe(note.summary);
+    expect(routeFeedback(note, [])?.priority?.title).toBe("Карточка набрана дольше норматива");
+    expect(routeFeedback(note, [{ state: "cancelled", title: "Цель", target }])?.priority?.title).toBe("Карточка набрана дольше норматива");
+    expect(routeFeedback(null, [])).toBeNull();
   });
 });

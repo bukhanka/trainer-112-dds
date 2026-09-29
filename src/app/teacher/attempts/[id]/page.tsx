@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, PageHeader, Section } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
@@ -7,10 +8,10 @@ import { db } from "@/lib/db";
 import { formatDateTime, formatDuration, formatTime } from "@/lib/format";
 import { correctionsByIds } from "@/lib/review/corrections-db";
 import { feedbackRevision } from "@/lib/review/published-feedback";
-import { followUpCases, followUpCandidates } from "@/lib/followup/options";
-import { studentFollowUps } from "@/lib/followup/student";
+import { followUpCandidates } from "@/lib/followup/options";
+import { teacherFollowUps } from "@/lib/followup/teacher";
 import { AssignFollowUp } from "@/app/teacher/followups/AssignFollowUp";
-import { FollowUpProgress, type TeacherFollowUp } from "@/app/teacher/followups/FollowUpProgress";
+import { FollowUpProgress } from "@/app/teacher/followups/FollowUpProgress";
 import { readCriteria, readDraft, readOverrides } from "@/lib/review/draft";
 import { RUNNING_LOCK } from "@/lib/review/review";
 import { passRulesOf } from "@/lib/scoring/pass";
@@ -55,7 +56,7 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
   });
   if (!attempt) notFound();
 
-  const [siblings, weights, calls, cases, candidates, linked] = await Promise.all([
+  const [siblings, weights, calls, candidates, progress, stageOf] = await Promise.all([
     db.attempt.findMany({ where: { lessonId: attempt.lessonId, reviewStatus: "PENDING" }, orderBy: { createdAt: "asc" }, select: { id: true, createdAt: true } }),
     weightsForAttempt(db, attempt.lessonId, attempt.studentId),
     attempt.kind === "OP112" && attempt.incidentId
@@ -66,9 +67,13 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
           select: { kind: true, messages: true, startedAt: true, counterpart: true },
         })
       : Promise.resolve([]),
-    followUpCases(),
     followUpCandidates(attempt.lessonId, attempt.id),
-    studentFollowUps(attempt.studentId, attempt.id),
+    teacherFollowUps({ sourceAttemptId: attempt.id }, true),
+    // This attempt may itself be a stage of a follow-up: the route lives on the page of the error it is for.
+    db.followUp.findFirst({
+      where: { sourceAttempt: { studentId: attempt.studentId }, OR: [{ practiceLessonId: attempt.lessonId }, { controlLessonId: attempt.lessonId }] },
+      select: { sourceAttemptId: true, practiceLessonId: true },
+    }),
   ]);
   // Teacher corrections the model checks of this attempt were shown (учёт правок).
   const criteria = readCriteria(attempt.criteria);
@@ -84,19 +89,6 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
   const others = siblings.filter((s) => s.id !== attempt.id);
   const nextPending = others.find((s) => s.createdAt > attempt.createdAt) ?? others[0] ?? null;
 
-  const progress: TeacherFollowUp[] = await Promise.all(linked.map(async (item) => {
-    const [practiceLesson, controlLesson, later] = await Promise.all([
-      db.lesson.findUniqueOrThrow({ where: { id: item.practiceLessonId }, select: { status: true } }),
-      db.lesson.findUniqueOrThrow({ where: { id: item.controlLessonId }, select: { status: true } }),
-      db.attempt.findMany({ where: { studentId: attempt.studentId, lessonId: { in: [item.practiceLessonId, item.controlLessonId] } }, orderBy: { createdAt: "desc" }, select: { id: true, lessonId: true, reviewStatus: true } }),
-    ]);
-    const stage = (lessonId: string, lessonStatus: string) => {
-      const row = later.find((a) => a.lessonId === lessonId);
-      return { lessonId, lessonStatus, attemptId: row?.id ?? null, checked: Boolean(row && row.reviewStatus !== "PENDING") };
-    };
-    return { id: item.id, title: item.title, state: item.state, status: item.status,
-      practice: stage(item.practiceLessonId, practiceLesson.status), control: stage(item.controlLessonId, controlLesson.status), cancelled: item.state === "cancelled" };
-  }));
   const caller = (attempt.incident?.caller ?? {}) as { fullName?: string; status?: string; aon?: string };
   const plate = attempt.incidentService;
   const kindLabel = attempt.kind === "OP112" ? "Оператор 112" : "Диспетчер ДДС";
@@ -145,8 +137,14 @@ export default async function AttemptPage(props: PageProps<"/teacher/attempts/[i
         learned={learned}
       />
 
-      {attempt.reviewStatus !== "PENDING" && <AssignFollowUp compact candidates={candidates.filter((c) => c.attemptId === attempt.id)} scenarios={cases} />}
-      {progress.map((item) => <FollowUpProgress key={`${item.id}:${item.state}`} item={item} />)}
+      {stageOf && (
+        <p className="rounded border border-arm-blue/30 bg-arm-blue/5 p-3 text-sm print:hidden">
+          Эта попытка — этап «{stageOf.practiceLessonId === attempt.lessonId ? "Отработка" : "Контроль"}» назначенной отработки. Наблюдение и история —{" "}
+          <Link className="font-medium text-arm-blue underline" href={`/teacher/attempts/${stageOf.sourceAttemptId}#followup`}>на странице исходной ошибки</Link>.
+        </p>
+      )}
+      {attempt.reviewStatus !== "PENDING" && <AssignFollowUp compact candidates={candidates.filter((c) => c.attemptId === attempt.id)} />}
+      {progress.map((item) => <FollowUpProgress key={item.id} item={item} />)}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {attempt.incident && (

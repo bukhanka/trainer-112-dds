@@ -5,7 +5,7 @@ import { Badge, PageHeader, Section } from "@/components/ui";
 import { requireUser } from "@/lib/auth/session";
 import { formatDateTime } from "@/lib/format";
 import { studentFollowUps } from "@/lib/followup/student";
-import { getStudentAttempt } from "@/lib/student/results";
+import { getStudentAttempt, routeFeedback } from "@/lib/student/results";
 import { viewerSession } from "@/lib/student/viewer";
 import { WEIGHT_GROUPS, type WeightGroup } from "@/lib/scoring/score";
 
@@ -29,6 +29,8 @@ export default async function MyAttemptPage(props: PageProps<"/student/results/[
   }
 
   const followUps = await studentFollowUps(user.id, id);
+  // The page leads with the error the practice is assigned for (followup target), not with another published remark.
+  const main = routeFeedback(a.feedback, followUps);
   const groups = (Object.keys(WEIGHT_GROUPS) as WeightGroup[]).filter((g) => a.checks.some((c) => c.group === g));
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -46,20 +48,24 @@ export default async function MyAttemptPage(props: PageProps<"/student/results/[
       <Section>
         <PassLine verdict={a.pass} rules={a.passRules} />
       </Section>
-      {a.feedback && (
+      {main && (
         <Section title="Главное из разбора">
-          <p className="text-sm">{a.feedback.summary}</p>
-          {a.feedback.strength && <p className="mt-2 text-sm text-emerald-800">Получилось: {a.feedback.strength}</p>}
-          {a.feedback.priority && (
+          <p className="text-sm">{main.summary}</p>
+          {main.strength && <p className="mt-2 text-sm text-emerald-800">Получилось: {main.strength}</p>}
+          {main.priority && (
             <div className="mt-3 rounded border border-arm-gray/70 bg-arm-panel p-3 text-sm">
               <p className="font-medium">
-                {a.feedback.priority.title}
-                {a.feedback.priority.critical && <Badge tone="red" className="ml-2">критично</Badge>}
+                {main.assigned ? "Главное замечание: " : ""}
+                {main.priority.title}
+                {main.priority.critical && <Badge tone="red" className="ml-2">критично</Badge>}
               </p>
-              {a.feedback.priority.evidence && <p className="mt-1 text-arm-desc">Основание: {a.feedback.priority.evidence}</p>}
-              <p className="mt-2">В следующей ситуации: {a.feedback.priority.nextAction}</p>
+              {main.priority.evidence && <p className="mt-1 text-arm-desc">Основание: {main.priority.evidence}</p>}
+              {main.priority.expected && <p className="mt-1 text-emerald-800">Как надо было: {main.priority.expected}</p>}
+              <p className="mt-2">В следующей ситуации: {main.priority.nextAction}</p>
+              {main.assigned && <p className="mt-2 text-arm-desc">По этому замечанию назначена отработка «{main.assigned}» — ниже.</p>}
             </div>
           )}
+          {main.also && <p className="mt-2 text-xs text-arm-desc">Ещё замечание из разбора: {main.also} — подробности в проверках ниже.</p>}
         </Section>
       )}
       {followUps.length > 0 && <Section title="Следующее упражнение">

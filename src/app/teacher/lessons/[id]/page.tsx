@@ -11,6 +11,8 @@ import { dealableScenarios } from "@/lib/lessons/options";
 import { placeLabel } from "@/lib/scenarios/location";
 import { describePassRules, passRulesOf } from "@/lib/scoring/pass";
 import { findLesson } from "@/lib/teacher/access";
+import { teacherFollowUps } from "@/lib/followup/teacher";
+import { FollowUpList } from "@/app/teacher/followups/FollowUpList";
 import { CoverageNotice } from "../ScenarioCoverage";
 import { serviceLabel } from "@/lib/lessons/service-label";
 import { LessonBoard } from "./LessonBoard";
@@ -35,10 +37,12 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
     }),
   ]);
   const scenarioIds = [...new Set(seats.flatMap((s) => s.scenarioIds))];
-  const [scenarios, levels] = await Promise.all([
+  const [scenarios, levels, route] = await Promise.all([
     db.scenario.findMany({ where: { id: { in: scenarioIds } }, select: { id: true, title: true } }),
     studentRatings(seats.map((s) => s.studentId), { scope: teacherLessons(lesson.teacherId) }),
+    teacherFollowUps({ OR: [{ practiceLessonId: id }, { controlLessonId: id }] }),
   ]);
+  const routeStage = route.some((f) => f.practice.lessonId === id) ? "Отработка" : "Контроль";
   const scenarioTitle = new Map(scenarios.map((s) => [s.id, s.title]));
   const settings = parseTeacherSettings(lesson.settings);
   const st = LESSON_STATUS[lesson.status];
@@ -68,6 +72,14 @@ export default async function LessonPage(props: PageProps<"/teacher/lessons/[id]
       />
 
       {coverage && <CoverageNotice coverage={coverage} warnings={coverageWarnings(coverage, settings)} location={settings.location} />}
+
+      <FollowUpList
+        items={route}
+        title={`Учебный маршрут: это занятие — этап «${routeStage}»`}
+        note={routeStage === "Отработка"
+          ? "Задание с подсказками по ошибке ученика. После занятия проверьте попытки; кто не выполнил задание — «Повторить отработку» на странице его ошибки."
+          : "Новая ситуация без подсказок. Начать можно, когда отработка всех участников завершена и проверена; итог по цели — на странице ошибки ученика."}
+      />
 
       {lesson.status !== "DRAFT" && (
         <div className="flex flex-wrap gap-2 text-sm">

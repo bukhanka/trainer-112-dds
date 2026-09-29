@@ -1,17 +1,19 @@
-import { createHash } from "node:crypto";
-import type { Prisma, SeatRole } from "@prisma/client";
+import { Prisma, type SeatRole } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { referenceFor, hasCardError, territorialLevel } from "@/lib/dds/scenario";
 import { readCriteria, readOverrides } from "@/lib/review/draft";
 import { getActiveWeights } from "@/lib/scoring/weights";
 import { lessonSettingsSchema } from "@/lib/lessons/settings";
-import { scenarioOfCall } from "@/lib/lessons/in-play";
-import { scenarioPlace } from "@/lib/scenarios/place";
-import { sameName } from "@/lib/scenarios/location";
 import { attemptScope, auditInTx } from "@/lib/teacher/access";
 import type { SessionUser } from "@/lib/auth/session";
-import { eligiblePair, effectiveChecks, learningMeta, reviewDigest, SKILLS, skillKeySchema } from "./skills";
+import { seenSituations } from "./exposure";
+import { pairProblem } from "./pairing";
+import { caseOption, poolScenarioSelect, SEEN, unsuitable, type PoolContext, type PoolScenario } from "./pool";
+import { effectiveChecks, reviewDigest, scenarioDigest, SKILLS, skillKeySchema, type SkillKey } from "./skills";
+import { followUpState, loadFollowUp, snapshot, sourceIsCurrent } from "./state";
+
+export { caseHeardOnCall } from "./exposure";
+export { scenarioDigest } from "./skills";
 
 export const createSchema = z.object({
   skillKey: skillKeySchema,
@@ -25,12 +27,16 @@ export type CreateInput = z.infer<typeof createSchema>;
 export type CreateResult = { ok: true; practiceLessonId: string; controlLessonId: string; followUpIds: string[]; existing: boolean }
   | { ok: false; status: number; error: string };
 const fail = (error: string, status = 400): CreateResult => ({ ok: false, status, error });
-const sha = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-export function caseHeardOnCall(caseIds: string[], calls: { counterpart: Prisma.JsonValue }[]): boolean {
-  return calls.some((call) => { const id = scenarioOfCall(call); return Boolean(id && caseIds.includes(id)); });
+
+type Tx = Prisma.TransactionClient;
+
+/** Whether a case suits this student for this stage; the text says why not (followup/pool.ts). */
+function caseProblem(skill: SkillKey, s: PoolScenario, ctx: PoolContext, purpose: "practice" | "control", who: string): string | null {
+  const why = unsuitable(skill, s, ctx, purpose);
+  if (!why) return null;
+  if (why === SEEN) return `Контрольная ситуация «${s.title}» уже предъявлялась ученику ${who}: для контроля нужна новая`;
+  return `«${s.title}» не подходит для ${purpose === "practice" ? "отработки" : "контроля"} ученику ${who}: ${why}`;
 }
-export const scenarioDigest = (s: { caller: unknown; truth: unknown; ddsCard: unknown; ddsReference: unknown; learningMeta: unknown; updatedAt: Date }) =>
-  sha([s.caller, s.truth, s.ddsCard, s.ddsReference, s.learningMeta]);
 
 /** One request, one coherent class task. All reads and creations share a serializable transaction. */
 export async function createFollowUps(user: SessionUser, request: Request, raw: unknown): Promise<CreateResult> {
@@ -45,7 +51,7 @@ export async function createFollowUps(user: SessionUser, request: Request, raw: 
     return await db.$transaction(async (tx) => {
       const attempts = await tx.attempt.findMany({
         where: { id: { in: ids }, ...attemptScope(user) },
-        include: { lesson: true, seat: { include: { service: true } } },
+        include: { lesson: true, seat: { include: { service: true } }, student: { select: { fullName: true } } },
       });
       if (attempts.length !== ids.length) return fail("Попытка не найдена", 404);
       const byId = new Map(attempts.map((a) => [a.id, a]));
@@ -80,57 +86,36 @@ export async function createFollowUps(user: SessionUser, request: Request, raw: 
         const complete = existing.length === ordered.length && existing.every((f) => {
           const r = revisions.find((x) => x.attempt.id === f.sourceAttemptId);
           const item = input.items.find((x) => x.attemptId === f.sourceAttemptId);
-          const snap = f.sourceSnapshot as { practiceScenarioId?: string; controlScenarioId?: string };
+          const snap = snapshot(f.sourceSnapshot);
           return r?.digest === f.sourceReviewDigest && snap.practiceScenarioId === item?.practiceScenarioId && snap.controlScenarioId === item?.controlScenarioId;
         }) && new Set(existing.map((f) => f.practiceLessonId)).size === 1 && new Set(existing.map((f) => f.controlLessonId)).size === 1;
         return complete
           ? { ok: true, existing: true, practiceLessonId: existing[0].practiceLessonId, controlLessonId: existing[0].controlLessonId, followUpIds: existing.map((f) => f.id) }
           : fail("Для одной из ошибок уже есть назначение; проверьте или отмените его", 409);
       }
-      const scenarios = await tx.scenario.findMany({ where: { id: { in: scenarioIds } } });
+      const scenarios = await tx.scenario.findMany({ where: { id: { in: scenarioIds } }, select: poolScenarioSelect });
       if (scenarios.length !== scenarioIds.length) return fail("Один из сценариев не найден", 409);
       const byScenario = new Map(scenarios.map((s) => [s.id, s]));
-      const allMeta = await tx.scenario.findMany({ select: { id: true, learningMeta: true } });
+      const sourceIds = ordered.flatMap((a) => (a.scenarioId ? [a.scenarioId] : []));
+      const [sources, met] = await Promise.all([
+        tx.scenario.findMany({ where: { id: { in: sourceIds } }, select: poolScenarioSelect }),
+        seenSituations(tx, ordered.map((a) => a.studentId)),
+      ]);
+      // The same rules as the teacher's form (followup/pool.ts): role, service and territory of the place, not the
+      // situation of the error, comparable difficulty, a control new to the student and different from the practice.
       for (const item of input.items) {
         const source = byId.get(item.attemptId)!;
+        const ctx: PoolContext = {
+          source: sources.find((s) => s.id === source.scenarioId) ?? null,
+          service: role === "DDS" ? source.seat.service : null,
+          seen: met.get(source.studentId) ?? new Set(),
+        };
         const practice = byScenario.get(item.practiceScenarioId)!;
         const control = byScenario.get(item.controlScenarioId)!;
-        const pm = learningMeta(practice.learningMeta);
-        const cm = learningMeta(control.learningMeta);
-        if (practice.status !== "APPROVED" || control.status !== "APPROVED" || !eligiblePair(pm, cm, input.skillKey)) {
-          return fail("Нужны два утверждённых сопоставимых сценария: для отработки и отдельного контроля", 409);
-        }
-        const caseIds = allMeta.filter((s) => learningMeta(s.learningMeta)?.caseKey === cm!.caseKey).map((s) => s.id);
-        const ownSeats = await tx.seat.findMany({ where: { studentId: source.studentId }, select: { id: true } });
-        const seatIds = ownSeats.map((s) => s.id);
-        const [seenCard, callerCalls] = await Promise.all([
-          tx.incident.findFirst({
-            where: { scenarioId: { in: caseIds }, OR: [{ createdBySeatId: { in: seatIds } }, { ddsSeatId: { in: seatIds } }] },
-            select: { id: true },
-          }),
-          tx.call.findMany({ where: { seatId: { in: seatIds }, kind: "CALLER_IN" }, select: { counterpart: true } }),
-        ]);
-        // A caller's case has already been exposed even if the operator never saved a card.
-        if (seenCard || caseHeardOnCall(caseIds, callerCalls)) {
-          return fail("Контрольная ситуация уже предъявлялась одному из учеников", 409);
-        }
-        if (role === "OP112") {
-          if (hasCardError(practice.ddsReference) || hasCardError(control.ddsReference)) return fail("Сценарий с ошибочной готовой карточкой предназначен месту ДДС", 409);
-        } else {
-          const service = source.seat.service;
-          if (!service || !practice.ddsCard || !control.ddsCard || !referenceFor(practice.ddsReference, service) || !referenceFor(control.ddsReference, service)) {
-            return fail("Для службы этого ученика нет подходящей карточки и эталона ДДС", 409);
-          }
-          const level = territorialLevel(service.shortName);
-          if (level) {
-            const name = service.shortName.replace(/^Поселение\s+/i, "");
-            for (const s of [practice, control]) {
-              const place = scenarioPlace(s.truth);
-              const expected = level === "district" ? place.district : place.okrug;
-              if (!expected || !sameName(expected, name)) return fail("Карточка находится вне территории службы ученика", 409);
-            }
-          }
-        }
+        const problem = caseProblem(input.skillKey, practice, ctx, "practice", source.student.fullName)
+          ?? caseProblem(input.skillKey, control, ctx, "control", source.student.fullName)
+          ?? pairProblem(role, caseOption(input.skillKey, practice, ctx, "practice"), caseOption(input.skillKey, control, ctx, "control"));
+        if (problem) return fail(problem, 409);
       }
       const base = lessonSettingsSchema.parse(sourceLesson.settings);
       const frozenWeights = (await getActiveWeights(tx)).weights;
@@ -165,7 +150,7 @@ export async function createFollowUps(user: SessionUser, request: Request, raw: 
         created.push(followUp.id);
       }
       await auditInTx(tx, user, request, { action: "followup.create", entity: "Lesson", entityId: practice.id,
-        after: { controlLessonId: control.id, skillKey: input.skillKey, count: created.length } });
+        after: { controlLessonId: control.id, skillKey: input.skillKey, count: created.length, followUpIds: created } });
       return { ok: true, existing: false, practiceLessonId: practice.id, controlLessonId: control.id, followUpIds: created };
     }, { isolationLevel: "Serializable" });
   } catch (err) {
@@ -175,4 +160,117 @@ export async function createFollowUps(user: SessionUser, request: Request, raw: 
     }
     throw err;
   }
+}
+
+export type StageChange = { ok: true; state: string; practiceLessonId: string; controlLessonId: string } | { ok: false; status: number; error: string };
+type Link = NonNullable<Awaited<ReturnType<typeof loadFollowUp>>>;
+
+/** The student's pool context for a follow-up: the source case, the place's service, what the student has met. */
+async function contextOf(tx: Tx, link: Link): Promise<{ skill: SkillKey; ctx: PoolContext; practice: PoolScenario | null }> {
+  const skill = link.skillKey as SkillKey;
+  const snap = snapshot(link.sourceSnapshot);
+  const studentId = link.sourceAttempt.studentId;
+  const [source, service, practice, met] = await Promise.all([
+    link.sourceAttempt.scenarioId ? tx.scenario.findUnique({ where: { id: link.sourceAttempt.scenarioId }, select: poolScenarioSelect }) : null,
+    SKILLS[skill].role === "DDS" && snap.serviceId ? tx.service.findUnique({ where: { id: snap.serviceId } }) : null,
+    snap.practiceScenarioId ? tx.scenario.findUnique({ where: { id: snap.practiceScenarioId }, select: poolScenarioSelect }) : null,
+    seenSituations(tx, [studentId]),
+  ]);
+  return { skill, ctx: { source, service, seen: met.get(studentId) ?? new Set() }, practice };
+}
+
+/** A new control case for this student: suitable, new to the student, a valid pair with the practice case. */
+async function checkNewControl(tx: Tx, link: Link, controlScenarioId: string, who: string): Promise<{ scenario: PoolScenario } | { error: string }> {
+  const { skill, ctx, practice } = await contextOf(tx, link);
+  const scenario = await tx.scenario.findUnique({ where: { id: controlScenarioId }, select: poolScenarioSelect });
+  if (!scenario) return { error: "Сценарий не найден" };
+  if (!practice) return { error: "Сценарий отработки не найден" };
+  const problem = caseProblem(skill, scenario, ctx, "control", who)
+    ?? pairProblem(SKILLS[skill].role, caseOption(skill, practice, ctx, "practice"), caseOption(skill, scenario, ctx, "control"));
+  return problem ? { error: problem } : { scenario };
+}
+
+/** A lesson of one place for this student, with the settings of the lesson it repeats. */
+async function lessonFor(tx: Tx, link: Link, from: { title: string; teacherId: string; groupId: string | null; settings: Prisma.JsonValue }, title: string, scenarioId: string) {
+  const snap = snapshot(link.sourceSnapshot);
+  const lesson = await tx.lesson.create({ data: { title: title.slice(0, 120), teacherId: from.teacherId, groupId: from.groupId, settings: (from.settings ?? {}) as Prisma.InputJsonValue } });
+  await tx.seat.create({ data: { lessonId: lesson.id, studentId: link.sourceAttempt.studentId, role: SKILLS[link.skillKey as SkillKey].role, serviceId: snap.serviceId ?? null, scenarioIds: [scenarioId], label: "Место 1" } });
+  return lesson;
+}
+
+/**
+ * «Повторить отработку» / «Повторить контроль»: the stage's lesson is over and the student has no attempt in it. The
+ * student gets a new draft lesson of the stage; the finished one stays in the history. A student repeating the
+ * practice leaves the class control lesson for one of his own, so the rest of the class can start their control.
+ * A control case the student already heard (a missed call) is replaced by a new one the teacher chooses.
+ */
+export async function repeatStage(tx: Tx, user: SessionUser, request: Request, link: Link, stage: "practice" | "control", controlScenarioId?: string): Promise<StageChange> {
+  const state = await followUpState(tx, link);
+  const snap = snapshot(link.sourceSnapshot);
+  const skill = link.skillKey as SkillKey;
+  const who = (await tx.user.findUnique({ where: { id: link.sourceAttempt.studentId }, select: { fullName: true } }))?.fullName ?? "";
+  const before = { practiceLessonId: link.practiceLessonId, controlLessonId: link.controlLessonId, controlScenarioId: snap.controlScenarioId };
+  let practiceLessonId = link.practiceLessonId;
+  let controlLessonId = link.controlLessonId;
+  const data: Prisma.FollowUpUpdateInput = {};
+  if (stage === "practice") {
+    if (state !== "practice_missed") return { ok: false, status: 409, error: "Повторить отработку можно, когда её занятие завершено, а попытки ученика в нём нет" };
+    if (!snap.practiceScenarioId) return { ok: false, status: 409, error: "В назначении нет сценария отработки" };
+    const practice = await lessonFor(tx, link, link.practiceLesson, `Отработка (повтор): ${SKILLS[skill].title}`, snap.practiceScenarioId);
+    practiceLessonId = practice.id;
+    data.practiceLesson = { connect: { id: practice.id } };
+    data.practiceJudgment = Prisma.DbNull;
+    const classmates = await tx.followUp.count({ where: { controlLessonId: link.controlLessonId, cancelledAt: null, id: { not: link.id } } });
+    if (classmates && snap.controlScenarioId) {
+      if (link.controlLesson.status !== "DRAFT") return { ok: false, status: 409, error: "Контроль класса уже начат" };
+      await tx.seat.deleteMany({ where: { lessonId: link.controlLessonId, studentId: link.sourceAttempt.studentId } });
+      const control = await lessonFor(tx, link, link.controlLesson, `Контроль (отдельно): ${link.controlLesson.title.replace(/^Контроль:\s*/, "")}`, snap.controlScenarioId);
+      controlLessonId = control.id;
+      data.controlLesson = { connect: { id: control.id } };
+    }
+  } else {
+    if (state !== "control_missed") return { ok: false, status: 409, error: "Повторить контроль можно, когда его занятие завершено, а попытки ученика в нём нет" };
+    const current = snap.controlScenarioId ? await tx.scenario.findUnique({ where: { id: snap.controlScenarioId }, select: poolScenarioSelect }) : null;
+    const wanted = controlScenarioId ?? current?.id;
+    if (!wanted) return { ok: false, status: 409, error: "Выберите новую контрольную ситуацию" };
+    const checked = await checkNewControl(tx, link, wanted, who);
+    if ("error" in checked) {
+      // The case rang or came to the student in the finished control: it is no longer new, the teacher picks another.
+      return { ok: false, status: 409, error: controlScenarioId ? checked.error : `${checked.error}. Выберите другую контрольную ситуацию` };
+    }
+    const control = await lessonFor(tx, link, link.controlLesson, `Контроль (повтор): ${link.controlLesson.title.replace(/^Контроль(\s*\([^)]*\))?:\s*/, "")}`, checked.scenario.id);
+    controlLessonId = control.id;
+    data.controlLesson = { connect: { id: control.id } };
+    data.controlJudgment = Prisma.DbNull;
+    if (checked.scenario.id !== snap.controlScenarioId) {
+      data.sourceSnapshot = { ...(link.sourceSnapshot as Record<string, unknown>), controlScenarioId: checked.scenario.id, controlDigest: scenarioDigest(checked.scenario) } as Prisma.InputJsonValue;
+    }
+  }
+  await tx.followUp.update({ where: { id: link.id }, data });
+  await auditInTx(tx, user, request, { action: "followup.repeat", entity: "FollowUp", entityId: link.id, before,
+    after: { stage, practiceLessonId, controlLessonId, controlScenarioId: stage === "control" ? (controlScenarioId ?? snap.controlScenarioId) : snap.controlScenarioId } });
+  return { ok: true, state: stage === "practice" ? "planned" : "control_ready", practiceLessonId, controlLessonId };
+}
+
+/**
+ * «Заменить контроль»: before the control starts, the student has met its case elsewhere (another lesson, practice at
+ * the workstation). The student's place in the draft control lesson gets another new case.
+ */
+export async function replaceControl(tx: Tx, user: SessionUser, request: Request, link: Link, controlScenarioId: string): Promise<StageChange> {
+  if (link.controlLesson.status !== "DRAFT") return { ok: false, status: 409, error: "Контроль уже начат — заменить ситуацию нельзя" };
+  if (!sourceIsCurrent(link)) return { ok: false, status: 409, error: "Исходный разбор изменён" };
+  const snap = snapshot(link.sourceSnapshot);
+  if (controlScenarioId === snap.controlScenarioId) return { ok: false, status: 409, error: "Это та же контрольная ситуация" };
+  const who = (await tx.user.findUnique({ where: { id: link.sourceAttempt.studentId }, select: { fullName: true } }))?.fullName ?? "";
+  const checked = await checkNewControl(tx, link, controlScenarioId, who);
+  if ("error" in checked) return { ok: false, status: 409, error: checked.error };
+  const seat = link.controlLesson.seats.find((s) => s.studentId === link.sourceAttempt.studentId);
+  if (!seat) return { ok: false, status: 409, error: "Места ученика в контроле нет" };
+  await tx.seat.update({ where: { id: seat.id }, data: { scenarioIds: [checked.scenario.id] } });
+  await tx.followUp.update({ where: { id: link.id }, data: {
+    sourceSnapshot: { ...(link.sourceSnapshot as Record<string, unknown>), controlScenarioId: checked.scenario.id, controlDigest: scenarioDigest(checked.scenario) } as Prisma.InputJsonValue,
+  } });
+  await auditInTx(tx, user, request, { action: "followup.replace_control", entity: "FollowUp", entityId: link.id,
+    before: { controlScenarioId: snap.controlScenarioId }, after: { controlScenarioId: checked.scenario.id } });
+  return { ok: true, state: "control_ready", practiceLessonId: link.practiceLessonId, controlLessonId: link.controlLessonId };
 }
