@@ -116,6 +116,8 @@ const COOL_DOWN_MS = 2 * 60_000;
 let modelDownUntil = 0;
 
 class ReplyTimeout extends Error {}
+/** The model's line names a fact of the ticket with another value: the rules answer this turn instead. */
+class CallerContradiction extends Error {}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -151,6 +153,8 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
         /* fall through to the rules */
       }
     }
+    // A line that contradicts the ticket is this turn's problem: the rules answer it, the model stays for the next one.
+    if (err instanceof CallerContradiction) return null;
     modelDownUntil = Date.now() + COOL_DOWN_MS;
     console.error("op112 caller: model unavailable, answering by rules", err instanceof Error ? err.message.slice(0, 200) : err);
     return null;
@@ -240,7 +244,7 @@ export function cleanCallerReply(out: { reply: string; revealed?: string[] }, ca
   if (claimed.some((key) => {
     const fact = cards.find((c) => c.key === key);
     return fact?.expect && !spokenMatchesFact(fact, text);
-  })) throw new Error("caller reply contradicts its disclosed facts");
+  })) throw new CallerContradiction("caller reply contradicts its disclosed facts");
   return { text, revealed: claimed };
 }
 
