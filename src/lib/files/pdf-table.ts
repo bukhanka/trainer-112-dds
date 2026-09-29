@@ -22,7 +22,7 @@ type Line = { y: number; items: PdfItem[] };
 const HEADER = /ситуац|адрес/i;
 const NUMBER = /^№?\s*(\d{1,2})\s*[.)]?$/;
 const TICKET = /^билет\s*(?:№\s*)?\d{1,3}(?!\d)/i;
-const STARTS_PART = /^(билет\s*(№\s*)?\d|№\s*\d|\d{1,2}\s*[.)|]|\||(ситуация|адрес|описание)\s*[:—-]|отработайте)/i;
+const STARTS_PART = /^(билет\s*(№\s*)?\d|№\s*\d|\d{1,2}\s*([.)]\s|\|)|\||(ситуация|адрес|описание)\s*[:—-]|отработайте)/i;
 
 /** Items on one baseline, top to bottom; items of a line left to right. */
 function linesOf(items: PdfItem[]): Line[] {
@@ -184,6 +184,13 @@ function stitched(pages: PdfItem[][]): PdfItem[] {
  * The text of a PDF without tables as lines of the source: a line that reaches the right margin was wrapped by the
  * page and goes on in the next one («1 | Возгорание мусорного контейнера, … Сидоров Иван» + «Сергеевич, … | Москва…»).
  */
+/** The width of the first word of a line, from the width of its first run. */
+function firstWordWidth(line: Line): number {
+  const run = line.items[0];
+  const word = run.str.trim().split(/\s+/)[0] ?? "";
+  return run.str.length ? (run.w * word.length) / run.str.length : 0;
+}
+
 export function pdfLines(pages: PdfItem[][]): DocBlock[] {
   const out: DocBlock[] = [];
   for (const items of pages) {
@@ -193,9 +200,10 @@ export function pdfLines(pages: PdfItem[][]): DocBlock[] {
     let joined = "";
     lines.forEach((l, i) => {
       joined = joined ? `${joined} ${textOf(l.items)}` : textOf(l.items);
-      // …unless the next line starts a new part: «Билет N», «№ 2», «2 | …», «| Адрес: …», «Адрес: …».
+      // A line was wrapped when the first word of the next one would not have fitted after it — unless the next line
+      // starts a new part: «Билет N», «№ 2», «2 | …», «| Адрес: …», «Адрес: …».
       const next = i + 1 < lines.length ? textOf(lines[i + 1].items) : "";
-      const full = right(l) >= margin - 18 && next !== "" && !STARTS_PART.test(next);
+      const full = next !== "" && !STARTS_PART.test(next) && right(l) + firstWordWidth(lines[i + 1]) + 3 >= margin;
       if (!full) {
         out.push({ kind: "p", text: joined });
         joined = "";

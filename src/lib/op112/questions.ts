@@ -23,7 +23,7 @@ export function asksPlace(text: string): boolean {
 
 export type ClarificationVerdict = { ok: boolean | null; evidence: string; expected?: string };
 
-const quote = (s: string, max = 110) => `«${s.length > max ? `${s.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : s}»`;
+const quote = (s: string, max = 110) => `«${s.length > max ? `${s.slice(0, max - 1).replace(/\s+\S*$/, "").replace(/[\s,.;:!?—–-]+$/, "")}…` : s}»`;
 const spoken = (m: CallLine) => m.role === "counterpart" && !m.noise;
 
 /**

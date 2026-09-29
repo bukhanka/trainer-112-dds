@@ -104,9 +104,14 @@ export function pipeTables(blocks: DocBlock[]): DocBlock[] {
       }
       const cells = pipeCells(line);
       const current: string[][] = rows ?? (rows = []);
+      const last = current[current.length - 1];
       // «  | Адрес: …» — no number, no first cell: the rest of the row above.
-      if (/^\s*\|/.test(line) && !cells[0] && current.length) current[current.length - 1].push(...cells.slice(1).filter(Boolean));
-      else current.push(cells);
+      if (/^\s*\|/.test(line) && !cells[0] && last) last.push(...cells.slice(1).filter(Boolean));
+      // «Сергеевич, 916… | Москва, …» after a numbered row: the row wrapped by the page goes on.
+      else if (last && cells[0] && !ROW_NUMBER.test(cells[0]) && current.some((r) => ROW_NUMBER.test(r[0] ?? ""))) {
+        last[last.length - 1] = `${last[last.length - 1]} ${cells[0]}`.trim();
+        last.push(...cells.slice(1));
+      } else current.push(cells);
     }
   }
   flush();
