@@ -14,7 +14,9 @@ import { db } from "@/lib/db";
 import { adaptiveChoice, type LessonSettings } from "@/lib/lessons/settings";
 import { botActor, botPlan, dueSteps, hash } from "@/lib/dds/bots";
 import { phoneTick } from "@/lib/dds/calls";
-import { ddsCardOf, hasOwnReference, reachesPlace, serviceReport, victimsOnSite, type ScenarioLike } from "@/lib/dds/scenario";
+import { ddsCardOf, hasOwnReference, personaOf, reachesPlace, serviceReport, victimsOnSite, type ScenarioLike } from "@/lib/dds/scenario";
+import { distinctCaller } from "@/lib/op112/identity";
+import { lessonCallers } from "@/lib/op112/identity-db";
 import {
   hasStreets,
   houseKey,
@@ -35,7 +37,7 @@ import { DONE_STATUSES, seatFeedWhere, settingsOf, SYSTEM_ACTOR, TRAINING_OPERAT
 import { studentRating } from "@/lib/adaptive/levels";
 import { pickAdaptive } from "@/lib/adaptive/pick";
 import { inPlayAt112, preferNotInPlay, takenAt112 } from "@/lib/lessons/in-play";
-import { withoutPairsOf, withPairs } from "@/lib/scenarios/pairs";
+import { situationOf, withoutPairsOf, withPairs } from "@/lib/scenarios/pairs";
 import { inLessonLocation } from "@/lib/scenarios/place";
 
 type Tx = Prisma.TransactionClient;
@@ -272,6 +274,23 @@ type PlateRow = { id: number; shortName: string; okrug: string | null; district:
 /** A generated card for the place, as it comes to its feed: on its territory, its plates «Добавлена» at `now`. */
 export async function createCard(tx: Tx, seat: Pick<Seat, "id" | "lessonId" | "serviceId">, scenario: ScenarioLike, now: Date) {
   let spec = ddsCardOf(scenario);
+  // One caller per situation in the lesson, as at the 112 places: the tickets reuse names and numbers (op112/identity.ts).
+  const persona = personaOf(scenario);
+  const repeat = (scenario.truth as { repeatOf?: unknown } | null)?.repeatOf;
+  if (persona && spec.caller.fullName && !repeat) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`lesson-callers:${seat.lessonId}`}))`;
+    const phone = spec.caller.aon ?? spec.caller.provided;
+    const own = distinctCaller({ ...persona, fullName: spec.caller.fullName, phone }, situationOf(scenario), seat.lessonId, await lessonCallers(tx, seat.lessonId));
+    spec = {
+      ...spec,
+      caller: {
+        ...spec.caller,
+        fullName: own.fullName,
+        ...(spec.caller.aon ? { aon: own.phone } : {}),
+        ...(spec.caller.provided ? { provided: own.phone } : {}),
+      },
+    };
+  }
   const select = { id: true, shortName: true, okrug: true, district: true } as const;
   const own = await tx.service.findUnique({ where: { id: seat.serviceId! }, select });
   if (!own) return;

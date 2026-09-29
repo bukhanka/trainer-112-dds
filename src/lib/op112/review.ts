@@ -117,7 +117,10 @@ export async function loadEvalInput(incidentId: string): Promise<{ input: EvalIn
       empty: incident.status === "empty" ? (incident.description === EMPTY_TEXT.dropped ? "dropped" : "noContact") : undefined,
     },
     serviceIds: incident.services.map((s) => s.serviceId),
-    persona: (incident.scenario?.caller ?? null) as Persona | null,
+    // The caller as the call played him: in a lesson a ticket's caller may get a name and number of his own (identity.ts).
+    persona: (((call?.counterpart as { persona?: Persona } | null)?.persona?.situation ? (call!.counterpart as { persona: Persona }).persona : null) ??
+      incident.scenario?.caller ??
+      null) as Persona | null,
     truth,
     expectedServices,
     expectedServicesBy: leaves?.alternative ? (await typeNames(leaves.codes))[leaves.codes[0]] : undefined,

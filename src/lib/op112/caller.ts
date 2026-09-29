@@ -61,7 +61,7 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
       seen.add(id);
       return true;
     })
-    .map((c) => `- [${c.group ?? c.key}] ${sayable(c.text)}`)
+    .map((c) => `- [${c.group ?? c.key}] ${speech(c.text)}`)
     .join("\n");
   return [
     "Это учебный тренажёр службы 112. Ты играешь заявителя — человека, который сам позвонил на 112. На линии обучающийся оператор, он заполняет карточку происшествия по твоим словам.",
@@ -71,9 +71,9 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
     addressLine(p, gender),
     "",
     `[situation] Что случилось, твоими словами: ${speech(p.situation)}`,
-    `[address] Место ты называешь так: «${sayable(p.visibleAddress)}».`,
+    `[address] Место ты называешь так: «${speech(p.visibleAddress)}».`,
     p.hiddenAddress
-      ? `[addressExact] Точное место ты знаешь: «${sayable(p.hiddenAddress)}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
+      ? `[addressExact] Точное место ты знаешь: «${speech(p.hiddenAddress)}». Сам его не называй. Скажи его только тогда, когда оператор просит уточнить адрес: номер дома, корпус, ориентир, «где именно», «что рядом».`
       : "",
     `[name] Твоё имя — называй, если спросят, как тебя зовут.`,
     `[status] Кем ты приходишься происшествию: ${p.role}.`,
@@ -89,7 +89,8 @@ function systemPrompt(p: Persona, cards: FactCard[], gender: Gender = null): str
     "5. Адрес говори полными словами, как вслух: «улица», «дом», «квартира», без сокращений. Номера домов, квартир, телефонов и другие числа пиши цифрами, как в твоих сведениях.",
     "6. Чего в твоих сведениях нет — не выдумывай: «не знаю», «отсюда не видно».",
     "7. Не выходи из роли, не называй себя программой, не подсказывай оператору, что ему делать.",
-    "8. Если оператор говорит не по делу, верни разговор к своей беде. Если сказал, что помощь едет, — коротко поблагодари.",
+    "8. О себе говори от первого лица: «не знаю», «не вижу», «я на седьмом этаже». Сведения выше записаны о тебе со стороны — пересказывай их от себя, а не как записку о ком-то.",
+    "9. Если оператор говорит не по делу, верни разговор к своей беде. Если сказал, что помощь едет, — коротко поблагодари.",
     "",
     'Верни JSON: {"reply": "твоя реплика", "revealed": ["ключи сведений из квадратных скобок, которые ты назвал в этой реплике"]}.',
   ]
@@ -115,6 +116,8 @@ const COOL_DOWN_MS = 2 * 60_000;
 let modelDownUntil = 0;
 
 class ReplyTimeout extends Error {}
+/** The model's line names a fact of the ticket with another value: the rules answer this turn instead. */
+class CallerContradiction extends Error {}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -145,11 +148,13 @@ async function modelLine(messages: ChatMessage[], cards: FactCard[], mock: () =>
     if (err instanceof Error && /invalid JSON/i.test(err.message)) {
       try {
         const text = await withTimeout(chat(messages, { temperature: 0.6, maxTokens: 200 }), REPLY_TIMEOUT_MS);
-        if (text.trim()) return { text: sayable(text), revealed: guessRevealed(text, cards) };
+        if (text.trim()) return { text: speech(text), revealed: guessRevealed(speech(text), cards) };
       } catch {
         /* fall through to the rules */
       }
     }
+    // A line that contradicts the ticket is this turn's problem: the rules answer it, the model stays for the next one.
+    if (err instanceof CallerContradiction) return null;
     modelDownUntil = Date.now() + COOL_DOWN_MS;
     console.error("op112 caller: model unavailable, answering by rules", err instanceof Error ? err.message.slice(0, 200) : err);
     return null;
@@ -189,7 +194,7 @@ export function noiseLines(turn: Exclude<LineTurn, { kind: "talk" }>, at: string
     return turn.hangup ? [silence, { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" }] : [silence];
   }
   return [
-    ...(turn.words ? [{ role: "counterpart" as const, text: sayable(turn.words), at, revealed: [] }] : []),
+    ...(turn.words ? [{ role: "counterpart" as const, text: speech(turn.words), at, revealed: [] }] : []),
     { role: "counterpart", text: NOISE_TEXT.hangup, at, revealed: [], noise: "hangup" },
   ];
 }
@@ -201,7 +206,7 @@ export function noiseLines(turn: Exclude<LineTurn, { kind: "talk" }>, at: string
 export async function callerOpening(p: Persona): Promise<CallerReply & { noise?: "silence" }> {
   if (p.line === "silent") return { text: NOISE_TEXT.silence, revealed: [], noise: "silence" };
   // A written opening (a call that breaks mid-sentence) is said as is, with or without a model.
-  if (p.opening?.trim()) return { text: sayable(p.opening), revealed: guessRevealed(p.opening, factCards(p)) };
+  if (p.opening?.trim()) return { text: speech(p.opening), revealed: guessRevealed(p.opening, factCards(p)) };
   return mockOpening(p);
 }
 
@@ -228,8 +233,9 @@ export async function callerReply(p: Persona, history: CallLine[], operatorText:
 
 export function cleanCallerReply(out: { reply: string; revealed?: string[] }, cards: FactCard[]): CallerReply {
   const keys = new Set(cards.map((c) => c.key));
-  // Said aloud, so no written shorthand: a model still writes «ул.» and «д.» now and then.
-  const text = sayable(out.reply.replace(/^\s*["«]|["»]\s*$/g, ""));
+  // Said aloud, so no written shorthand: a model still writes «ул.» and «д.» now and then — and, reading the ticket's
+  // notes, «номер дома не знает» about itself: the caller speaks in the first person (speech/first-person.ts).
+  const text = speech(out.reply.replace(/^\s*["«]|["»]\s*$/g, ""));
   // A model that ignored the «revealed» field gets its disclosures guessed from the words it used.
   if (!out.revealed) return { text, revealed: guessRevealed(text, cards) };
   const groups = new Set(cards.map((c) => c.group).filter(Boolean));
@@ -238,7 +244,7 @@ export function cleanCallerReply(out: { reply: string; revealed?: string[] }, ca
   if (claimed.some((key) => {
     const fact = cards.find((c) => c.key === key);
     return fact?.expect && !spokenMatchesFact(fact, text);
-  })) throw new Error("caller reply contradicts its disclosed facts");
+  })) throw new CallerContradiction("caller reply contradicts its disclosed facts");
   return { text, revealed: claimed };
 }
 
@@ -272,7 +278,7 @@ export function spokenMatchesFact(fact: FactCard, line: string): boolean {
   if (e.kind === "flag") {
     if (!evidenced(fact, line)) return false;
     const negative = e.flag === "gas" ? /нет газа|газа нет|без газа|электроплит|не газиф/
-      : e.flag === "victims" ? /пострадавших нет|пострадавших не видит|никто не пострадал|без пострадавш/ : null;
+      : e.flag === "victims" ? /пострадавших нет|пострадавших не (видит|вижу|видно)|никто не пострадал|без пострадавш/ : null;
     if (negative?.test(t)) return e.value === false;
     if (e.flag === "gas" && /газиф|газ есть|газ проведен/.test(t)) return e.value === true;
     if (e.flag === "victims" && /есть(?: [а-я]+){0,3} пострадавш|пострадавшие есть|человек пострадал|ранен|травм/.test(t)) return e.value === true;
@@ -454,6 +460,8 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string,
   if (topics.includes("address") && !topics.includes("addressExact") && said.has("address") && p.hiddenAddress) {
     topics = [...topics.filter((x) => x !== "address"), "addressExact"];
   }
+  // «Уточните, пожалуйста», «А точнее?» with nothing else, right after the caller named the place: the same.
+  if (!topics.length && /уточн|точнее/.test(t) && said.has("address")) topics = ["addressExact"];
   if (topics.includes("addressExact") && !p.hiddenAddress && !topics.includes("address")) topics.push("address");
   if (topics.includes("addressExact") && p.hiddenAddress) topics = topics.filter((x) => x !== "address");
 
@@ -466,7 +474,7 @@ export function mockReply(p: Persona, history: CallLine[], operatorText: string,
   if (!told) revealed.push("situation", ...factsIn(story, cards));
   const say = (card: FactCard | undefined, text?: string) => {
     if (!card) return;
-    const line = sayable(text ?? card.text);
+    const line = speech(text ?? card.text);
     revealed.push(card.key);
     // Said before: not the same words again, but «Я же говорю — …».
     if (said.has(card.key)) {

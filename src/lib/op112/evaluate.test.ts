@@ -240,6 +240,59 @@ describe("evaluateOp112Rules", () => {
   });
 });
 
+describe("clarifying the place counts only after the caller's first answer", () => {
+  // Б4-1: the caller does not know the house number, the exact place comes on a clarifying question.
+  const grina: Persona = {
+    ...persona,
+    visibleAddress: "Москва, ул. Грина, номер дома не знает, в этом доме библиотека № 193",
+    hiddenAddress: "ул. Грина, дом 11",
+    situation: "Пожар! На улице Грина горит балкон на тринадцатом этаже.",
+  };
+  const t4 = normalizeTruth({ ...truthRaw, requiredQuestions: ["Уточнить адрес: первый ответ заявителя неполный или неточный", "Номер дома (ориентир — библиотека № 193)", "Газифицирован ли дом"] }, CATALOG)!;
+  const hello = line("counterpart", "Алло, здравствуйте…", []);
+  const incomplete = line("counterpart", "Пожар! На улице Грина горит балкон. Москва, улица Грина, номер дома не знаю, в этом доме библиотека номер 193.", ["situation", "address"]);
+  const exact = line("counterpart", "Сейчас… точнее так: улица Грина, дом 11.", ["addressExact"]);
+  const judge = (messages: CallLine[]) => evaluateOp112Rules({ ...input({ messages }), persona: grina, truth: t4 });
+
+  it("the jury's case: «Назовите адрес.» before the caller answered is not a clarification", () => {
+    const res = judge([hello, line("trainee", "Служба 112, что у вас случилось? Назовите адрес."), incomplete, line("trainee", "Есть пострадавшие?"), line("counterpart", "Не знаю, не вижу.", [])]);
+    const q = byCode(res, "op112.question.1")!;
+    expect(q.ok).toBe(false);
+    expect(q.evidence).toContain("уточняющего вопроса после этого не было");
+    expect(q.evidence).toContain("прозвучал до ответа");
+    expect(q.expected).toMatch(/номер дома/);
+    // The neighbouring question about the house number is not asked by «Назовите адрес» either.
+    expect(byCode(res, "op112.question.2")?.ok).toBe(false);
+  });
+
+  it("a question about the place after the incomplete answer is the clarification, quoted with that answer", () => {
+    const res = judge([hello, line("trainee", "Служба 112, что случилось? Назовите адрес."), incomplete, line("trainee", "Какой номер дома? Что рядом?"), exact]);
+    const q = byCode(res, "op112.question.1")!;
+    expect(q.ok).toBe(true);
+    expect(q.evidence).toContain("«Какой номер дома? Что рядом?»");
+    expect(q.evidence).toContain("после ответа заявителя «Пожар!");
+    expect(byCode(res, "op112.question.2")?.ok).toBe(true);
+  });
+
+  it("a line with «уточните» about something else does not clarify the place", () => {
+    const res = judge([hello, line("trainee", "Назовите адрес"), incomplete, line("trainee", "Уточните, есть ли пострадавшие? Какой номер телефона?")]);
+    expect(byCode(res, "op112.question.1")?.ok).toBe(false);
+    expect(byCode(res, "op112.question.2")?.ok).toBe(false);
+  });
+
+  it("nothing to clarify when the first answer already was the exact place: «не применимо», not a pass", () => {
+    const direct = line("counterpart", "Пожар! Горит балкон. Улица Грина, дом 11.", ["situation", "addressExact"]);
+    const q = byCode(judge([hello, line("trainee", "Служба 112, назовите точный адрес, номер дома"), direct]), "op112.question.1")!;
+    expect(q.ok).toBeNull();
+    expect(q.evidence).toContain("Уточнять не пришлось");
+  });
+
+  it("no question about the place at all is a mistake", () => {
+    const q = byCode(judge([hello, line("trainee", "Что случилось?"), line("counterpart", "Горит балкон на тринадцатом этаже!", ["situation"])]), "op112.question.1")!;
+    expect(q).toMatchObject({ ok: false, evidence: "Вопросов об адресе не было" });
+  });
+});
+
 describe("reference answer", () => {
   it("reads the data format: services as objects, questions as text, gist from tags", () => {
     expect(truth.services).toEqual([1, 7, 33, 60, 156]);

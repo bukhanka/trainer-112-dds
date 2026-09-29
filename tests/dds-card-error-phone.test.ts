@@ -160,7 +160,8 @@ describe("ДДС phone: an error in the card", () => {
     expect((store.incident!.address as Record<string, string>).entrance).toBe("3");
 
     const second = await say(seat, id, "Карточка 36815072: в карточке третий подъезд, а задымление в пятом подъезде.", at(210));
-    expect(second.ok && second.call.messages.at(-1)?.text).toBe("Принято, данные обновил, службы переоповестил. Всего доброго."); // true now
+    // The correction is true now; nobody notified the services again — that clause goes, «передам» comes (operator-claims.ts).
+    expect(second.ok && second.call.messages.at(-1)?.text).toBe("Принято, данные обновил. Остальное передам старшему смены. Всего доброго.");
     expect(store.incident!.address).toEqual({ street: "ул. Берзарина", house: "21", building: "1", entrance: "5" });
     const log = store.incident!.descriptionLog as { author: string; text: string }[];
     expect(log.at(-1)).toMatchObject({ author: "оп. 112", text: expect.stringMatching(/^Изменено оператором 112 по звонку диспетчера «Поселение Хорошево-Мневники»: подъезд 5/) });

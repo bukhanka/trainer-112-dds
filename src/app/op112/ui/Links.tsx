@@ -39,14 +39,21 @@ function CardRows(p: { cards: CardRef[]; linkedId: string | null; busy: boolean;
                 {c.mainNumber ? ` · связана с № ${c.mainNumber}` : ""}
               </div>
             </div>
-            <button
-              type="button"
-              disabled={p.busy || linked}
-              onClick={() => p.onLink(c.id)}
-              className={`shrink-0 px-4 py-1.5 text-[13.5px] font-semibold ${linked ? "bg-[#eaf7ee] text-[#1c6b33]" : "bg-arm-blue text-white hover:brightness-95 disabled:opacity-60"}`}
-            >
-              {linked ? "связана" : "привязать"}
-            </button>
+            {c.link && c.link !== "ok" && !linked ? (
+              // The same number is not the same incident: linking waits for the same place.
+              <span className="w-[210px] shrink-0 text-right text-[12px] leading-snug text-arm-desc">
+                {c.link === "noPlace" ? "совпал только номер — заполните адрес: привязывают вызов о том же месте" : "совпал только номер, адрес другой — другое происшествие"}
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={p.busy || linked}
+                onClick={() => p.onLink(c.id)}
+                className={`shrink-0 px-4 py-1.5 text-[13.5px] font-semibold ${linked ? "bg-[#eaf7ee] text-[#1c6b33]" : "bg-arm-blue text-white hover:brightness-95 disabled:opacity-60"}`}
+              >
+                {linked ? "связана" : "привязать"}
+              </button>
+            )}
           </li>
         );
       })}

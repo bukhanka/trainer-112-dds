@@ -7,7 +7,7 @@
  *
  *   short        — one word or a few letters: «ок», «отпр бр», «Сделано»;
  *   noResult     — the closing comment does not say how it ended: «бригада на месте, работают»,
- *                  or only repeats the status: «Работы завершены»;
+ *                  only repeats the status: «Работы завершены», or says nothing of the works: «Всё сделали, он уехал»;
  *   abbreviation — a private abbreviation or truncation: «АБ», «бриг.», «п/б». Official ones (ДДС, МЧС,
  *                  ЦЭМП, ГБУ, округа…) and the words on the service plates are fine;
  *   layout       — a word typed in the English layout: «ghbyznf» instead of «принята».
@@ -106,10 +106,18 @@ const RESULT_STEM =
   /(устран|ликвид|потуш|локализ|перекры|отключ|обесточ|восстанов|подан|подал|подключ|запущ|запуст|замен|отремонт|исправ|провед|выполн|заверш|законч|эвакуир|госпитал|достав|переда|сообщ|проинформ|уведомл|оповещ|вызва|направл|прибы|осмотр|обследов|провер|очищ|убра|вывез|огорож|огражд|оцепл|спас|задерж|оформл|составл|опрош|вскры|открыт|закрыт|снят|откач|засыпа|распил|спил|закрепл|стабил|оказан|отказ|отмен|штатн|функционир|сведени|норм|ложн)/i;
 const RESULT_FORM = /[а-яё]{3,}(?:ла|ло|ли|лся|лась|лось|лись|ена|ено|ены|ёна|ёно|ёны|ен|ён|ана|ано|аны|ята|ято|яты|ыт|ыта|ыто|ыты|ута|уто|уты)(?![а-яё])/i;
 const NO_DANGER = /(?<![а-яё])(нет|не\s+(выявл|обнаруж|подтвер|требу|потребова|проводил))/i;
+/**
+ * Words that tell nothing of what was done: «всё сделали», «работы выполнены», «он уехал», «бригада прибыла».
+ * Such a closing comment has no result even though its verbs look like one.
+ */
+const VAGUE_RESULT =
+  /^(вс[её]|сделал[аио]?|сделано|сделаны|выполнил[аио]?|выполнен[аоы]?|заверш[а-яё]*|законч[а-яё]*|отработал[аио]?|отработан[аоы]?|уехал[аио]?|убыл[аио]?|ушл[аио]|уш[её]л|поработал[аио]?|приехал[аио]?|прибыл[аио]?|готов[аоы]?)$/;
 
 export function statesResult(text: string): boolean {
   if (STATUS_ECHO.test(text.trim())) return false;
-  return RESULT_STEM.test(text) || RESULT_FORM.test(text) || NO_DANGER.test(text);
+  if (NO_DANGER.test(text)) return true;
+  // A result is a word of what was done or in what state things are, not «сделали» or «уехал».
+  return (text.match(CYR_WORD) ?? []).some((w) => !VAGUE_RESULT.test(w.toLowerCase()) && (RESULT_STEM.test(w) || RESULT_FORM.test(w)));
 }
 
 /** Upper-case abbreviations in the service names (they are on the plates, so everyone knows them). */

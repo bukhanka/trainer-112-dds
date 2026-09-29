@@ -142,6 +142,26 @@ describe("facts of the tickets", () => {
     expect(askedTopics("Уточните, пожалуйста, номер дома")).toContain("addressExact");
     expect(askedTopics("Газ магистральный или баллон?")).toContain("gas");
     expect(askedTopics("Какой точный адрес?")).toContain("addressExact");
+    // «Уточните» and «какой номер» are about the house only with a word of the place.
+    expect(askedTopics("Уточните, есть ли пострадавшие?")).not.toContain("addressExact");
+    expect(askedTopics("Какой номер телефона для связи?")).not.toContain("addressExact");
+    expect(askedTopics("Уточните адрес")).toContain("addressExact");
+  });
+
+  it("a bare «Уточните, пожалуйста» after the caller named the place asks for the exact place", () => {
+    const first = mockReply(persona, [], "Назовите адрес");
+    const again = mockReply(persona, [said(first.text, first.revealed)], "Уточните, пожалуйста");
+    expect(again.revealed).toContain("addressExact");
+    expect(again.text).toContain("дом 11");
+  });
+
+  it("the caller's «пострадавших не вижу» is the ticket's «пострадавших не видит»", () => {
+    const victims = factCards(persona).find((c) => c.topic === "victims")!;
+    expect(victims.text).toBe("Людей на балконе не видно, пострадавших не вижу");
+    expect(spokenMatchesFact(victims, "Пострадавших не вижу, людей на балконе не видно")).toBe(true);
+    expect(cleanCallerReply({ reply: "Людей на балконе не видно, пострадавших не видит", revealed: [victims.key] }, factCards(persona)).text).toBe(
+      "Людей на балконе не видно, пострадавших не вижу",
+    );
   });
 
   it("matches free-text required questions", () => {
