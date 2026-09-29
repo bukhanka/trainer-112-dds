@@ -117,7 +117,7 @@ describe("starting the control of a class", () => {
     const rows = [student("s1", "Кузнецов Дмитрий Андреевич", "FINISHED", []), student("s2", "Иванов Алексей Сергеевич", "FINISHED", [attempt])];
     for (const r of rows) r.row.sourceSnapshot = { ...r.row.sourceSnapshot, controlDigest: digestOk };
     const problem = await followUpStartProblem(fake(rows) as unknown as Db, "control", ["scenario-control"]);
-    expect(problem).toMatch(/Кузнецов Д\. А\.: отработка завершена без его попытки — повторите для него отработку/);
+    expect(problem).toMatch(/Кузнецов Д\. А\.: отработка завершена без попытки ученика — нажмите «Повторить отработку»/);
     expect(problem).not.toMatch(/Иванов/);
   });
 

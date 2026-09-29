@@ -89,6 +89,14 @@ describe("ДДС practice and control for «отразить доклад бри
     expect(pool.problem).toMatch(/Сценарии/);
   });
 
+  it("does not offer for practice the only case that could still be a new control", () => {
+    const seen = new Set(["Б17-1", "Б5-1"].flatMap((ref) => caseKeys(byRef(ref))));
+    const pool = buildPool("dds.report_record", approved, { source: byRef("Б2-1"), service: district, seen });
+    expect(refs(pool.control)).toEqual(["Б4-1"]);
+    expect(refs(pool.practice)).not.toContain("Б4-1");
+    expect(pool.practice.length).toBeGreaterThan(0);
+  });
+
   it("says so when every suitable control is already familiar to the student", () => {
     const seen = new Set(all.flatMap((s) => caseKeys(s)));
     const pool = buildPool("dds.report_record", approved, { source: byRef("Б2-1"), service: district, seen });

@@ -112,7 +112,7 @@ export async function canIssueControl(client: Db, lessonId: string, studentId: s
 const NOT_READY: Partial<Record<FollowUpState, string>> = {
   planned: "отработка ещё не начата",
   practice: "отработка ещё идёт",
-  practice_missed: "отработка завершена без его попытки — повторите для него отработку или отмените назначение",
+  practice_missed: "отработка завершена без попытки ученика — нажмите «Повторить отработку» на странице его ошибки или отмените назначение",
   review_practice: "попытка отработки ждёт вашей проверки",
   source_changed: "исходный разбор изменён — проверьте и отмените старое назначение",
 };

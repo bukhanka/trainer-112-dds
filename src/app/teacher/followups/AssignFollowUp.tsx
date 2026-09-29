@@ -73,7 +73,7 @@ export function AssignFollowUp({ candidates, compact = false }: { candidates: Ca
   return <section className="rounded border border-arm-gray/70 bg-white p-4 print:hidden" aria-label="Отработка ошибки">
     <h2 className="font-semibold">Отработка ошибки</h2>
     {created && <div role="status" className="mt-2 rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
-      <p className="font-medium">Назначено: {created.names.join(", ")}.</p>
+      <p className="font-medium">Отработка назначена: {created.names.join(", ")}</p>
       <p className="mt-1">Созданы черновики двух занятий:{" "}
         <Link className="font-medium underline" href={`/teacher/lessons/${created.practiceLessonId}`}>«Отработка» — с подсказками</Link> и{" "}
         <Link className="font-medium underline" href={`/teacher/lessons/${created.controlLessonId}`}>«Контроль» — новая ситуация без подсказок</Link>.

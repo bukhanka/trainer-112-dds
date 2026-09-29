@@ -133,7 +133,7 @@ async function main() {
     const stuck = await call("GET", `/api/teacher/followups/${followUpId}`);
     check(stuck.data.state === "practice_missed", "отработка без попытки ученика — не «ждёт проверки»", stuck);
     const blocked = await call("POST", `/api/teacher/lessons/${controlLessonId}/start`);
-    check(blocked.status === 409 && String(blocked.data.error).includes("повторите для него отработку"), "старт контроля говорит, кто не готов и что сделать", blocked);
+    check(blocked.status === 409 && String(blocked.data.error).includes("Повторить отработку"), "старт контроля говорит, кто не готов и что сделать", blocked);
     const repeated = await call("PATCH", `/api/teacher/followups/${followUpId}`, { action: "repeat", stage: "practice" });
     check(repeated.status === 200 && repeated.data.practiceLessonId !== practiceId, "«Повторить отработку» создаёт новое занятие", repeated);
     practiceId = String(repeated.data.practiceLessonId);

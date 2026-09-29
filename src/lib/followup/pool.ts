@@ -19,7 +19,7 @@ import { crewExpected, ddsCardOf, hasCardError, referenceFor, territorialLevel }
 import { hasStreets, movable, placeOfAddress, territoryMatch, territoryOf } from "@/lib/dds/territory";
 import { situationOf } from "@/lib/scenarios/pairs";
 import { learningMeta } from "./metadata";
-import { hasPair, NEAR_DIFFICULTY, type CaseOption, type CasePool, type Skill } from "./pairing";
+import { hasPair, NEAR_DIFFICULTY, pairProblem, type CaseOption, type CasePool, type Skill } from "./pairing";
 
 export type PoolScenario = {
   id: string;
@@ -159,10 +159,13 @@ function ordered(options: CaseOption[], source: PoolScenario | null): CaseOption
 
 /** Practice and control options for one student, and in plain words why there is no pair when there is none. */
 export function buildPool(skill: Skill, scenarios: PoolScenario[], ctx: PoolContext): CasePool {
-  const practice = ordered(scenarios.filter((s) => unsuitable(skill, s, ctx, "practice") === null).map((s) => caseOption(skill, s, ctx, "practice")), ctx.source);
+  const suitable = ordered(scenarios.filter((s) => unsuitable(skill, s, ctx, "practice") === null).map((s) => caseOption(skill, s, ctx, "practice")), ctx.source);
   const control = ordered(scenarios.filter((s) => unsuitable(skill, s, ctx, "control") === null).map((s) => caseOption(skill, s, ctx, "control")), ctx.source);
-  const pool = { practice, control };
-  return { ...pool, problem: hasPair(ROLE_OF[skill], pool) ? null : poolProblem(skill, scenarios, ctx, pool) };
+  const pool = { practice: suitable, control };
+  if (!hasPair(ROLE_OF[skill], pool)) return { ...pool, practice: suitable, problem: poolProblem(skill, scenarios, ctx, pool) };
+  // A practice case that would leave no control to pair with (say, the only new case) is not offered for practice.
+  const practice = suitable.filter((p) => control.some((c) => pairProblem(ROLE_OF[skill], p, c) === null));
+  return { practice, control, problem: null };
 }
 
 function range(source: PoolScenario | null): string {
