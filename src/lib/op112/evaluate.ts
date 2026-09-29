@@ -13,12 +13,13 @@ import { CALLER_STATUSES, type IncidentAddress, type IncidentCaller, type Incide
 import { compareStreets as compareKnownStreets } from "@/lib/routing/address";
 import type { CriterionResult, WeightGroup } from "@/lib/scoring/score";
 import { findKind, kindTitle } from "./catalog";
-import { evidenced, factCards, findAsked, keywordRegex, low, normalizeQuestion } from "./facts";
+import { evidenced, factCards, findAsked, keywordRegex, low, normalizeQuestion, speech } from "./facts";
 import { addressLine, compareStreets as compareOwnStreets, normHouse } from "./gazetteer";
 import { spokenMatchesFact, type Persona } from "./caller";
 import type { ServiceLite } from "./routing";
 import type { CallLine, FactCard, ScenarioTruth, StoredTag } from "./types";
 import { linkCheck } from "./links";
+import { isPlaceClarification, judgeClarification } from "./questions";
 import { typingTimeCheck } from "./typing-time";
 import { phoneCheck, type PhoneNotice } from "./workoffs";
 
@@ -468,7 +469,7 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     const t = truth.address;
     const f = card.address;
     const exact = revealed.get("addressExact");
-    const said = exact ? `Заявитель уточнил: ${quote(exact.line.text)}` : persona?.hiddenAddress ? `Адрес не уточнён: заявитель назвал только ${quote(persona.visibleAddress)}` : "";
+    const said = exact ? `Заявитель уточнил: ${quote(exact.line.text)}` : persona?.hiddenAddress ? `Адрес не уточнён: заявитель назвал только ${quote(speech(persona.visibleAddress))}` : "";
     if (t.street) {
       const verdict = streetVerdict(f.street, t.street);
       add("op112.address.street", "address", "Улица совпадает с местом происшествия", invalidAddress ? null : verdict === "same", {
@@ -609,8 +610,14 @@ export function evaluateOp112Rules(input: EvalInput): CriterionResult[] {
     evidence: card.description.trim() ? `${card.description.trim().length} знаков` : "Описание пустое",
   });
 
-  // Required questions, judged by the operator's own lines.
+  // Required questions, judged by the operator's own lines. A clarification of the place counts only after the
+  // caller's first answer about it (questions.ts).
   (truth?.requiredQuestions ?? []).forEach((q, i) => {
+    if (isPlaceClarification(q)) {
+      const v = judgeClarification(messages, facts);
+      add(`op112.question.${i + 1}`, "completeness", `Задан вопрос: ${q.text}`, v.ok, { evidence: v.evidence, expected: v.expected });
+      return;
+    }
     const line = findAsked(q, operatorLines);
     add(`op112.question.${i + 1}`, "completeness", `Задан вопрос: ${q.text}`, Boolean(line), {
       evidence: line ? `Оператор: ${quote(line)}` : "Вопрос не прозвучал",

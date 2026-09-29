@@ -18,7 +18,7 @@ import { abbreviationsIn, judgedComments } from "./clarity";
 import { endHold, readHolds } from "./hold";
 import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarityAi } from "./clarity-ai";
 import { dispatchOf } from "./crew";
-import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
+import { evaluateDdsPlate, madeUpByCallBack, scoreOf, summarize } from "./evaluate";
 import { mentionsCardNumber } from "./personas";
 import { cardErrorFrom, saysCardErrorRight } from "./scenario";
 import { cardReference } from "./territory";
@@ -115,6 +115,11 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     .map((c) => ({ crew: c.crew!, at: new Date(c.dispatch!.at) }));
   const reports = crewCalls.flatMap((c) => (cp(c).reports ?? []).map((r) => ({ status: r.status, at: new Date(r.at) })));
   const incoming = calls.filter((c) => c.kind === "BRIGADE_IN" && c.status !== "RINGING");
+  // A lost report is made up when the dispatcher calls the same crew back afterwards: the senior reports what was missed.
+  const madeUp = madeUpByCallBack(
+    incoming.filter((c) => c.status === "MISSED").map((c) => ({ at: c.startedAt, crew: cp(c).crew })),
+    calls.filter((c) => c.kind === "BRIGADE_OUT" && c.answeredAt).map((c) => ({ at: c.startedAt, crew: cp(c).crew })),
+  );
   const reference = cardReference(incident.scenario?.ddsReference, plate.service, incident.address);
   // Calls to 112 about the card: made from it, naming its number (from the feed or another card), or from the keypad
   // with the right information of its error said.
@@ -148,7 +153,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     reference,
     dispatch: dispatchOf(plate.events, phoneDispatch),
     reports,
-    crewCalls: { rang: incoming.length, missed: incoming.filter((c) => c.status === "MISSED").length },
+    crewCalls: { rang: incoming.length, missed: incoming.filter((c) => c.status === "MISSED").length, madeUp },
     callbacks: calls.filter((c) => c.kind === "CALLER_OUT").map((c) => ({ at: c.startedAt, namedCardNumber: !!cp(c).namedCardNumber })),
     cardNumber: incident.number,
     calls112: to112,

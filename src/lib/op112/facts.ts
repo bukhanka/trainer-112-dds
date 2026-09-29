@@ -4,6 +4,7 @@
  * Ticket facts are free text («Дом 14 этажей, газифицирован»): one line may hold several facts.
  */
 import type { CallerPersona, CallerStatus } from "@/lib/incident/types";
+import { firstPerson } from "@/lib/speech/first-person";
 import { sayable } from "@/lib/speech/sayable";
 import { CALLER_STATUSES } from "@/lib/incident/types";
 import type { FactCard, FactExpectation, FactTopic, RequiredQuestion } from "./types";
@@ -14,7 +15,10 @@ type Topic = Exclude<FactTopic, "other">;
 const ASK: Record<Topic, RegExp> = {
   what: /что (у вас )?(случилось|произошло|горит|именно|видите|там)|что с (ним|ней)|опишите|что за/,
   address: /адрес|улиц|где (вы|это|именно|находит|случил|произош|горит)|куда (ехать|подъехать|направить)|ориентир|район/,
-  addressExact: /номер дома|какой дом|точн[а-яa-z]* адрес|уточн[а-яa-z]*( адрес)?|дом(а)? номер|корпус|строени|подъезд|рядом с чем|какой номер|напротив чего|что рядом|где именно|код домофона/,
+  // «Уточните» asks about the place only with a word of the place: «Уточните, есть ли пострадавшие?» is not about the
+  // house, «Какой номер телефона?» is not the house number.
+  addressExact:
+    /номер дома|какой дом|точн[а-яa-z]* (адрес|мест)|уточн[а-яa-z]*,?( пожалуйста,?)? (адрес|мест|где|куда|дом|улиц|номер|корпус|строени|подъезд|ориентир)|дом(а)? номер|корпус|строени|подъезд|рядом с чем|какой номер(?! (телефон|машин|автомоб|маршрут|карточк))|напротив чего|что рядом|где именно|код домофона/,
   name: /зовут|ваше имя|фамили|фио|представ|как к вам обращ|ваши (фио|данные)|кто (вы|звонит|говорит)/,
   phone: /телефон|номер для связи|перезвонить|контактн/,
   status: /кем (вы|приход)|вы (сами )?(пострадав|очевид|родствен|участник|житель|хозя)|вы (там|на месте|рядом)|кто вы (ему|ей)/,
@@ -167,9 +171,12 @@ export function isAddressNote(text: string): boolean {
   return /^\s*(точный адрес|при уточнении|адрес при уточнении)/i.test(text);
 }
 
-/** The ticket's shorthand said as a person says it («03 не требуется» → «скорая не нужна», «ул.» → «улица»). */
+/**
+ * A ticket's note as the caller says it: the shorthand spelt out («03 не требуется» → «скорая не нужна», «ул.» →
+ * «улица») and the caller speaking of himself («номер дома не знает» → «номер дома не знаю», speech/first-person.ts).
+ */
 export function speech(text: string): string {
-  return sayable(text);
+  return firstPerson(sayable(text));
 }
 
 /** What the caller says out loud: the ticket's notes for the trainer are cut off, its shorthand is spelt out. */
@@ -179,7 +186,6 @@ export function spokenFact(text: string): string {
       .replace(/\s*\([^)]*(вопрос|сообща|уточн|только|знает)[^)]*\)/gi, "")
       .replace(/[;,.]?\s*при уточнении\s*[—:-].*$/i, "")
       .replace(/^(точный адрес знает только если спросить|при уточнении)\s*[:—-]\s*/i, "")
-      .replace(/не знает/gi, "не знаю")
       .replace(/\s+/g, " ")
       .trim(),
   );
@@ -245,12 +251,14 @@ type PersonaExtra = CallerPersona & { factCards?: FactCard[] };
 
 /** Everything the caller may reveal, with the card field each fact must land in. */
 export function factCards(persona: PersonaExtra): FactCard[] {
+  // In the caller's own words: «номер дома не знаю», not the ticket's «не знает» (the caller says it so, and the
+  // check of what was said looks for these words).
   const cards: FactCard[] = [
-    { key: "situation", topic: "what", text: persona.situation, label: "что случилось" },
-    { key: "address", topic: "address", text: persona.visibleAddress, label: "адрес со слов заявителя", expect: { kind: "address" } },
+    { key: "situation", topic: "what", text: firstPerson(persona.situation), label: "что случилось" },
+    { key: "address", topic: "address", text: firstPerson(persona.visibleAddress), label: "адрес со слов заявителя", expect: { kind: "address" } },
   ];
   if (persona.hiddenAddress) {
-    cards.push({ key: "addressExact", topic: "addressExact", text: persona.hiddenAddress, label: "уточнённый адрес", expect: { kind: "address" } });
+    cards.push({ key: "addressExact", topic: "addressExact", text: firstPerson(persona.hiddenAddress), label: "уточнённый адрес", expect: { kind: "address" } });
   }
   cards.push({ key: "name", topic: "name", text: persona.fullName, label: "ФИО заявителя", expect: { kind: "name" } });
   const status = statusOfRole(persona.role);

@@ -25,6 +25,10 @@ describe("clarity of a ДДС comment by rules", () => {
     // A refusal is judged by other checks (reason, «кому передано»), not by the result.
     expect(kinds({ status: "REJECTED", text: "Территория МЖД, передано дежурному по станции", final: true })).toEqual([]);
     expect(statesResult("Пострадавших нет, помощь не потребовалась")).toBe(true);
+    // «сделали», «уехал», «выполнены» say nothing of the works: no result.
+    expect(statesResult("Всё сделали, он уехал")).toBe(false);
+    expect(statesResult("Работы выполнены, наряд прибыл и убыл")).toBe(false);
+    expect(statesResult("Мусоропровод прочистили, задымление ликвидировано, наряд уехал")).toBe(true);
     expect(statesResult("Горит квартира на 5 этаже")).toBe(false);
   });
 

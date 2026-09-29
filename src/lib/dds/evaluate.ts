@@ -18,7 +18,7 @@ import { countLabel } from "@/lib/format";
 import { errorTitle } from "@/lib/scoring/errors";
 import { computeScore, type CriterionResult, type Weights } from "@/lib/scoring/score";
 import { describeTemplates, matchTemplate, parseTemplates, templateProblem } from "@/lib/scoring/template";
-import { clarityIssues, judgedComments, type ClarityIssue } from "./clarity";
+import { clarityIssues, judgedComments, statesResult, type ClarityIssue } from "./clarity";
 import { CREW_PACE_SEC, crewPlanFor, crewSchedule, stageAt, type Dispatch } from "./crew";
 import { fmtDuration, fmtDateTime } from "./format";
 import { atSite, mentionsCardNumber } from "./personas";
@@ -39,8 +39,11 @@ export type PlateFacts = {
   dispatch: Dispatch | null;
   /** Crew reports the dispatcher heard (answered incoming calls and their own calls to the crew). */
   reports: { status: ServiceStatus | "DISPATCHED"; at: Date }[];
-  /** Incoming crew calls: rang / lost. */
-  crewCalls: { rang: number; missed: number };
+  /**
+   * Incoming crew calls: rang / lost, and when the dispatcher called the crew back after a lost one — the senior then
+   * reports what was missed (calls.ts), so each such call back makes up one lost report.
+   */
+  crewCalls: { rang: number; missed: number; madeUp?: Date[] };
   callbacks: { at: Date; namedCardNumber: boolean }[];
   /** Number of the card: a call to 112 about an error names it. */
   cardNumber?: number;
@@ -112,6 +115,20 @@ export function phraseCovered(comment: string, phrase: string): boolean {
   const words = (p.match(/[а-я]{4,}/g) ?? []).filter((w) => !STOP_WORD.test(w));
   if (!words.length) return text.trim().length > 0;
   return words.some((w) => text.includes(w.slice(0, Math.max(4, Math.min(6, w.length - 2)))));
+}
+
+type CrewCall = { at: Date; crew?: string | null };
+
+/**
+ * When lost crew reports were made up: for each lost incoming call, the first later call the dispatcher made to the
+ * same crew (a crew number unknown on either side matches any). The senior, picking up, reports what was missed.
+ */
+export function madeUpByCallBack(lost: CrewCall[], back: CrewCall[]): Date[] {
+  const sorted = [...back].sort((a, b) => a.at.getTime() - b.at.getTime());
+  return lost.flatMap((l) => {
+    const call = sorted.find((b) => b.at > l.at && (!l.crew || !b.crew || b.crew === l.crew));
+    return call ? [call.at] : [];
+  });
 }
 
 export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
@@ -192,12 +209,23 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   }
 
   if (f.crewCalls.rang > 0) {
+    const { rang, missed } = f.crewCalls;
+    // A lost report the dispatcher made up by calling the crew back is done: the memo's «пропустили — перезвонить».
+    const madeUp = (f.crewCalls.madeUp ?? []).slice(0, missed);
+    const open = missed - madeUp.length;
+    const backAt = [...new Set(madeUp.map(hms))].join(", ");
     out.push({
       code: "dds.crew_calls_answered",
       group: "timeliness",
       title: "Звонки наряда приняты",
-      ok: f.crewCalls.missed === 0,
-      evidence: f.crewCalls.missed ? `Пропущено докладов: ${f.crewCalls.missed} из ${f.crewCalls.rang}` : `Приняты все доклады: ${f.crewCalls.rang}`,
+      ok: open === 0,
+      evidence: !missed
+        ? `Приняты все доклады: ${rang}`
+        : !open
+          ? `Пропущено докладов: ${missed} из ${rang} — исправлено перезвоном: старшему наряда перезвонили в ${backAt}, он доложил пропущенное`
+          : madeUp.length
+            ? `Пропущено докладов: ${missed} из ${rang}; перезвоном в ${backAt} исправлено ${madeUp.length}, после остальных перезвона не было`
+            : `Пропущено докладов: ${missed} из ${rang}, перезвона старшему после них не было`,
       expected: "Отвечать на звонки старшего наряда; пропустили — перезвонить самим",
       source: "rule",
     });
@@ -238,13 +266,15 @@ export function evaluateDdsPlate(f: PlateFacts): CriterionResult[] {
   if (closing) {
     const text = (closing.comment ?? "").trim();
     const noCrewOk = !noCrewClose || /без\s+бригады/i.test(text);
-    const meaningful = text.length >= (noCrewClose ? NO_CREW_COMMENT.length - 5 : 20) && !GENERIC_FINAL.test(text);
+    // «Всё сделали, он уехал» is long enough but tells nothing of the works: the results must be named (clarity.ts).
+    const vague = closing.status === "FINISHED" && !noCrewClose && !GENERIC_FINAL.test(text) && !statesResult(text);
+    const meaningful = text.length >= (noCrewClose ? NO_CREW_COMMENT.length - 5 : 20) && !GENERIC_FINAL.test(text) && !vague;
     out.push({
       code: "dds.final_comment",
       group: "comments",
       title: "Итоговый комментарий содержательный",
       ok: meaningful && noCrewOk,
-      evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}`,
+      evidence: `${STATUS_LABEL[closing.status]}: ${quote(closing.comment)}${vague ? " — не сказано, что сделано и чем закончилось" : ""}`,
       expected: noCrewClose
         ? `«${NO_CREW_COMMENT}» и причина`
         : "Итоги реагирования: что сделано, что устранено, кому передано — статус закрывает карточку",

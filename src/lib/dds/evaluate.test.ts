@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ServiceStatus } from "@prisma/client";
 import type { Weights } from "@/lib/scoring/score";
-import { evaluateDdsPlate, phraseCovered, scoreOf, summarize, type PlateEvent, type PlateFacts } from "./evaluate";
+import { evaluateDdsPlate, madeUpByCallBack, phraseCovered, scoreOf, summarize, type PlateEvent, type PlateFacts } from "./evaluate";
 import type { DdsReferenceEntry } from "./scenario";
 
 const T0 = Date.UTC(2026, 8, 17, 8, 14, 4);
@@ -192,6 +192,41 @@ describe("evaluateDdsPlate", () => {
     expect(list["dds.crew_calls_answered"].ok).toBe(false);
     expect(list["dds.status_by_facts"].ok).toBe(false); // «Начало реагирования» 4 s after sending the crew
     expect(list["dds.callback_rules"].ok).toBe(false);
+  });
+
+  it("a lost crew report made up by calling the crew back closes the check: «исправлено перезвоном»", () => {
+    const base = { status: "ARRIVED" as ServiceStatus, events: [ev("ADDED", 0), ev("RECEIVED", 5), ev("ACCEPTED", 10, "Направлен наряд 16", "16")] };
+    const all = byCode(evaluateDdsPlate(facts({ ...base, crewCalls: { rang: 3, missed: 2, madeUp: [at(400), at(400)] } })))["dds.crew_calls_answered"];
+    expect(all.ok).toBe(true);
+    expect(all.evidence).toContain("Пропущено докладов: 2 из 3 — исправлено перезвоном");
+    const part = byCode(evaluateDdsPlate(facts({ ...base, crewCalls: { rang: 3, missed: 2, madeUp: [at(400)] } })))["dds.crew_calls_answered"];
+    expect(part.ok).toBe(false);
+    expect(part.evidence).toContain("исправлено 1, после остальных перезвона не было");
+    const none = byCode(evaluateDdsPlate(facts({ ...base, crewCalls: { rang: 3, missed: 2 } })))["dds.crew_calls_answered"];
+    expect(none).toMatchObject({ ok: false, evidence: "Пропущено докладов: 2 из 3, перезвона старшему после них не было" });
+  });
+
+  it("a call back makes up the lost reports before it, to the same crew", () => {
+    const lost = [{ at: at(100), crew: "16" }, { at: at(220), crew: "16" }];
+    expect(madeUpByCallBack(lost, [{ at: at(300), crew: "16" }])).toEqual([at(300), at(300)]);
+    expect(madeUpByCallBack(lost, [{ at: at(150), crew: "16" }])).toEqual([at(150)]); // the second report was lost after it
+    expect(madeUpByCallBack(lost, [{ at: at(300), crew: "23" }])).toEqual([]); // another crew was called
+    expect(madeUpByCallBack(lost, [{ at: at(50), crew: "16" }])).toEqual([]);
+  });
+
+  it("«Всё сделали, он уехал» is neither a meaningful nor a clear final comment: it says nothing of the works", () => {
+    const closing = (comment: string) =>
+      byCode(evaluateDdsPlate(facts({ status: "FINISHED", events: [ev("ADDED", 0), ev("RECEIVED", 5), ev("ACCEPTED", 10, "Направлена аварийная бригада", "23"), ev("FINISHED", 300, comment)] })));
+    for (const vague of ["Всё сделали, он уехал", "Работы выполнены, бригада уехала", "Наряд прибыл, всё сделано, свободны"]) {
+      const list = closing(vague);
+      expect(list["dds.final_comment"].ok, vague).toBe(false);
+      expect(list["dds.final_comment"].evidence).toContain("не сказано, что сделано");
+      expect(list["dds.literacy"].ok, vague).toBe(false);
+      expect(list["dds.literacy"].evidence).toContain("не сказано, чем закончилось");
+    }
+    const real = closing("Стояк перекрыт, течь устранена, вода подана, бригада уехала");
+    expect(real["dds.final_comment"].ok).toBe(true);
+    expect(real["dds.literacy"].ok).toBe(true);
   });
 
   it("has no time norm for a status after a crew report: only 30 s to open and 3 min to the first record (customer, 27.09)", () => {
