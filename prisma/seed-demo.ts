@@ -1,33 +1,69 @@
 /**
- * Demo lessons for the teacher cabinet, built on the real ticket scenarios and services
- * (run `pnpm db:seed` first — it loads them): six finished lessons of «Учебная группа № 1» over two
- * weeks with attempts of both kinds (112 and ДДС) — the last one partly waiting for review, one dealt
- * adaptively by the students' levels — plus a draft lesson ready to start. Every started lesson gets
- * the forecast snapshot it would have got at its start (src/lib/adaptive), computed by the same code
- * from the attempts confirmed before that moment, so «прогноз ↔ факт» has real pairs to compare.
+ * Demo lessons for the teacher cabinet, built on the real ticket scenarios and services (run `pnpm db:seed` first — it
+ * loads them): six finished lessons of «Учебная группа № 1» over two weeks with attempts of both kinds (112 and ДДС) —
+ * the last one partly waiting for review, one dealt adaptively by the students' levels — plus a draft lesson ready to
+ * start. Every started lesson gets the forecast snapshot it would have got at its start (src/lib/adaptive), computed by
+ * the same code from the attempts confirmed before that moment, so «прогноз ↔ факт» has real pairs to compare.
  *
  *   pnpm db:seed-demo            finished lessons + draft (reads .env, like the other db:* commands)
  *   pnpm db:seed-demo --live     also a running lesson with timers relative to now
  *
+ * A demo lesson is played the way a real one goes, through the application's own code: a ДДС place gets its generated
+ * cards from the card flow (flow/dds-flow.ts createCard — on its territory, moved there as in a live lesson), a 112
+ * student talks to the rule-based caller (op112/caller.ts) and the card is resolved by the workstation's panels and
+ * routing, the crews report by their schedule (dds/crew.ts), the other services' plates move as the bots move them. What
+ * a student does comes from a profile (quick or slow, careful or sloppy); what is right and wrong comes from the current
+ * checks — evaluateOp112Rules and evaluateDdsPlate, the same set and the same words as a live attempt. The model checks
+ * get a recorded answer run through the same code as a live model answer (op112AiFromReply, clarityFromReply).
+ *
  * Idempotent: the demo lessons are deleted and rebuilt. Reference data is only read, never written.
- * The work at the places is simulated here with student profiles (strong / weak); on a real lesson
- * the same rows come from the 112 and ДДС workstations.
  */
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { PrismaClient, type Prisma, type ServiceDelivery, type ServiceStatus } from "@prisma/client";
-import { computeScore, type CriterionResult, type Weights } from "../src/lib/scoring/score";
-import { normalizeWeights } from "../src/lib/scoring/weight-config";
-import { typingTimeCheck } from "../src/lib/op112/typing-time";
-import { ruleDraft } from "../src/lib/review/draft";
+import type { Incident, IncidentService, Prisma, Scenario, Service, ServiceStatus } from "@prisma/client";
+import { db } from "../src/lib/db";
 import { loadRatingAttempts } from "../src/lib/adaptive/levels";
 import { pickAdaptive } from "../src/lib/adaptive/pick";
-import { computeRating, type RatingAttempt } from "../src/lib/adaptive/rating";
+import { computeRating } from "../src/lib/adaptive/rating";
 import { saveLessonForecasts } from "../src/lib/adaptive/snapshot";
+import { botActor, botPlan, dueSteps } from "../src/lib/dds/bots";
+import { correctedCard, fixLabel } from "../src/lib/dds/card-fix";
+import { clarityBasis, clarityFromReply } from "../src/lib/dds/clarity-ai";
+import { commentIssues } from "../src/lib/dds/clarity";
+import { CREW_PACE_SEC, crewPlanFor, crewSchedule } from "../src/lib/dds/crew";
+import { evaluateDdsPlate, summarize } from "../src/lib/dds/evaluate";
+import { addressShort, fmtHM, shortName } from "../src/lib/dds/format";
+import { crewGreeting, crewRoster, OPERATOR_112, operatorGreeting, operatorMockReply, reportLine, type CrewContext } from "../src/lib/dds/personas";
+import { PLACE_REVIEW, plateReviewInput } from "../src/lib/dds/review";
+import { cardErrorFrom, type DdsReferenceEntry } from "../src/lib/dds/scenario";
+import { SYSTEM_ACTOR } from "../src/lib/dds/scope";
+import { isLate } from "../src/lib/dds/status";
+import { cardReference, territoryOf } from "../src/lib/dds/territory";
+import { botFacts, byTerritory, createCard, onTerritory } from "../src/lib/flow/dds-flow";
+import type { IncidentAddress, IncidentFlags } from "../src/lib/incident/types";
+import { genderOfName, mockOpening, mockReply, type Persona } from "../src/lib/op112/caller";
+import { findKind, kindTitle } from "../src/lib/op112/catalog";
+import { dutyGreeting, dutyMockReply, dutyOf } from "../src/lib/op112/duty";
+import { evaluateOp112Rules, normalizeTruth, op112AiFromReply } from "../src/lib/op112/evaluate";
+import { factCards, normalizeQuestion, questionTopics, statusOfRole } from "../src/lib/op112/facts";
+import { resolveDraft, routeDraft, treesFor } from "../src/lib/op112/panels";
+import { channelOf } from "../src/lib/op112/phone";
+import { dutyContextOf } from "../src/lib/op112/phone-calls";
+import { answersForLeaf, toldAnswers, type Told } from "../src/lib/op112/reference-card";
+import { loadEvalInput } from "../src/lib/op112/review";
+import { mergeManual } from "../src/lib/op112/routing";
+import { operatorNumber } from "../src/lib/op112/seat";
+import { serviceCatalog } from "../src/lib/op112/services";
+import type { CallLine, StoredTag } from "../src/lib/op112/types";
+import { dutyTitle } from "../src/lib/op112/workoffs";
+import { buildPublishedFeedback } from "../src/lib/review/published-feedback";
+import { computeScore, type CriterionResult, type Weights } from "../src/lib/scoring/score";
+import { normalizeWeights } from "../src/lib/scoring/weight-config";
+import { sayable } from "../src/lib/speech/sayable";
+import { DEFAULT_DDS, DEMO_PLANS, type SeatPlan } from "./demo-plan";
 import { isEntry } from "./entry";
 import { seedDemoMaterials } from "./seed-materials";
-
-const db = new PrismaClient();
 
 // ─── deterministic randomness ────────────────────────────────────────────────
 function prng(seed: number) {
@@ -40,81 +76,148 @@ function prng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-const rnd = prng(20260929);
+let rnd = prng(20260929);
 const between = (lo: number, hi: number) => Math.round(lo + rnd() * (hi - lo));
 const chance = (p: number) => rnd() < p;
+const oneOf = <T,>(list: T[]) => list[Math.floor(rnd() * list.length)];
 const at = (base: Date, sec: number) => new Date(base.getTime() + sec * 1000);
-const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec) % 60).padStart(2, "0")}`;
 
-const VORONOVSKOE = 191;
-const HOROSHEVO = 87;
-const MESHCHANSKY = 111;
-const DEFAULT_CHAIN: ServiceStatus[] = ["STARTED", "ARRIVED", "WORKING", "FINISHED"];
-const PROGRESS = new Set<ServiceStatus>(["STARTED", "ARRIVED", "WORKING", "FINISHED"]);
+/**
+ * Critical slips (a refused profile card, a look-alike street) come from their own stream and a budget per student over
+ * the course, so a strong student does not lose a card to bad luck and a weak one does not lose every card.
+ */
+const CRITICAL_BUDGET: Record<string, number> = { student1: 0, student2: 1, student3: 3, student4: 2, student5: 2 };
+let rare = prng(7);
+const criticalSpent = new Map<string, number>();
+function criticalSlip(login: string, p: number): boolean {
+  if ((criticalSpent.get(login) ?? 0) >= (CRITICAL_BUDGET[login] ?? 1) || rare() >= p) return false;
+  criticalSpent.set(login, (criticalSpent.get(login) ?? 0) + 1);
+  return true;
+}
+const secBetween = (a: Date, b: Date) => (b.getTime() - a.getTime()) / 1000;
+const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+const json = (v: unknown) => v as Prisma.InputJsonValue;
 
-// ─── scenarios from the reference data ───────────────────────────────────────
-type Ref = { decision: "accept" | "reject"; chain: ServiceStatus[]; report: string | null; comment: string | null };
-
-type Fx = {
-  id: string;
-  ticketRef: string;
-  title: string;
-  difficulty: number;
-  caller: { fullName: string; role?: string; phone?: string; visibleAddress: string; hiddenAddress?: string; situation: string; facts: string[]; voice?: string };
-  services: number[];
-  address: string;
-  street: string | null;
-  description: string;
-  question: string | null;
-  flags: Prisma.InputJsonValue;
-  ref: (serviceId: number | null) => Ref;
+// ─── the class: who is quick, who is careful ─────────────────────────────────
+type Profile = {
+  /** ДДС: «Добавлена» → the card opened, and the opening → the first record, seconds. */
+  ack: [number, number];
+  record: [number, number];
+  /** A crew report is picked up in time; a missed one is called back. */
+  answerCall: number;
+  callBack: number;
+  /** A status without waiting for the report; a stage skipped; a status without a text. */
+  ahead: number;
+  skipStatus: number;
+  bareStatus: number;
+  /** Short or private comments («отпр бр», «Сделано»); a refusal without whom it was passed to. */
+  sloppy: number;
+  noHandover: number;
+  /** The opposite decision to the reference. */
+  wrongDecision: number;
+  /** An error in the card reported to 112. */
+  call112: number;
+  /** 112: typing time, a look-alike street, a detail of the address left out, a question not asked, a told fact not put on the card. */
+  typing: [number, number];
+  lookAlike: number;
+  missDetail: number;
+  missQuestion: number;
+  missFact: number;
+  /** A service working by phone not called from the work-off row. */
+  noPhoneCall: number;
 };
 
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
-const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+const PROFILES: Record<string, Profile> = {
+  student1: { ack: [6, 16], record: [8, 20], answerCall: 0.95, callBack: 0.9, ahead: 0.02, skipStatus: 0.03, bareStatus: 0, sloppy: 0.03, noHandover: 0, wrongDecision: 0, call112: 0.9, typing: [44, 62], lookAlike: 0, missDetail: 0.05, missQuestion: 0.05, missFact: 0.03, noPhoneCall: 0.05 },
+  student2: { ack: [9, 24], record: [12, 34], answerCall: 0.88, callBack: 0.7, ahead: 0.06, skipStatus: 0.12, bareStatus: 0.05, sloppy: 0.12, noHandover: 0.15, wrongDecision: 0.03, call112: 0.7, typing: [52, 74], lookAlike: 0.03, missDetail: 0.15, missQuestion: 0.12, missFact: 0.1, noPhoneCall: 0.15 },
+  student3: { ack: [18, 48], record: [25, 90], answerCall: 0.65, callBack: 0.35, ahead: 0.15, skipStatus: 0.35, bareStatus: 0.2, sloppy: 0.4, noHandover: 0.45, wrongDecision: 0.12, call112: 0.3, typing: [66, 104], lookAlike: 0.3, missDetail: 0.4, missQuestion: 0.35, missFact: 0.3, noPhoneCall: 0.45 },
+  student4: { ack: [8, 26], record: [10, 40], answerCall: 0.8, callBack: 0.5, ahead: 0.25, skipStatus: 0.2, bareStatus: 0.1, sloppy: 0.2, noHandover: 0.6, wrongDecision: 0.1, call112: 0.5, typing: [50, 78], lookAlike: 0.08, missDetail: 0.25, missQuestion: 0.25, missFact: 0.2, noPhoneCall: 0.3 },
+  student5: { ack: [22, 60], record: [30, 110], answerCall: 0.7, callBack: 0.5, ahead: 0.05, skipStatus: 0.3, bareStatus: 0.1, sloppy: 0.3, noHandover: 0.35, wrongDecision: 0.07, call112: 0.45, typing: [62, 96], lookAlike: 0.12, missDetail: 0.3, missQuestion: 0.3, missFact: 0.25, noPhoneCall: 0.35 },
+};
 
-function toFx(
-  s: { id: string; ticketRef: string | null; title: string; difficulty: number; caller: unknown; truth: unknown; ddsCard: unknown; ddsReference: unknown },
-  known: Set<number>,
-): Fx {
-  const truth = isObj(s.truth) ? s.truth : {};
-  const card = isObj(s.ddsCard) ? s.ddsCard : {};
-  const caller = (isObj(s.caller) ? s.caller : {}) as Fx["caller"];
-  const address = isObj(truth.address) ? truth.address : {};
-  const services = (Array.isArray(truth.services) ? truth.services : [])
-    .map((x) => (isObj(x) ? Number(x.serviceId) : NaN))
-    .filter((id) => Number.isInteger(id) && known.has(id));
-  const refs = isObj(s.ddsReference) && Array.isArray(s.ddsReference.services) ? (s.ddsReference.services as Obj[]) : [];
-  const questions = (Array.isArray(truth.requiredQuestions) ? truth.requiredQuestions : []).map(str).filter((q): q is string => !!q);
+/**
+ * How the students change over the course: every lesson the chances of each slip shrink by `learn` (student4 rushes
+ * more and slips a little), and a harder scenario has more traps: ×1.2 per step of difficulty above 3. Times shrink a
+ * little with skill and grow a little with difficulty.
+ */
+const LEARN: Record<string, number> = { student1: 0.03, student2: 0.08, student3: 0.14, student4: -0.03, student5: 0.07 };
+
+function profileFor(login: string, lessonNo: number, difficulty: number): Profile {
+  const base = PROFILES[login] ?? PROFILES.student2;
+  const skill = (1 - (LEARN[login] ?? 0.05)) ** lessonNo;
+  const traps = 1.2 ** (difficulty - 3);
+  const slip = (x: number) => Math.min(0.9, x * skill * traps);
+  const good = (x: number) => Math.max(0.05, Math.min(0.99, 1 - (1 - x) * skill * traps));
+  const time = ([lo, hi]: [number, number]): [number, number] => {
+    const k = (0.8 + 0.2 * Math.min(1.2, skill)) * (0.94 + 0.02 * difficulty);
+    return [Math.round(lo * k), Math.round(hi * k)];
+  };
   return {
-    id: s.id,
-    ticketRef: s.ticketRef ?? "",
-    title: s.title.replace(/^Б\d+-\d+\.\s*/, ""),
-    difficulty: s.difficulty,
-    caller: { ...caller, facts: Array.isArray(caller.facts) ? caller.facts : [] },
-    services,
-    address: str(card.address) ?? str(truth.addressLine) ?? caller.visibleAddress ?? "адрес не указан",
-    street: str(address.street),
-    description: str(card.description) ?? s.title,
-    question: questions.find((q) => !/адрес|ФИО|телефон/i.test(q)) ?? null,
-    flags: (isObj(truth.flags) ? truth.flags : {}) as Prisma.InputJsonValue,
-    ref: (serviceId) => {
-      const e = refs.find((r) => Number(r.serviceId) === serviceId);
-      // The ДДС card flow uses the same default: without a reference entry the plate is to be accepted.
-      if (!e) return { decision: "accept", chain: DEFAULT_CHAIN, report: null, comment: null };
-      const chain = (Array.isArray(e.chain) ? e.chain : []).filter((x): x is ServiceStatus => typeof x === "string" && PROGRESS.has(x as ServiceStatus));
-      return {
-        decision: e.decision === "REJECTED" ? "reject" : "accept",
-        chain: chain.length ? chain : DEFAULT_CHAIN,
-        report: str(e.brigadeReport) === "—" ? null : str(e.brigadeReport),
-        comment: str(e.decisionComment),
-      };
-    },
+    ack: time(base.ack),
+    record: time(base.record),
+    answerCall: good(base.answerCall),
+    callBack: good(base.callBack),
+    ahead: slip(base.ahead),
+    skipStatus: slip(base.skipStatus),
+    bareStatus: slip(base.bareStatus),
+    sloppy: slip(base.sloppy),
+    noHandover: slip(base.noHandover),
+    wrongDecision: slip(base.wrongDecision),
+    call112: good(base.call112),
+    typing: time(base.typing),
+    lookAlike: slip(base.lookAlike),
+    missDetail: slip(base.missDetail),
+    missQuestion: slip(base.missQuestion),
+    missFact: slip(base.missFact),
+    noPhoneCall: slip(base.noPhoneCall),
   };
 }
 
-// A look-alike street for the critical address error: a real pair when we know one, else a one-letter slip.
+// ─── lesson context ──────────────────────────────────────────────────────────
+type Review = "CONFIRMED" | "OVERRIDDEN" | "PENDING";
+type ScenarioRow = Scenario;
+type SeatRow = { id: string; lessonId: string; serviceId: number | null; studentId: string; login: string; fullName: string; role: "OP112" | "DDS"; label: string };
+type Made = { id: string; createdAt: Date; slip: string | null };
+
+type Ctx = {
+  weights: Weights;
+  teacherId: string;
+  services: Map<number, Service>;
+  byRef: Map<string, ScenarioRow>;
+};
+
+type LessonRun = {
+  id: string;
+  start: Date;
+  end: Date;
+  lessonNo: number;
+  settings: Record<string, unknown>;
+  seats: SeatRow[];
+  attempts: Made[];
+  /** Crews busy on the cards of a place: the next card gets a free one. */
+  crewTurn: Map<string, number>;
+};
+
+// ─── 112: the call and the card ──────────────────────────────────────────────
+
+/** What the operator asks about a topic of a required question, in the words a trainee uses. */
+const ASK: Record<string, string> = {
+  victims: "Есть пострадавшие? Кому-нибудь нужна медицинская помощь?",
+  gas: "Дом газифицирован? Газ магистральный или баллон?",
+  floors: "Сколько этажей в доме и на каком этаже?",
+  people: "Сколько человек там? Сколько людей в опасности?",
+  threat: "Есть угроза людям, огонь может перекинуться?",
+  access: "Есть доступ, можно проехать к месту?",
+  age: "Сколько лет пострадавшему?",
+  consciousness: "Он в сознании, реагирует на вас?",
+  breathing: "Он дышит?",
+  weapon: "У них есть оружие — нож, бита?",
+  object: "Опишите приметы: как выглядит, какая машина, номер?",
+  fire: "Открытый огонь или только дым?",
+  what: "Что именно произошло?",
+};
+
+/** A known look-alike of a street for the critical address slip. */
 const confusable = (() => {
   try {
     const raw = JSON.parse(readFileSync(path.join(__dirname, "..", "data", "confusable-streets.json"), "utf8")) as { pairs?: { a: string; b: string }[] };
@@ -123,290 +226,446 @@ const confusable = (() => {
     return [];
   }
 })();
-function lookAlike(street: string): string {
-  const pair = confusable.find((p) => p.a === street || p.b === street);
-  if (pair) return pair.a === street ? pair.b : pair.a;
-  const swap: Record<string, string> = { е: "и", и: "е", о: "а", а: "о", у: "ю" };
-  const chars = [...street];
-  const i = chars.findIndex((c, k) => k > 3 && swap[c]);
-  if (i < 0) return `${street}ая`;
-  chars[i] = swap[chars[i]];
-  return chars.join("");
+function lookAlike(street: string): string | null {
+  const low = street.toLowerCase().replace(/ё/g, "е");
+  const name = (s: string) => s.toLowerCase().replace(/ё/g, "е").replace(/^(ул\.|улица)\s*|\s*(ул\.|улица)$/g, "").trim();
+  const pair = confusable.find((p) => name(p.a) === name(low) || name(p.b) === name(low));
+  return pair ? (name(pair.a) === name(low) ? pair.b : pair.a) : null;
 }
 
-// ─── student profiles: who is strong and where the weak ones fail ───────────
-type Profile = {
-  ack: [number, number];
-  dispatch: [number, number];
-  typing: [number, number];
-  skipProgress: number;
-  noHandover: number;
-  lookAlikeStreet: number;
-  sloppyText: number;
-  wrongDecision: number;
-  missQuestion: number;
-  wrongServices: number;
-};
-const PROFILES: Record<string, Profile> = {
-  student1: { ack: [12, 24], dispatch: [80, 150], typing: [44, 60], skipProgress: 0, noHandover: 0, lookAlikeStreet: 0, sloppyText: 0, wrongDecision: 0, missQuestion: 0.1, wrongServices: 0 },
-  student2: { ack: [18, 32], dispatch: [100, 170], typing: [52, 70], skipProgress: 0.2, noHandover: 0.2, lookAlikeStreet: 0, sloppyText: 0.2, wrongDecision: 0, missQuestion: 0.2, wrongServices: 0.2 },
-  student3: { ack: [26, 58], dispatch: [140, 260], typing: [66, 98], skipProgress: 0.4, noHandover: 0.4, lookAlikeStreet: 0.7, sloppyText: 0.5, wrongDecision: 0.3, missQuestion: 0.5, wrongServices: 0.4 },
-  student4: { ack: [16, 30], dispatch: [110, 190], typing: [55, 75], skipProgress: 0.2, noHandover: 0.8, lookAlikeStreet: 0.1, sloppyText: 0.3, wrongDecision: 0.25, missQuestion: 0.3, wrongServices: 0.1 },
-  student5: { ack: [34, 75], dispatch: [150, 240], typing: [60, 90], skipProgress: 0.6, noHandover: 0.5, lookAlikeStreet: 0.3, sloppyText: 0.4, wrongDecision: 0.2, missQuestion: 0.4, wrongServices: 0.3 },
-};
+type Card112 = { incident: Incident; plates: IncidentService[]; savedAt: Date; sloppy: boolean };
 
-/**
- * How the students change over the course: every lesson the chances of each mistake shrink by `learn`
- * (student4 slips a little — rushes more), and a harder scenario has more traps: ×1.25 per step of
- * difficulty above 3. Times shrink a little with skill and grow a little with difficulty.
- */
-const LEARN: Record<string, number> = { student1: 0.04, student2: 0.1, student3: 0.16, student4: -0.04, student5: 0.07 };
+async function play112(run: LessonRun, seat: SeatRow, scenario: ScenarioRow, t0: Date, p: Profile, ctx: Ctx): Promise<Card112 | null> {
+  const persona = scenario.caller as unknown as Persona | null;
+  const catalog = await serviceCatalog();
+  const truth = normalizeTruth(scenario.truth, catalog);
+  if (!persona?.situation || !truth?.kind || !truth.typeCodes.length) return null;
+  const answeredAt = at(t0, between(3, 8));
+  const gender = genderOfName(seat.fullName);
 
-function profileFor(login: string, lessonNo: number, difficulty: number): Profile {
-  const base = PROFILES[login] ?? PROFILES.student2;
-  const skill = (1 - (LEARN[login] ?? 0.05)) ** lessonNo;
-  const traps = 1.25 ** (difficulty - 3);
-  const p = (x: number) => Math.min(0.95, x * skill * traps);
-  const t = ([lo, hi]: [number, number]): [number, number] => {
-    const k = (0.8 + 0.2 * Math.min(1.2, skill)) * (0.94 + 0.02 * difficulty);
-    return [Math.round(lo * k), Math.round(hi * k)];
+  // The conversation: the operator's questions, the caller's rule-based answers with what each line disclosed.
+  const lines: CallLine[] = [{ role: "counterpart", ...mockOpening(persona), at: answeredAt.toISOString() }];
+  let clock = answeredAt;
+  const say = (text: string) => {
+    clock = at(clock, between(5, 11));
+    const history = [...lines];
+    lines.push({ role: "trainee", text, at: clock.toISOString() });
+    clock = at(clock, between(3, 7));
+    const reply = mockReply(persona, history, text, gender);
+    lines.push({ role: "counterpart", text: reply.text, revealed: reply.revealed, at: clock.toISOString() });
   };
-  return {
-    ack: t(base.ack),
-    dispatch: t(base.dispatch),
-    typing: t(base.typing),
-    skipProgress: p(base.skipProgress),
-    noHandover: p(base.noHandover),
-    lookAlikeStreet: p(base.lookAlikeStreet),
-    sloppyText: p(base.sloppyText),
-    wrongDecision: p(base.wrongDecision),
-    missQuestion: p(base.missQuestion),
-    wrongServices: p(base.wrongServices),
-  };
+  say("Служба 112, что у вас случилось?");
+  say("Назовите адрес: улица и номер дома.");
+  const skipExact = chance(p.missDetail);
+  if (persona.hiddenAddress && !skipExact) say("Уточните, пожалуйста: номер дома, корпус, подъезд — что рядом?");
+  for (const q of truth.requiredQuestions.map(normalizeQuestion)) {
+    const topics = questionTopics(q.text).filter((t) => !["address", "addressExact", "name", "status", "phone"].includes(t));
+    if (!topics.length && q.topic && ["address", "addressExact", "name", "status", "phone"].includes(q.topic)) continue;
+    if (chance(p.missQuestion)) continue;
+    say(topics.length ? topics.map((t) => ASK[t] ?? `Уточните: ${q.text.toLowerCase()}?`).join(" ") : `Уточните: ${q.text.charAt(0).toLowerCase()}${q.text.slice(1)}?`);
+  }
+  const askName = !chance(p.missQuestion / 2);
+  if (askName) say("Как вас зовут? Фамилия и имя.");
+  if (!chance(p.missQuestion)) say("Кем вы приходитесь — вы очевидец?");
+  const askPhone = !chance(p.missQuestion / 2);
+  if (askPhone) say("Назовите номер телефона для связи.");
+  say("Информация принята, помощь направлена. Оставайтесь на связи.");
+
+  // What the caller said, as the card holds it.
+  const facts = factCards(persona);
+  const said = new Set(lines.flatMap((l) => l.revealed ?? []));
+  const told: Told = { flags: { ...truth.flags } };
+  for (const f of facts.filter((c) => said.has(c.key))) {
+    const e = f.expect;
+    if (chance(p.missFact)) continue;
+    if (e?.kind === "flag") told.flags[e.flag] = e.value;
+    if (e?.kind === "tag" && /этажн/i.test(e.row)) told.floors = e.value;
+    if (e?.kind === "tag" && /газ магистральный/i.test(e.row)) told.gasSource = e.value as Told["gasSource"];
+  }
+  // A careless operator leaves a row of the reference unanswered.
+  for (const key of Object.keys(told.flags) as (keyof IncidentFlags)[]) if (chance(p.missFact / 2)) delete told.flags[key];
+
+  const kind = findKind(truth.kind)?.name ?? truth.kind;
+  const tree = (await treesFor([kind]))[kind];
+  const leaf = truth.typeCodes[0];
+  const answers = toldAnswers(tree, answersForLeaf(tree, leaf) ?? {}, told);
+
+  const street = truth.address.street;
+  const wrongStreet = street && lookAlike(street) && criticalSlip(seat.login, p.lookAlike) ? lookAlike(street) : null;
+  const address: IncidentAddress = { ...truth.address, ...(wrongStreet ? { street: wrongStreet } : {}) };
+  if (skipExact || chance(p.missDetail)) for (const k of ["flat", "entrance", "code"] as const) delete address[k];
+  const sloppy = chance(p.sloppy);
+  const reference = (scenario.ddsCard as { description?: string } | null)?.description ?? persona.situation;
+  // What the caller told beyond the reference text (age, consciousness, how many people) goes to the description too.
+  const extra = facts.filter((f) => said.has(f.key) && f.expect?.kind === "description" && !chance(p.missFact)).map((f) => f.text.replace(/[.\s]+$/, ""));
+  const description = sloppy
+    ? reference.split(/[,.]/)[0].toLowerCase().replace(/\s+/g, " ").slice(0, 38)
+    : [reference.replace(/[.\s]+$/, ""), ...extra].join(". ") + ".";
+  const top: IncidentFlags = { victims: told.flags.victims, refusedAmbulance: told.flags.refusedAmbulance, noAccess: told.flags.noAccess };
+  const draft = { cards: [kind], answers: { [kind]: answers }, flags: top, address };
+  const resolved = await resolveDraft(draft);
+  const routed = mergeManual(await routeDraft(draft, resolved), [], catalog);
+
+  const savedAt = at(answeredAt, between(p.typing[0], p.typing[1]));
+  const operatorNo = operatorNumber(seat.login);
+  const [surname, name] = persona.fullName.split(/\s+/);
+  const callerStatus = statusOfRole(persona.role) ?? truth.callerStatus ?? "очевидец";
+  const incident = await db.incident.create({
+    data: {
+      lessonId: run.id,
+      scenarioId: scenario.id,
+      source: "op112",
+      createdBySeatId: seat.id,
+      operatorNo,
+      armNo: seat.label.match(/\d+/)?.[0] ?? "1",
+      status: "registered",
+      caller: json({
+        aon: persona.phone ?? "",
+        channel: channelOf(persona.phone ?? ""),
+        ...(askName ? { fullName: `${surname} ${name ?? ""}`.trim() } : {}),
+        status: callerStatus,
+        ...(askPhone && persona.phone ? { provided: persona.phone } : {}),
+      }),
+      address: json(address),
+      flags: json(resolved.flags),
+      tags: json(resolved.tags as StoredTag[]),
+      typeCodes: resolved.typeCodes,
+      description,
+      descriptionLog: json([{ at: savedAt.toISOString(), author: `оп. ${operatorNo}`, text: description }]),
+      openedAt: answeredAt,
+      savedAt,
+      createdAt: answeredAt,
+      services: {
+        create: routed.map((r) => ({
+          serviceId: r.serviceId,
+          isMain: r.isMain,
+          addedBy: r.auto ? "auto" : "manual",
+          status: "ADDED" as const,
+          addedAt: savedAt,
+          events: { create: { status: "ADDED" as const, actorLabel: SYSTEM_ACTOR, at: savedAt } },
+        })),
+      },
+    },
+    include: { services: true },
+  });
+  await db.call.create({
+    data: {
+      lessonId: run.id,
+      seatId: seat.id,
+      incidentId: incident.id,
+      kind: "CALLER_IN",
+      status: "ENDED",
+      counterpart: json({ name: persona.fullName, role: persona.role, voice: persona.voice ?? "female", phone: persona.phone, scenarioId: scenario.id, persona }),
+      messages: json(lines),
+      startedAt: t0,
+      answeredAt,
+      endedAt: savedAt,
+    },
+  });
+
+  // «Добавить отработку»: the services working by phone are called from the work-off row and written down.
+  let workedAt = at(savedAt, between(15, 40));
+  const workLog: Record<string, unknown>[] = [];
+  for (const plate of incident.services) {
+    const service = ctx.services.get(plate.serviceId);
+    if (service?.delivery !== "PHONE" || chance(p.noPhoneCall)) continue;
+    const { duty, voice } = dutyOf(service.id, incident.number);
+    const cp = { kind: "service" as const, serviceId: service.id, service: service.shortName, fullName: service.fullName ?? null, duty, voice, phone: "" };
+    const dctx = await dutyContextOf(incident, cp);
+    const callAt = at(workedAt, between(5, 20));
+    const greeting: CallLine = { role: "counterpart", text: dutyGreeting(dctx), at: callAt.toISOString(), revealed: [] };
+    const text = `Служба 112, примите карточку ${incident.number}: ${kindTitle(kind).toLowerCase()}, ${address.street ?? ""}${address.house ? `, дом ${address.house}` : ""}.`;
+    const said: CallLine = { role: "trainee", text, at: at(callAt, 6).toISOString() };
+    const reply = dutyMockReply(dctx, [greeting], text);
+    const answer: CallLine = { role: "counterpart", text: reply.text, at: at(callAt, 9).toISOString(), revealed: [], ...(reply.accepted ? { accepted: true } : {}) };
+    const call = await db.call.create({
+      data: {
+        lessonId: run.id,
+        seatId: seat.id,
+        incidentId: incident.id,
+        kind: "SERVICE_OUT",
+        status: "ENDED",
+        counterpart: json({ ...cp, name: `${service.shortName}, ${dutyTitle(duty)}` }),
+        messages: json([greeting, said, answer]),
+        startedAt: callAt,
+        answeredAt: callAt,
+        endedAt: at(callAt, 14),
+      },
+    });
+    workedAt = at(callAt, between(25, 45));
+    workLog.push({ id: randomUUID(), at: workedAt.toISOString(), operator: operatorNo, arm: incident.armNo ?? "", serviceId: service.id, service: service.shortName, acceptedBy: dutyTitle(duty), summary: "Карточка принята по телефону", callId: call.id });
+  }
+  const saved = await db.incident.update({ where: { id: incident.id }, data: { status: "worked", workedAt, workLog: json(workLog) }, include: { services: true } });
+  return { incident: saved, plates: saved.services, savedAt, sloppy };
 }
 
-const HANDOVER_BAD = "Не наша территория";
+/** The 112 attempt: the current rule checks of the card, and the model's two checks from a recorded answer. */
+async function grade112(run: LessonRun, seat: SeatRow, card: Card112, ctx: Ctx) {
+  const loaded = await loadEvalInput(card.incident.id);
+  if (!loaded) return;
+  const rules = evaluateOp112Rules(loaded.input);
+  // The model agrees with the rules most of the time; now and then it is too strict or too lenient on the description —
+  // that is what the teacher corrects («ИИ неправ»).
+  const slip = chance(0.1);
+  const clear = slip ? card.sloppy : !card.sloppy;
+  const ai = op112AiFromReply(loaded.input, rules, {
+    discrepancies: [],
+    descriptionClear: clear,
+    descriptionComment: clear
+      ? "Понятно, что случилось, где и есть ли угроза людям."
+      : card.sloppy
+        ? "Описание обрывается: не сказано, что именно случилось и есть ли угроза людям."
+        : "Описание длинное, главное стоит поставить в начало.",
+  });
+  const criteria = [...rules, ...ai];
+  const created = await db.attempt.create({
+    data: {
+      lessonId: run.id,
+      seatId: seat.id,
+      studentId: seat.studentId,
+      kind: "OP112",
+      incidentId: card.incident.id,
+      scenarioId: card.incident.scenarioId,
+      criteria: json(criteria),
+      score: computeScore(criteria, ctx.weights),
+      createdAt: at(card.savedAt, 2),
+    },
+  });
+  run.attempts.push({ id: created.id, createdAt: created.createdAt, slip: slip ? "op112.ai.description" : null });
+}
 
-type Ctx = { weights: Weights; teacherId: string; ackSec: number; workSec: number; typingSec: number };
-type Event = { status: ServiceStatus; sec: number; comment?: string; crew?: string };
-type Review = "CONFIRMED" | "OVERRIDDEN" | "PENDING";
+// ─── ДДС: the place's work on its plate ──────────────────────────────────────
 
-// ─── ДДС: one own plate handled at a place ───────────────────────────────────
-function simulateDds(fx: Fx, serviceId: number | null, serviceName: string, p: Profile, ctx: Ctx, cut: number | null) {
-  const ref = fx.ref(serviceId);
-  const crits: CriterionResult[] = [];
-  const ack = between(p.ack[0], p.ack[1]);
-  const events: Event[] = [{ status: "RECEIVED", sec: Math.max(3, Math.round(ack * 0.6)) }];
-  const wrongDecision = chance(p.wrongDecision);
-  const decision = wrongDecision ? (ref.decision === "accept" ? "reject" : "accept") : ref.decision;
-  const crew = String(between(11, 48));
-  const sloppy = chance(p.sloppyText);
-  const skip = chance(p.skipProgress);
-  const goodHandover = !chance(p.noHandover);
-  const handover = ref.comment ?? "Не принята: адрес вне зоны обслуживания. Передано в ДДС района по месту происшествия, дежурному Орлову";
+const ACCEPT = [
+  (crew: string, title: string) => `Принята, направлен наряд ${crew} — ${title.toLowerCase()}`,
+  (crew: string) => `Направлен наряд ${crew}, выезжает на место`,
+  (crew: string, title: string) => `Принята. Наряд ${crew} (${title.toLowerCase()}) направлен по адресу`,
+];
+
+type PlateRun = { seat: SeatRow; incident: Incident; plate: IncidentService; addedAt: Date; p: Profile; service: Service };
+
+async function workPlate(run: LessonRun, w: PlateRun) {
+  const { seat, incident, plate, addedAt, p, service } = w;
+  const ref: DdsReferenceEntry | null = cardReference((await scenarioOf(incident))?.ddsReference, service, incident.address);
+  const settings = run.settings as { ackSec: number; workSec: number };
+  const actor = shortName(seat.fullName);
+  const events: Prisma.StatusEventCreateManyInput[] = [];
+  let firstRecord = true;
+  const push = (status: ServiceStatus, when: Date, comment?: string | null, crew?: string | null) => {
+    if (when > run.end) return false;
+    const record = !!comment && firstRecord && status !== "RECEIVED";
+    if (record) firstRecord = false;
+    events.push({
+      incidentServiceId: plate.id,
+      status,
+      comment: comment ?? null,
+      crewNumber: crew ?? null,
+      actorLabel: status === "RECEIVED" ? SYSTEM_ACTOR : actor,
+      actorUserId: status === "RECEIVED" ? null : seat.studentId,
+      seatId: seat.id,
+      late: status === "RECEIVED" ? isLate(addedAt, when, settings.ackSec) : record && isLate(addedAt, when, settings.workSec),
+      at: when,
+    });
+    return true;
+  };
+
+  const openedAt = at(addedAt, between(p.ack[0], p.ack[1]));
+  if (!push("RECEIVED", openedAt)) return finishPlate(plate, events);
+  const answerAt = at(openedAt, between(p.record[0], p.record[1]));
+  const reference = ref?.decision ?? "accept";
+  const wrong = reference !== "open" && criticalSlip(seat.login, p.wrongDecision * 2);
+  const decision = reference === "open" ? (chance(0.85) ? "accept" : "reject") : wrong ? (reference === "accept" ? "reject" : "accept") : reference;
+  const sloppy = chance(p.sloppy);
 
   if (decision === "reject") {
-    events.push({ status: "REJECTED", sec: ack, comment: goodHandover ? handover : wrongDecision ? "Не наш профиль" : HANDOVER_BAD });
-  } else {
-    // A sloppy dispatcher puts a bare «Принята»: it is not a record, the first record comes with the crew's departure.
-    events.push({ status: "ACCEPTED", sec: ack, crew, comment: sloppy ? undefined : `Направлена бригада, наряд ${crew}` });
-    let t = between(p.dispatch[0], p.dispatch[1]);
-    for (const status of ref.chain) {
-      if (skip && (status === "ARRIVED" || status === "WORKING")) continue;
-      if (status !== "STARTED") t += between(200, 330);
-      const comment =
-        status === "STARTED"
-          ? sloppy
-            ? "выехали"
-            : "Бригада выехала на место"
-          : status === "FINISHED"
-            ? sloppy
-              ? "Сделано"
-              : (ref.report ?? "Работы завершены, опасности для жителей нет")
-            : status === "ARRIVED"
-              ? "Бригада прибыла на место"
-              : "Проводятся работы";
-      events.push({ status, sec: t, crew, comment });
+    const good =
+      ref?.decision === "reject"
+        ? (ref.why ?? "Не наша зона ответственности, информация передана по принадлежности")
+        : "Не принята: выезд района не требуется, на месте работают профильные службы; информация передана в ЕДДС округа";
+    const comment = wrong ? (chance(0.5) ? "Не наш профиль, реагирует служба 101" : "Не наш профиль") : chance(p.noHandover) ? "Не наша территория" : good;
+    push("REJECTED", answerAt, comment);
+    return finishPlate(plate, events);
+  }
+
+  const roster = crewRoster(service);
+  const turn = run.crewTurn.get(seat.id) ?? 0;
+  run.crewTurn.set(seat.id, turn + 1);
+  const member = roster[turn % roster.length];
+  const bare = chance(p.bareStatus);
+  const accepted = bare ? null : sloppy ? `отпр бр ${member.crew}` : oneOf(ACCEPT)(member.crew, member.title);
+  if (!push("ACCEPTED", answerAt, accepted, member.crew)) return finishPlate(plate, events);
+
+  const { chain, plan } = crewPlanFor(ref);
+  const schedule = crewSchedule(chain, CREW_PACE_SEC);
+  const error = ref?.cardError;
+  let errorFixed = false;
+  let errorTold = false;
+  const address = addressShort(incident.address as IncidentAddress | null);
+  let lastStatusAt = answerAt;
+  for (const step of schedule) {
+    const ringAt = at(answerAt, step.afterSec + between(1, 4));
+    if (ringAt > run.end) break;
+    const crewCtx: CrewContext = { crew: member.crew, leader: member.leader, title: member.title, address, what: incident.description ?? "", plan, dispatched: true, stage: step.status, errorTold, errorFixed };
+    const counterpart = { kind: "crew", crew: member.crew, name: member.leader, role: `старший наряда ${member.crew}`, phone: member.phone, voice: member.voice, stage: step.status };
+    let heardAt: Date | null = null;
+    if (chance(p.answerCall)) {
+      heardAt = at(ringAt, between(2, 9));
+      const report = sayable(reportLine(step.status, crewCtx));
+      const ack = step.status === "FINISHED" || step.status === "REFUSED" ? "Принято, закрываю карточку." : "Принято.";
+      await db.call.create({
+        data: {
+          lessonId: run.id, seatId: seat.id, incidentId: incident.id, kind: "BRIGADE_IN", status: "ENDED",
+          counterpart: json({ ...counterpart, reports: [{ status: step.status, at: heardAt.toISOString() }] }),
+          messages: json([
+            { role: "counterpart", text: report, at: heardAt.toISOString() },
+            { role: "trainee", text: ack, at: at(heardAt, 5).toISOString() },
+            { role: "counterpart", text: "Понял. Будут изменения — доложу.", at: at(heardAt, 7).toISOString() },
+          ]),
+          startedAt: ringAt, answeredAt: heardAt, endedAt: at(heardAt, 10),
+        },
+      });
+    } else {
+      const missedAt = new Date(Math.min(at(ringAt, 25).getTime(), run.end.getTime()));
+      await db.call.create({
+        data: { lessonId: run.id, seatId: seat.id, incidentId: incident.id, kind: "BRIGADE_IN", status: "MISSED", counterpart: json(counterpart), messages: json([]), startedAt: ringAt, endedAt: missedAt },
+      });
+      const backAt = at(missedAt, between(10, 50));
+      if (chance(p.callBack) && backAt < run.end) {
+        heardAt = backAt;
+        await db.call.create({
+          data: {
+            lessonId: run.id, seatId: seat.id, incidentId: incident.id, kind: "BRIGADE_OUT", status: "ENDED",
+            counterpart: json({ ...counterpart, stage: undefined, reports: [{ status: step.status, at: backAt.toISOString() }] }),
+            messages: json([
+              { role: "counterpart", text: sayable(crewGreeting(crewCtx, true)), at: backAt.toISOString() },
+              { role: "trainee", text: "Принято, спасибо.", at: at(backAt, 5).toISOString() },
+            ]),
+            startedAt: backAt, answeredAt: backAt, endedAt: at(backAt, 9),
+          },
+        });
+      }
     }
+    if (heardAt && ["ARRIVED", "WORKING", "FINISHED", "REFUSED"].includes(step.status)) errorTold = true;
+
+    // An error in the card told from the site: the careful dispatcher phones 112 with the card number and the right information.
+    if (error && heardAt && step.status === "ARRIVED" && !errorFixed && chance(p.call112)) {
+      const callAt = at(heardAt, between(20, 45));
+      if (callAt < run.end) {
+        const text = `Служба 112, ДДС ${service.shortName.replace(/^Поселение\s+/, "")}, диспетчер ${seat.fullName.split(" ")[0]}. По карточке ${incident.number} ошибка: ${error.onSite}.`;
+        const label = fixLabel(error);
+        await db.call.create({
+          data: {
+            lessonId: run.id, seatId: seat.id, incidentId: incident.id, kind: "SERVICE_OUT", status: "ENDED",
+            counterpart: json({ kind: "operator112", name: OPERATOR_112, role: "оператор", phone: "112" }),
+            messages: json([
+              { role: "counterpart", text: operatorGreeting(), at: callAt.toISOString() },
+              { role: "trainee", text, at: at(callAt, 8).toISOString() },
+              { role: "counterpart", text: operatorMockReply(text, 1, { kind: "fixed", card: incident.number, label }), at: at(callAt, 12).toISOString() },
+            ]),
+            startedAt: callAt, answeredAt: callAt, endedAt: at(callAt, 20),
+          },
+        });
+        const fresh = await db.incident.findUniqueOrThrow({ where: { id: incident.id }, select: { address: true, flags: true, descriptionLog: true } });
+        const next = correctedCard(fresh, error, service.shortName, at(callAt, 12));
+        await db.incident.update({ where: { id: incident.id }, data: { address: json(next.address), flags: json(next.flags), descriptionLog: json(next.descriptionLog) } });
+        errorFixed = true;
+      }
+    }
+
+    // The status by the report; skipped, guessed ahead of it, or set without a text by the less careful.
+    const closing = step.status === "FINISHED" || step.status === "REFUSED";
+    if (!closing && (step.status === "ARRIVED" || step.status === "WORKING") && chance(p.skipStatus)) continue;
+    const ahead = !closing && chance(p.ahead);
+    const when = ahead ? at(answerAt, Math.max(8, step.afterSec - between(40, 70))) : heardAt ? at(heardAt, between(6, 25)) : at(ringAt, 25 + between(20, 80));
+    const setAt = new Date(Math.max(when.getTime(), lastStatusAt.getTime() + 3000));
+    let comment: string;
+    if (step.status === "STARTED") comment = sloppy ? "выехали" : `Наряд ${member.crew} выехал`;
+    else if (step.status === "ARRIVED") comment = `Наряд ${member.crew} прибыл на место`;
+    else if (step.status === "WORKING") comment = `Наряд ${member.crew}: ${plan.work ?? "работы на месте"}`;
+    else if (step.status === "REFUSED") comment = sloppy ? "Отказ" : `Отказ от работ: ${plan.refuse ?? "не наша зона ответственности"}; информация передана по принадлежности`;
+    else {
+      const result = cap((plan.result ?? "работы выполнены").replace(/[.\s]+$/, ""));
+      const right = error ? `; на месте: ${error.onSite}` : "";
+      comment = sloppy ? oneOf(["Сделано", "Работы завершены"]) : `${result}${right}. Наряд ${member.crew} закончил работы в ${fmtHM(setAt)}`;
+    }
+    if (!push(step.status, setAt, comment, member.crew)) break;
+    lastStatusAt = setAt;
   }
-  // A lesson may end before the crew finishes: those plates stay «Не завершено».
-  const kept = cut == null ? events : events.filter((e) => e.sec <= cut);
+  return finishPlate(plate, events);
+}
 
-  // The customer's two norms: open the card within 30 s, the first record —
-  // a status with a text — within 3 min, both from «Добавлена».
-  const opened = kept.find((e) => e.status === "RECEIVED");
-  crits.push({
-    code: "dds.open_in_time",
-    group: "timeliness",
-    title: `Карточка открыта за ${ctx.ackSec} с`,
-    ok: opened ? opened.sec <= ctx.ackSec : false,
-    evidence: opened ? `Открыта через ${mmss(opened.sec)} после «Добавлена»` : "Карточку не открыли",
-    expected: `не позже ${mmss(ctx.ackSec)} после «Добавлена»`,
-    source: "rule",
-  });
-  const record = kept.find((e) => e.status !== "RECEIVED" && !!e.comment?.trim());
-  crits.push({
-    code: "dds.first_record_in_time",
-    group: "timeliness",
-    title: `Первая запись — статус и текст — за ${mmss(ctx.workSec)}`,
-    ok: record ? record.sec <= ctx.workSec : false,
-    evidence: record ? `«${record.comment}» через ${mmss(record.sec)} после «Добавлена»` : "Записи со статусом и текстом нет",
-    expected: `не позже ${mmss(ctx.workSec)} после «Добавлена»`,
-    source: "rule",
-  });
-  if (decision === "accept") {
-    const finished = kept.find((e) => e.status === "FINISHED");
-    crits.push({
-      code: "dds.progress_statuses",
-      group: "statusOrder",
-      title: "Статусы хода работ по докладам наряда",
-      ok: !skip,
-      evidence: skip ? "Наряд доложил о прибытии и начале работ, статусы «Прибытие» и «Проведение работ» не выставлены" : undefined,
-      expected: "Принята → Начало реагирования → Прибытие → Проведение работ → Работы завершены",
-      source: "rule",
+async function finishPlate(plate: IncidentService, events: Prisma.StatusEventCreateManyInput[]) {
+  if (!events.length) return;
+  await db.statusEvent.createMany({ data: events });
+  const last = events[events.length - 1];
+  const crew = events.find((e) => e.crewNumber)?.crewNumber ?? null;
+  await db.incidentService.update({ where: { id: plate.id }, data: { status: last.status, crewNumber: crew } });
+}
+
+const scenarios = new Map<string, ScenarioRow>();
+async function scenarioOf(incident: Pick<Incident, "scenarioId">) {
+  return incident.scenarioId ? (scenarios.get(incident.scenarioId) ?? null) : null;
+}
+
+/** The other services on the card move as the flow's bots move them while a place of the lesson polls. */
+async function moveBots(run: LessonRun, incident: Incident, plates: IncidentService[], live: Set<number>) {
+  const scenario = await scenarioOf(incident);
+  for (const plate of plates) {
+    const service = (await db.service.findUnique({ where: { id: plate.serviceId } }))!;
+    if (live.has(plate.serviceId) || service.delivery === "PHONE") continue;
+    const plan = botPlan({ id: plate.id, serviceId: plate.serviceId, shortName: service.shortName, delivery: service.delivery, ...botFacts({ flags: incident.flags, address: incident.address, scenario }, service) });
+    const due = dueSteps(plan, "ADDED", secBetween(plate.addedAt, run.end));
+    if (!due.length) continue;
+    let crew: string | null = null;
+    const actor = botActor({ id: plate.id, shortName: service.shortName });
+    await db.statusEvent.createMany({
+      data: due.map((step) => {
+        crew = step.crewNumber ?? crew;
+        return { incidentServiceId: plate.id, status: step.status, comment: step.comment ?? null, crewNumber: crew, actorLabel: actor, at: at(plate.addedAt, step.afterSec) };
+      }),
     });
-    crits.push({
-      code: "dds.closing_status",
-      group: "statusOrder",
-      title: "Карточка закрыта итоговым статусом",
-      ok: Boolean(finished),
-      evidence: finished ? undefined : "К концу занятия нет «Работы завершены»",
-      expected: "закрыть карточку «Работы завершены» с итогом",
-      source: "rule",
-    });
-    crits.push({
-      code: "dds.final_comment",
-      group: "comments",
-      title: "Итог работ в комментарии",
-      ok: finished ? !sloppy : null,
-      evidence: finished ? `Комментарий: «${finished.comment}»` : undefined,
-      expected: "что сделано и в каком состоянии объект",
-      source: "rule",
-    });
+    await db.incidentService.update({ where: { id: plate.id }, data: { status: due[due.length - 1].status, crewNumber: crew } });
   }
-  const rejected = kept.find((e) => e.status === "REJECTED");
-  crits.push({
-    code: "dds.transfer_named",
-    group: "comments",
-    title: "К «Не принята» указано, кому передано",
-    ok: rejected ? rejected.comment !== HANDOVER_BAD && rejected.comment !== "Не наш профиль" : null,
-    evidence: rejected ? `Комментарий: «${rejected.comment}»` : undefined,
-    expected: "причина и кому передано (служба, фамилия дежурного)",
-    source: "rule",
-  });
-  crits.push({
-    code: "dds.decision",
-    group: "services",
-    title: ref.decision === "accept" ? "Профильное происшествие принято" : "Не принята по эталону",
-    ok: !wrongDecision,
-    critical: ref.decision === "accept",
-    evidence: wrongDecision ? (ref.decision === "accept" ? `«Не принята» — эталон для «${serviceName}»: принять и направить наряд` : "«Принята», хотя по эталону служба не реагирует") : undefined,
-    expected: ref.decision === "accept" ? "Принята, направить наряд" : (ref.comment ?? "Не принята с комментарием, кому передано"),
-    source: "rule",
-  });
-  crits.push({
-    code: "dds.ai.literacy",
-    group: "literacy",
-    title: "ИИ: комментарии понятны следующему диспетчеру",
-    ok: !sloppy,
-    evidence: sloppy ? "«отпр бр», «выехали» — непонятно, кто и куда" : undefined,
-    expected: "Полные фразы: кто направлен, номер наряда, что делают",
-    source: "ai",
-  });
-  return { events: kept, crits };
 }
 
-// ─── 112: a card filled at a place ───────────────────────────────────────────
-function simulate112(fx: Fx, p: Profile, ctx: Ctx) {
-  const typing = between(p.typing[0], p.typing[1]);
-  const wrongStreet = fx.street && chance(p.lookAlikeStreet) ? lookAlike(fx.street) : null;
-  const missQuestion = Boolean(fx.question) && chance(p.missQuestion);
-  const wrongServices = chance(p.wrongServices);
-  const sloppy = chance(p.sloppyText);
-  const crits: CriterionResult[] = [
-    // The same check as at the workstation: past the norm the time keeps part of its points (timeCredit).
-    typingTimeCheck("Карточка сохранена", typing, ctx.typingSec),
-    {
-      code: "op112.address_street",
-      group: "address",
-      title: "Улица записана верно",
-      ok: fx.street ? !wrongStreet : null,
-      critical: true,
-      evidence: wrongStreet ? `Заявитель: «${fx.street}»; в карточке: «${wrongStreet}»` : undefined,
-      expected: wrongStreet ? `${fx.street} — похожая улица отправит наряд по другому адресу` : undefined,
-      source: "rule",
+/** The ДДС attempt: the current checks of the plate, and the model's clarity check from a recorded answer. */
+async function gradePlate(run: LessonRun, plate: IncidentService, ctx: Ctx) {
+  const input = await plateReviewInput(plate.id, run.end);
+  if (!input) return;
+  const rules = evaluateDdsPlate(input.facts);
+  const criteria = [...rules];
+  let slip: string | null = null;
+  if (input.judged.length) {
+    // The model reads the comments the way the rules do; now and then it is too strict or too lenient.
+    const unclear = input.judged.find((c) => commentIssues(c).length);
+    slip = chance(0.1) ? "dds.ai.literacy" : null;
+    const clear = slip ? !!unclear : !unclear;
+    const fragment = clear ? "" : (unclear ?? input.judged[input.judged.length - 1]).text.split(/[.;]/)[0];
+    const basis = clarityBasis(input.judged);
+    criteria.push(clarityFromReply({ clear, fragment, better: "Полными фразами: кто выехал, что сделано, чем закончилось" }, { service: input.plate.service.shortName, card: incident112Line(input.incident), comments: input.judged, cardError: cardErrorFrom(input.incident.scenario?.ddsReference) }, [], basis));
+  }
+  const score = computeScore(criteria, ctx.weights);
+  const created = await db.attempt.create({
+    data: {
+      lessonId: run.id,
+      seatId: input.seat.id,
+      studentId: input.seat.studentId,
+      kind: "DDS",
+      incidentId: input.incident.id,
+      incidentServiceId: plate.id,
+      scenarioId: input.incident.scenarioId,
+      criteria: json(criteria),
+      score,
+      aiDraft: json({ summary: summarize(criteria, score), source: "rules", by: PLACE_REVIEW, final: true }),
+      createdAt: new Date(Math.min(run.end.getTime(), (input.plate.events.at(-1)?.at ?? run.end).getTime() + 4000)),
     },
-    {
-      code: "op112.address_clarified",
-      group: "address",
-      title: "Адрес уточнён до дома и ориентира",
-      ok: fx.caller.hiddenAddress ? !(wrongStreet && chance(0.5)) : null,
-      evidence: `Заявитель сначала сказал: «${fx.caller.visibleAddress}»`,
-      expected: fx.caller.hiddenAddress,
-      source: "rule",
-    },
-    {
-      code: "op112.services",
-      group: "services",
-      title: "Службы выбраны верно",
-      ok: !wrongServices,
-      evidence: wrongServices ? "Не добавлена ДДС префектуры округа" : undefined,
-      expected: "ДДС района + ДДС префектуры округа + профильные службы",
-      source: "rule",
-    },
-    {
-      code: "op112.questions",
-      group: "completeness",
-      title: "Обязательные вопросы опросной карты",
-      ok: fx.question ? !missQuestion : null,
-      evidence: missQuestion ? `Не задан вопрос: ${fx.question}` : undefined,
-      expected: fx.question ?? undefined,
-      source: "rule",
-    },
-    {
-      code: "op112.ai.said",
-      group: "completeness",
-      title: "ИИ: всё сказанное заявителем попало в карточку",
-      ok: !(missQuestion && chance(0.6)),
-      evidence: `Заявитель: «${fx.caller.situation}»`,
-      expected: "Все факты из разговора перенесены в описание и признаки",
-      source: "ai",
-    },
-    {
-      code: "op112.ai.description",
-      group: "literacy",
-      title: "ИИ: описание понятно следующему диспетчеру",
-      ok: !sloppy,
-      evidence: sloppy ? `«${fx.description.toLowerCase().replace(/[.,]/g, "").split(" ").slice(0, 5).join(" ")} срочн»` : undefined,
-      expected: "Коротко и полно: что случилось, где, есть ли угроза людям",
-      source: "ai",
-    },
-  ];
-  return { typing, crits, wrongStreet };
+  });
+  run.attempts.push({ id: created.id, createdAt: created.createdAt, slip });
 }
 
-function dialogue(fx: Fx, start: Date) {
-  const c = fx.caller;
-  const lines: [string, string][] = [
-    ["trainee", "Служба 112, что у вас случилось?"],
-    ["counterpart", c.situation],
-    ["trainee", "Назовите адрес."],
-    ["counterpart", c.visibleAddress],
-    ["trainee", "Уточните, пожалуйста: улица, дом, ориентир."],
-    ["counterpart", c.hiddenAddress ?? c.visibleAddress],
-    ["trainee", "Как вас зовут?"],
-    ["counterpart", c.fullName],
-    ["counterpart", c.facts[0] ?? ""],
-    ["trainee", "Информация принята, службы оповещены."],
-  ];
-  return lines.filter(([, t]) => t).map(([role, text], i) => ({ role, text, at: at(start, 4 + i * 6).toISOString() }));
-}
+const incident112Line = (i: { description: string | null }) => (i.description ?? "").slice(0, 300);
 
 // ─── lesson builder ──────────────────────────────────────────────────────────
-/** `tasks` are ticket refs dealt by the teacher; an empty list in an adaptive lesson means `cards` tasks picked by the student's level. */
-type SeatPlan = { login: string; role: "OP112" | "DDS"; serviceId?: number; tasks: string[]; cards?: number };
-type ServiceInfo = { shortName: string; delivery: ServiceDelivery };
-type SeatRow = { id: string; studentId: string; role: "OP112" | "DDS"; serviceId: number | null; plan: SeatPlan; login: string; fullName: string };
 
 async function buildLesson(opts: {
   id: string;
@@ -417,338 +676,226 @@ async function buildLesson(opts: {
   plan: SeatPlan[];
   settings: Record<string, unknown>;
   review: (i: number, total: number) => Review;
-  ctx: Ctx;
   groupId: string;
-  fx: Map<string, Fx>;
-  services: Map<number, ServiceInfo>;
-  /** Place of the lesson in the course: the students get better (or worse) from lesson to lesson. */
   lessonNo: number;
+  ctx: Ctx;
 }) {
   const { ctx } = opts;
+  rnd = prng(20260929 + opts.lessonNo * 7919);
   const students = await db.user.findMany({ where: { login: { in: opts.plan.map((p) => p.login) } } });
   const byLogin = new Map(students.map((s) => [s.login, s]));
-  const finishedAt = opts.status === "FINISHED" ? at(opts.start, opts.durationMin * 60) : null;
-
+  const end = at(opts.start, opts.durationMin * 60);
+  // Built as a draft and finished at the end: a student's screen polling a finished lesson reviews the plates it finds
+  // without a review (dds/review.ts evaluateSeatPlates) — it must not meet one half built.
   await db.lesson.create({
     data: {
       id: opts.id,
       title: opts.title,
       teacherId: ctx.teacherId,
       groupId: opts.groupId,
-      status: opts.status,
-      settings: opts.settings as Prisma.InputJsonValue,
+      status: "DRAFT",
+      settings: json(opts.settings),
       startedAt: opts.status === "DRAFT" ? null : opts.start,
-      finishedAt,
+      finishedAt: opts.status === "FINISHED" ? end : null,
       createdAt: at(opts.start, -3600),
     },
   });
-
-  const taskIds = (p: SeatPlan) => p.tasks.map((ref) => opts.fx.get(ref)?.id).filter((x): x is string => !!x);
+  const serviceByName = new Map([...ctx.services.values()].map((s) => [s.shortName, s]));
   const seats: SeatRow[] = [];
   for (const [i, p] of opts.plan.entries()) {
     const student = byLogin.get(p.login);
     if (!student) continue;
-    const serviceId = p.role === "DDS" ? (p.serviceId ?? VORONOVSKOE) : null;
+    const service = p.role === "DDS" ? serviceByName.get(p.service ?? DEFAULT_DDS) : undefined;
+    if (p.role === "DDS" && !service) throw new Error(`Нет службы «${p.service}» — обновите справочники (pnpm db:seed)`);
+    const ids = p.tasks.map((ref) => ctx.byRef.get(ref)?.id).filter((x): x is string => !!x);
+    const label = `Место ${i + 1}`;
     const seat = await db.seat.create({
-      data: { lessonId: opts.id, studentId: student.id, role: p.role, serviceId, scenarioIds: taskIds(p), label: `Место ${i + 1}`, createdAt: at(opts.start, -3600 + i) },
+      data: { lessonId: opts.id, studentId: student.id, role: p.role, serviceId: service?.id ?? null, scenarioIds: ids, label, createdAt: at(opts.start, -3600 + i) },
     });
-    seats.push({ id: seat.id, studentId: student.id, role: p.role, serviceId, plan: p, login: student.login, fullName: student.fullName });
+    seats.push({ id: seat.id, lessonId: opts.id, serviceId: seat.serviceId, studentId: student.id, login: student.login, fullName: student.fullName, role: p.role, label });
   }
   if (opts.status === "DRAFT") return { attempts: 0 };
 
-  const lessonEndSec = opts.durationMin * 60;
-  const attempts: Prisma.AttemptCreateManyInput[] = [];
-  // Cards typed at 112 places reach the ДДС places of their services only when the lesson takes students' cards.
-  const routeToDds = opts.settings.cardSource !== "generated";
-
-  // An adaptive place gets the next task near the student's level as it stands at that moment —
-  // the same choice as the workstations make (src/lib/adaptive/pick.ts).
-  const adaptivePool = [...opts.fx.values()].map((f) => ({ id: f.ticketRef, difficulty: f.difficulty }));
-  const difficultyOf = new Map([...opts.fx.values()].map((f) => [f.id, f.difficulty]));
-  // Only what happened before the lesson: a re-run of the seed must not see today's attempts.
+  const run: LessonRun = { id: opts.id, start: opts.start, end, lessonNo: opts.lessonNo, settings: opts.settings, seats, attempts: [], crewTurn: new Map() };
+  const mixed = opts.settings.cardSource === "mixed";
+  const tempo = Number(opts.settings.tempoSec ?? 90);
+  const live = new Set(seats.filter((s) => s.role === "DDS").map((s) => s.serviceId!));
   const earlier = new Map(
     [...(await loadRatingAttempts(seats.map((s) => s.studentId), { client: db })).entries()].map(([id, list]) => [id, list.filter((a) => a.createdAt < opts.start)]),
   );
+  const tickets = [...ctx.byRef.values()].filter((s) => s.status === "APPROVED" && s.source === "ticket" && !/-ош$/.test(s.ticketRef ?? ""));
 
-  for (const seat of seats) {
-    const adaptive = !seat.plan.tasks.length && opts.settings.adaptive === true;
-    const count = adaptive ? (seat.plan.cards ?? 3) : seat.plan.tasks.length;
-    const lastUsed = new Map<string, number>();
+  // A task the adaptive lesson deals by the student's level (src/lib/adaptive) — for a ДДС place, on its territory.
+  const adaptiveTask = (seat: SeatRow, had: Set<string>) => {
+    const level = computeRating(seat.role, earlier.get(seat.studentId) ?? []);
+    let pool = tickets.filter((s) => !had.has(s.id) && (seat.role === "OP112" || s.ddsCard !== null));
+    if (seat.role === "DDS") {
+      const own = ctx.services.get(seat.serviceId!)!;
+      const t = territoryOf(own)!;
+      pool = byTerritory(pool.filter((s) => onTerritory(s, t) !== "no"), t, own);
+    }
+    const pick = pickAdaptive(pool.map((s) => ({ id: s.ticketRef!, difficulty: s.difficulty })), { target: level.difficulty, random: rnd });
+    return pick ? ctx.byRef.get(pick.id)! : null;
+  };
+
+  // 112 places: a call every few minutes; the card goes to the ДДС places of its services when the lesson takes them.
+  const toDds: { card: Card112; seat: SeatRow }[] = [];
+  for (const seat of seats.filter((s) => s.role === "OP112")) {
+    const plan = opts.plan.find((p) => p.login === seat.login)!;
+    const had = new Set<string>();
+    const count = plan.tasks.length || (plan.cards ?? 3);
+    let t = at(opts.start, between(40, 90));
     for (let k = 0; k < count; k++) {
-      let ticket = seat.plan.tasks[k];
-      if (adaptive) {
-        // This lesson's attempts are still drafts: the teacher confirms them after the lesson.
-        const mine: RatingAttempt[] = attempts
-          .filter((a) => a.seatId === seat.id)
-          .map((a, i) => ({ id: `${seat.id}:${i}`, kind: a.kind, score: a.score ?? null, reviewStatus: "PENDING", createdAt: a.createdAt as Date, difficulty: difficultyOf.get(a.scenarioId ?? "") ?? null }));
-        const level = computeRating(seat.role, [...(earlier.get(seat.studentId) ?? []), ...mine]);
-        ticket = pickAdaptive(adaptivePool, { target: level.difficulty, lastUsed, random: rnd })!.id;
-        lastUsed.set(ticket, k);
-      }
-      const fx = opts.fx.get(ticket);
-      if (!fx) continue;
-      const profile = profileFor(seat.login, opts.lessonNo, fx.difficulty);
-      const offset = 120 + k * between(540, 660) + between(0, 40);
-      const t0 = at(opts.start, offset);
-
-      if (seat.role === "OP112") {
-        const sim = simulate112(fx, profile, ctx);
-        const operatorNo = String(900 + seats.indexOf(seat));
-        const incident = await db.incident.create({
-          data: {
-            lessonId: opts.id,
-            scenarioId: fx.id,
-            source: "op112",
-            createdBySeatId: seat.id,
-            operatorNo,
-            armNo: String(seats.indexOf(seat) + 1),
-            status: "worked",
-            caller: { fullName: fx.caller.fullName, status: "очевидец", aon: fx.caller.phone ?? null },
-            address: { descriptive: sim.wrongStreet && fx.street ? fx.address.replace(fx.street, sim.wrongStreet) : fx.address },
-            flags: fx.flags,
-            description: fx.description,
-            descriptionLog: [{ at: at(t0, sim.typing).toISOString(), author: `оп. ${operatorNo}`, text: fx.description }],
-            openedAt: t0,
-            savedAt: at(t0, sim.typing),
-            workedAt: at(t0, sim.typing + 40),
-            createdAt: t0,
-          },
-        });
-        await db.call.create({
-          data: {
-            lessonId: opts.id,
-            seatId: seat.id,
-            incidentId: incident.id,
-            kind: "CALLER_IN",
-            status: "ENDED",
-            counterpart: { name: fx.caller.fullName, role: "заявитель", voice: fx.caller.voice ?? "female" },
-            messages: dialogue(fx, t0),
-            startedAt: at(t0, -5),
-            answeredAt: t0,
-            endedAt: at(t0, 70),
-          },
-        });
-        const addedAt = at(t0, sim.typing + 1);
-        for (const serviceId of fx.services) {
-          const target = routeToDds ? seats.find((s) => s.role === "DDS" && s.serviceId === serviceId) : undefined;
-          const plate = await db.incidentService.create({
-            data: { incidentId: incident.id, serviceId, isMain: serviceId === fx.services[0], addedBy: "auto", status: "ADDED", addedAt },
-          });
-          const events: Prisma.StatusEventCreateManyInput[] = [{ incidentServiceId: plate.id, status: "ADDED", actorLabel: "оп. 0", at: addedAt }];
-          if (target) {
-            const tProfile = profileFor(target.login, opts.lessonNo, fx.difficulty);
-            const cut = finishedAt ? lessonEndSec - (offset + sim.typing + 1) : null;
-            const dds = simulateDds(fx, serviceId, opts.services.get(serviceId)?.shortName ?? "", tProfile, ctx, cut);
-            events.push(...ownEvents(plate.id, dds.events, addedAt, target, ctx));
-            await closePlate(plate.id, dds.events);
-            attempts.push(attemptRow(opts.id, target, "DDS", incident.id, plate.id, fx.id, dds.crits, at(addedAt, (dds.events.at(-1)?.sec ?? 0) + 5), ctx));
-          } else {
-            const bot = botEvents(serviceId, addedAt, plate.id, opts.services);
-            events.push(...bot.events);
-            if (bot.last) await db.incidentService.update({ where: { id: plate.id }, data: { status: bot.last } });
-          }
-          await db.statusEvent.createMany({ data: events });
-        }
-        attempts.push(attemptRow(opts.id, seat, "OP112", incident.id, null, fx.id, sim.crits, at(t0, sim.typing + 5), ctx));
-      } else {
-        // A generated card sent to this ДДС place; its own plate is always on the card, as in the card flow.
-        const cut = finishedAt ? lessonEndSec - offset : null;
-        const incident = await db.incident.create({
-          data: {
-            lessonId: opts.id,
-            scenarioId: fx.id,
-            source: "generated",
-            operatorNo: "0",
-            armNo: String(1 + (k % 9)),
-            status: "registered",
-            caller: { fullName: fx.caller.fullName, status: "очевидец" },
-            address: { descriptive: fx.address },
-            flags: fx.flags,
-            description: fx.description,
-            descriptionLog: [{ at: t0.toISOString(), author: "0 УМЦ О.п.", text: fx.description }],
-            savedAt: t0,
-            createdAt: t0,
-          },
-        });
-        const own = seat.serviceId!;
-        const dds = simulateDds(fx, own, opts.services.get(own)?.shortName ?? "", profile, ctx, cut);
-        for (const serviceId of [...new Set([...fx.services, own])]) {
-          const plate = await db.incidentService.create({
-            data: { incidentId: incident.id, serviceId, isMain: serviceId === fx.services[0], addedBy: "auto", addedAt: t0 },
-          });
-          // The ADDED event records the place the card was delivered to.
-          const events: Prisma.StatusEventCreateManyInput[] = [
-            { incidentServiceId: plate.id, status: "ADDED", actorLabel: "оп. 0", seatId: serviceId === own ? seat.id : null, at: t0 },
-          ];
-          if (serviceId === own) {
-            events.push(...ownEvents(plate.id, dds.events, t0, seat, ctx));
-            await closePlate(plate.id, dds.events);
-            attempts.push(attemptRow(opts.id, seat, "DDS", incident.id, plate.id, fx.id, dds.crits, at(t0, (dds.events.at(-1)?.sec ?? 0) + 5), ctx));
-          } else {
-            const bot = botEvents(serviceId, t0, plate.id, opts.services);
-            events.push(...bot.events);
-            if (bot.last) await db.incidentService.update({ where: { id: plate.id }, data: { status: bot.last } });
-          }
-          await db.statusEvent.createMany({ data: events });
-        }
-      }
+      const scenario = plan.tasks.length ? ctx.byRef.get(plan.tasks[k]) : adaptiveTask(seat, had);
+      if (!scenario) continue;
+      had.add(scenario.id);
+      const card = await play112(run, seat, scenario, t, profileFor(seat.login, opts.lessonNo, scenario.difficulty), ctx);
+      if (!card) continue;
+      await grade112(run, seat, card, ctx);
+      if (mixed) for (const dds of seats.filter((s) => s.role === "DDS" && card.plates.some((pl) => pl.serviceId === s.serviceId))) toDds.push({ card, seat: dds });
+      t = at(card.savedAt, between(150, 330));
     }
   }
 
-  // Review state: the teacher confirmed the earlier attempts; some AI checks were corrected.
-  attempts.sort((a, b) => new Date(a.createdAt as Date).getTime() - new Date(b.createdAt as Date).getTime());
-  for (const [i, a] of attempts.entries()) {
-    const review = opts.review(i, attempts.length);
-    const criteria = a.criteria as unknown as CriterionResult[];
-    if (review === "PENDING") continue;
-    a.reviewStatus = review;
-    a.reviewedById = ctx.teacherId;
-    a.reviewedAt = at(finishedAt ?? opts.start, 600 + i * 45);
-    const target = review === "OVERRIDDEN" ? (criteria.find((c) => c.source === "ai" && c.ok === false) ?? criteria.find((c) => c.source === "ai")) : undefined;
-    // The teacher never takes «отпр бр» for a clear ДДС comment: such a draft is confirmed as it is.
-    if (target && target.code === "dds.ai.literacy" && target.ok === false) a.reviewStatus = "CONFIRMED";
-    if (a.reviewStatus === "OVERRIDDEN") {
-      if (target) {
-        a.override = { [target.code]: !target.ok };
-        a.teacherComment = (DEMO_CORRECTION[target.code] ?? DEMO_CORRECTION["op112.ai.description"])[target.ok ? "fail" : "pass"];
-      }
-    } else if (criteria.some((c) => c.ok === false)) {
-      a.teacherComment = "Разобрали на занятии. Обратите внимание на ошибки ниже.";
+  // ДДС places: their own generated cards at the lesson's tempo, and the 112 cards of their service.
+  for (const seat of seats.filter((s) => s.role === "DDS")) {
+    const plan = opts.plan.find((p) => p.login === seat.login)!;
+    const service = ctx.services.get(seat.serviceId!)!;
+    const territory = territoryOf(service);
+    const had = new Set<string>();
+    const count = plan.tasks.length || (plan.cards ?? 3);
+    let t = at(opts.start, between(15, 45));
+    const work: PlateRun[] = [];
+    for (let k = 0; k < count; k++) {
+      const scenario = plan.tasks.length ? ctx.byRef.get(plan.tasks[k]) : adaptiveTask(seat, had);
+      if (!scenario) continue;
+      had.add(scenario.id);
+      // Guard: a demo card of a district or prefecture place is always on its territory, as in a live lesson.
+      if (territory && onTerritory(scenario, territory) === "no") throw new Error(`${scenario.ticketRef} не попадает на территорию «${service.shortName}»`);
+      const created = await createCard(db, { id: seat.id, lessonId: run.id, serviceId: service.id }, scenario, t);
+      if (!created) continue;
+      const incident = await db.incident.findUniqueOrThrow({ where: { id: created.id }, include: { services: true } });
+      await db.incident.update({ where: { id: incident.id }, data: { createdAt: t } });
+      const own = incident.services.find((pl) => pl.serviceId === service.id)!;
+      const p = profileFor(seat.login, opts.lessonNo, scenario.difficulty);
+      work.push({ seat, incident, plate: own, addedAt: t, p, service });
+      await moveBots(run, incident, incident.services.filter((pl) => pl.id !== own.id), new Set());
+      t = at(t, tempo + between(20, 150));
     }
-    a.score = computeScore(criteria, ctx.weights, a.override as Record<string, boolean | null> | undefined);
+    for (const item of toDds.filter((x) => x.seat.id === seat.id)) {
+      const own = item.card.plates.find((pl) => pl.serviceId === service.id)!;
+      const scenario = await scenarioOf(item.card.incident);
+      work.push({ seat, incident: item.card.incident, plate: own, addedAt: item.card.savedAt, p: profileFor(seat.login, opts.lessonNo, scenario?.difficulty ?? 3), service });
+    }
+    for (const w of work.sort((a, b) => a.addedAt.getTime() - b.addedAt.getTime())) await workPlate(run, w);
   }
-  await db.attempt.createMany({ data: attempts });
-  await seedCorrections(opts.id, ctx);
-  return { attempts: attempts.length };
+  // Cards typed at 112 that reached a ДДС place of the lesson: their other plates move while the places poll.
+  const reached = new Map(toDds.map((x) => [x.card.incident.id, x.card]));
+  for (const card of reached.values()) await moveBots(run, card.incident, card.plates, live);
+
+  // The reviews, with the facts as they stand at the end of the lesson.
+  for (const seat of seats.filter((s) => s.role === "DDS")) {
+    const plates = await db.incidentService.findMany({
+      where: { serviceId: seat.serviceId!, events: { some: { seatId: seat.id } }, incident: { lessonId: run.id } },
+      orderBy: [{ addedAt: "asc" }, { incident: { number: "asc" } }],
+    });
+    for (const plate of plates) await gradePlate(run, plate, ctx);
+  }
+  await applyReviews(run, opts.review, ctx);
+  await db.lesson.update({ where: { id: opts.id }, data: { status: "FINISHED" } });
+  return { attempts: run.attempts.length };
 }
 
-/** What the teacher wrote when correcting a model check of the demo: pass — the draft was too strict, fail — too lenient. */
+// ─── the teacher's review ────────────────────────────────────────────────────
+
+/** What the teacher wrote when correcting a model check of the demo: pass — the model was too strict, fail — too lenient. */
 const DEMO_CORRECTION: Record<string, { pass: string; fail: string }> = {
-  "op112.ai.said": {
-    pass: "Сведение записано в описании, а не отдельным полем, — это не расхождение. Засчитываю.",
-    fail: "ИИ не заметил: часть сказанного заявителем в карточку не попала. Засчитываю как ошибку.",
-  },
   "op112.ai.description": {
-    pass: "Коротко, но суть, адрес и пострадавшие есть — службе понятно. Засчитываю.",
-    fail: "ИИ не заметил: в тексте нет главного — есть ли угроза людям. Засчитываю как ошибку.",
+    pass: "Коротко, но суть, адрес и угроза людям есть — службе понятно. Засчитываю.",
+    fail: "ИИ не заметил: из описания не понять, что случилось и есть ли угроза людям. Засчитываю как ошибку.",
   },
   "dds.ai.literacy": {
     pass: "Понятно без звонка: кто выехал, что сделано, чем закончилось. Засчитываю.",
-    fail: "Не сказано, чем закончилось и кому передано — следующему диспетчеру придётся звонить. Засчитываю как ошибку.",
+    fail: "Не сказано, чем закончилось и кто работал, — следующему диспетчеру придётся звонить. Засчитываю как ошибку.",
   },
 };
 
-/** Every «ИИ неправ» of the demo becomes a teacher correction (src/lib/review/corrections.ts), as on the real review screen. */
-async function seedCorrections(lessonId: string, ctx: Ctx) {
+const CONFIRM_NOTES = [
+  "Разобрали на занятии. Обратите внимание на ошибки ниже.",
+  "Ошибки разобрали, на следующем занятии — повторить.",
+  "Смотрите замечания: их разбираем в начале следующего занятия.",
+];
+
+async function applyReviews(run: LessonRun, review: (i: number, total: number) => Review, ctx: Ctx) {
+  const list = [...run.attempts].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const teacher = await db.user.findUniqueOrThrow({ where: { id: ctx.teacherId }, select: { id: true, fullName: true } });
-  const rows = await db.attempt.findMany({
-    where: { lessonId, reviewStatus: "OVERRIDDEN" },
-    select: { id: true, kind: true, criteria: true, override: true, teacherComment: true, reviewedAt: true, scenarioId: true, scenario: { select: { title: true, category: true, truth: true } } },
-  });
-  for (const a of rows) {
-    const truth = (a.scenario?.truth ?? {}) as { typeCodes?: number[] };
-    const typeCode = truth.typeCodes?.[0] ?? null;
-    const type = typeCode == null ? null : await db.incidentType.findUnique({ where: { code: typeCode }, select: { finalType: true, groupId: true } });
-    const checks = a.criteria as unknown as CriterionResult[];
-    for (const [code, teacherOk] of Object.entries((a.override ?? {}) as Record<string, boolean | null>)) {
-      const c = checks.find((x) => x.code === code);
-      if (!c || !a.teacherComment) continue;
+  for (const [i, made] of list.entries()) {
+    if (review(i, list.length) === "PENDING") continue;
+    const a = await db.attempt.findUniqueOrThrow({ where: { id: made.id }, include: { scenario: { select: { title: true, category: true, truth: true } } } });
+    const criteria = a.criteria as unknown as CriterionResult[];
+    const reviewedAt = at(run.end, 600 + i * 40);
+    // «ИИ неправ» where the model slipped; «Верно» everywhere else.
+    const slipped = made.slip ? criteria.find((c) => c.code === made.slip && c.ok !== null) : undefined;
+    const override = slipped ? { [slipped.code]: !slipped.ok } : null;
+    const teacherComment = slipped ? DEMO_CORRECTION[slipped.code][slipped.ok ? "fail" : "pass"] : criteria.some((c) => c.ok === false) ? oneOf(CONFIRM_NOTES) : null;
+    const feedback = buildPublishedFeedback({ criteria, override, teacherComment, reviewedAt });
+    await db.attempt.update({
+      where: { id: a.id },
+      data: {
+        reviewStatus: slipped ? "OVERRIDDEN" : "CONFIRMED",
+        override: override ? json(override) : undefined,
+        score: computeScore(criteria, ctx.weights, override),
+        teacherComment,
+        reviewedById: ctx.teacherId,
+        reviewedAt,
+        feedback: json(feedback),
+      },
+    });
+    if (slipped && teacherComment) {
+      // Every «ИИ неправ» becomes a teacher correction (src/lib/review/corrections.ts), as on the real review screen.
+      const truth = (a.scenario?.truth ?? {}) as { typeCodes?: number[] };
+      const typeCode = truth.typeCodes?.[0] ?? null;
+      const type = typeCode == null ? null : await db.incidentType.findUnique({ where: { code: typeCode }, select: { finalType: true, groupId: true } });
       await db.teacherCorrection.create({
         data: {
-          createdAt: a.reviewedAt ?? undefined,
+          createdAt: reviewedAt,
           attemptId: a.id,
           authorId: teacher.id,
           authorName: teacher.fullName,
           role: a.kind,
-          code,
-          title: c.title,
-          group: c.group,
-          source: c.source,
+          code: slipped.code,
+          title: slipped.title,
+          group: slipped.group,
+          source: slipped.source,
           scenarioId: a.scenarioId,
           scenarioTitle: a.scenario?.title ?? null,
           category: a.scenario?.category ?? null,
           typeCode,
           typeName: type?.finalType ?? null,
           typeGroupId: type?.groupId ?? null,
-          draftOk: c.ok,
-          draftEvidence: c.evidence ?? null,
-          teacherOk,
-          comment: a.teacherComment,
+          draftOk: slipped.ok,
+          draftEvidence: slipped.evidence ?? null,
+          teacherOk: !slipped.ok,
+          comment: teacherComment,
         },
       });
     }
   }
 }
 
-function ownEvents(plateId: string, events: Event[], addedAt: Date, seat: { id: string; studentId: string; fullName: string }, ctx: Ctx): Prisma.StatusEventCreateManyInput[] {
-  // The history shows in red what came late by the customer's two norms, as the workstation marks it (dds/plate.ts):
-  // the opening after ackSec, the first record — a status with a text — after workSec.
-  const record = events.find((e) => e.status !== "RECEIVED" && !!e.comment?.trim());
-  return events.map((e) => ({
-    incidentServiceId: plateId,
-    status: e.status,
-    comment: e.comment,
-    crewNumber: e.crew,
-    actorLabel: seat.fullName,
-    actorUserId: seat.studentId,
-    seatId: seat.id,
-    late: e.status === "RECEIVED" ? e.sec > ctx.ackSec : e === record ? e.sec > ctx.workSec : false,
-    at: at(addedAt, e.sec),
-  }));
-}
-
-async function closePlate(plateId: string, events: Event[]) {
-  const last = events.at(-1);
-  await db.incidentService.update({ where: { id: plateId }, data: { status: last?.status ?? "ADDED", crewNumber: events.find((e) => e.crew)?.crew } });
-}
-
-function attemptRow(
-  lessonId: string,
-  seat: { id: string; studentId: string },
-  kind: "OP112" | "DDS",
-  incidentId: string,
-  incidentServiceId: string | null,
-  scenarioId: string,
-  criteria: CriterionResult[],
-  createdAt: Date,
-  ctx: Ctx,
-): Prisma.AttemptCreateManyInput {
-  return {
-    lessonId,
-    seatId: seat.id,
-    studentId: seat.studentId,
-    kind,
-    incidentId,
-    incidentServiceId,
-    scenarioId,
-    criteria: criteria as unknown as Prisma.InputJsonValue,
-    aiDraft: ruleDraft(criteria) as unknown as Prisma.InputJsonValue,
-    score: computeScore(criteria, ctx.weights),
-    reviewStatus: "PENDING",
-    createdAt,
-  };
-}
-
-/** Services nobody plays in the lesson answer in time, as the card flow's bots do. */
-function botEvents(serviceId: number, addedAt: Date, plateId: string, services: Map<number, ServiceInfo>) {
-  const svc = services.get(serviceId);
-  if (!svc || svc.delivery === "PHONE") return { events: [] as Prisma.StatusEventCreateManyInput[], last: null };
-  const actor = svc.delivery === "VIS" ? "оп. 9999" : "оп. 0";
-  const chain: [ServiceStatus, number, string][] = [
-    ["RECEIVED", between(2, 6), ""],
-    ["ACCEPTED", between(10, 25), "Принято в работу"],
-    ["STARTED", between(90, 160), "Выезд"],
-  ];
-  return {
-    events: chain.map(([status, sec, comment]) => ({ incidentServiceId: plateId, status, comment: comment || undefined, actorLabel: actor, at: at(addedAt, sec) })),
-    last: "STARTED" as ServiceStatus,
-  };
-}
-
 // ─── running lesson with timers relative to now ─────────────────────────────
-async function buildLive(ctx: Ctx, groupId: string, fx: Map<string, Fx>) {
+async function buildLive(ctx: Ctx, groupId: string) {
   const start = new Date(Date.now() - 7 * 60_000);
+  rnd = prng(424242);
   const students = await db.user.findMany({ where: { login: { in: ["student1", "student2", "student3", "student4", "student5"] } }, orderBy: { login: "asc" } });
+  const byName = new Map([...ctx.services.values()].map((s) => [s.shortName, s]));
+  const plan: { role: "OP112" | "DDS"; service?: string; task: string }[] = [
+    { role: "OP112", task: "Б30-3" },
+    { role: "DDS", service: "Поселение Хорошево-Мневники", task: "Б2-1" },
+    { role: "DDS", service: "Поселение Мещанский", task: "Б17-1" },
+    { role: "DDS", service: "Поселение Дорогомилово", task: "Б1-1" },
+    { role: "OP112", task: "Б17-1" },
+  ];
   await db.lesson.create({
     data: {
       id: "demo-lesson-live",
@@ -757,87 +904,51 @@ async function buildLive(ctx: Ctx, groupId: string, fx: Map<string, Fx>) {
       groupId,
       status: "RUNNING",
       startedAt: start,
-      settings: { categories: [], cardSource: "mixed", tempoSec: 90, maxQueue: 3, ackSec: ctx.ackSec, workSec: ctx.workSec, typingSec: ctx.typingSec, hints: false, brigadeReports: true, sameCard: false },
+      settings: { categories: [], cardSource: "mixed", tempoSec: 90, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true, sameCard: false },
     },
   });
-  const tasks = ["Б30-3", "Б2-1", "Б5-1", "Б1-1", "Б17-1"];
-  const roles: ("OP112" | "DDS")[] = ["OP112", "DDS", "DDS", "DDS", "OP112"];
-  const seats = [];
-  for (const [i, s] of students.entries()) {
-    seats.push(
-      await db.seat.create({
-        data: {
-          lessonId: "demo-lesson-live",
-          studentId: s.id,
-          role: roles[i],
-          serviceId: roles[i] === "DDS" ? VORONOVSKOE : null,
-          scenarioIds: [fx.get(tasks[i])?.id].filter((x): x is string => !!x),
-          label: `Место ${i + 1}`,
-        },
-      }),
-    );
-  }
   const now = Date.now();
   const ago = (sec: number) => new Date(now - sec * 1000);
-  // Place 1 (112): a call in progress, the card is being typed for 48 s.
-  const gas = fx.get("Б30-3")!;
-  const draft = await db.incident.create({
-    data: { lessonId: "demo-lesson-live", scenarioId: gas.id, source: "op112", createdBySeatId: seats[0].id, status: "draft", openedAt: ago(48), createdAt: ago(48) },
-  });
-  await db.call.create({
-    data: {
-      lessonId: "demo-lesson-live",
-      seatId: seats[0].id,
-      incidentId: draft.id,
-      kind: "CALLER_IN",
-      status: "ACTIVE",
-      counterpart: { name: gas.caller.fullName, role: "заявитель", voice: gas.caller.voice ?? "female" },
-      messages: dialogue(gas, ago(48)).slice(0, 5),
-      startedAt: ago(52),
-      answeredAt: ago(48),
-    },
-  });
-  // Places 2–4 (ДДС): one on time with a second card in the queue, one opened in time but without the first record after
-  // 3 min, one refusal without an addressee.
-  const live: { seat: (typeof seats)[number]; ticket: string; addedAgo: number; events: Event[] }[] = [
-    { seat: seats[1], ticket: "Б2-1", addedAgo: 95, events: [{ status: "RECEIVED", sec: 4 }, { status: "ACCEPTED", sec: 17, comment: "Направлена бригада, наряд 23", crew: "23" }] },
-    { seat: seats[2], ticket: "Б5-1", addedAgo: 200, events: [{ status: "RECEIVED", sec: 6 }] },
-    { seat: seats[3], ticket: "Б1-1", addedAgo: 130, events: [{ status: "RECEIVED", sec: 5 }, { status: "REJECTED", sec: 26, comment: HANDOVER_BAD }] },
-    { seat: seats[1], ticket: "Б31-3", addedAgo: 12, events: [] },
-  ];
-  for (const item of live) {
-    const f = fx.get(item.ticket);
-    if (!f) continue;
-    const t0 = ago(item.addedAgo);
-    const incident = await db.incident.create({
-      data: { lessonId: "demo-lesson-live", scenarioId: f.id, source: "generated", status: "registered", address: { descriptive: f.address }, description: f.description, savedAt: t0, createdAt: t0 },
+  for (const [i, s] of students.entries()) {
+    const p = plan[i];
+    const service = p.service ? byName.get(p.service) : undefined;
+    const scenario = ctx.byRef.get(p.task)!;
+    const seat = await db.seat.create({
+      data: { lessonId: "demo-lesson-live", studentId: s.id, role: p.role, serviceId: service?.id ?? null, scenarioIds: [scenario.id], label: `Место ${i + 1}` },
     });
-    const plate = await db.incidentService.create({ data: { incidentId: incident.id, serviceId: VORONOVSKOE, addedBy: "auto", addedAt: t0 } });
-    const student = students.find((s) => s.id === item.seat.studentId)!;
-    await db.statusEvent.createMany({
-      data: [
-        { incidentServiceId: plate.id, status: "ADDED", actorLabel: "оп. 0", seatId: item.seat.id, at: t0 },
-        ...ownEvents(plate.id, item.events, t0, { id: item.seat.id, studentId: student.id, fullName: student.fullName }, ctx),
-      ],
-    });
-    await db.incidentService.update({ where: { id: plate.id }, data: { status: item.events.at(-1)?.status ?? "ADDED" } });
+    if (p.role === "OP112" && i === 0) {
+      // A call in progress, the card is being typed for 48 s.
+      const persona = scenario.caller as unknown as Persona;
+      const draft = await db.incident.create({
+        data: { lessonId: "demo-lesson-live", scenarioId: scenario.id, source: "op112", createdBySeatId: seat.id, operatorNo: operatorNumber(s.login), armNo: String(i + 1), status: "draft", caller: json({ aon: persona.phone ?? "" }), address: json({ subject: "Москва" }), openedAt: ago(48), createdAt: ago(48) },
+      });
+      const lines: CallLine[] = [{ role: "counterpart", ...mockOpening(persona), at: ago(48).toISOString() }];
+      for (const [k, text] of ["Служба 112, что у вас случилось?", "Назовите адрес: улица и номер дома."].entries()) {
+        const reply = mockReply(persona, [...lines], text, genderOfName(s.fullName));
+        lines.push({ role: "trainee", text, at: ago(40 - k * 14).toISOString() }, { role: "counterpart", text: reply.text, revealed: reply.revealed, at: ago(36 - k * 14).toISOString() });
+      }
+      await db.call.create({
+        data: { lessonId: "demo-lesson-live", seatId: seat.id, incidentId: draft.id, kind: "CALLER_IN", status: "ACTIVE", counterpart: json({ name: persona.fullName, role: persona.role, voice: persona.voice ?? "female", phone: persona.phone, scenarioId: scenario.id, persona }), messages: json(lines), startedAt: ago(52), answeredAt: ago(48) },
+      });
+    } else if (p.role === "DDS" && service) {
+      // A card of the place's own flow: one on time with a crew, one opened without a record yet, one refused.
+      const addedAgo = [95, 200, 130][i - 1] ?? 60;
+      const card = await createCard(db, seat, scenario, ago(addedAgo));
+      if (!card) continue;
+      await db.incident.update({ where: { id: card.id }, data: { createdAt: ago(addedAgo) } });
+      const own = (await db.incidentService.findFirstOrThrow({ where: { incidentId: card.id, serviceId: service.id } }));
+      const actor = shortName(s.fullName);
+      const events: Prisma.StatusEventCreateManyInput[] = [{ incidentServiceId: own.id, status: "RECEIVED", actorLabel: SYSTEM_ACTOR, seatId: seat.id, at: ago(addedAgo - 5) }];
+      if (i === 1) events.push({ incidentServiceId: own.id, status: "ACCEPTED", comment: "Принята, направлен наряд 23 — аварийная бригада", crewNumber: "23", actorLabel: actor, actorUserId: s.id, seatId: seat.id, at: ago(addedAgo - 18) });
+      if (i === 3) events.push({ incidentServiceId: own.id, status: "REJECTED", comment: "Не наша территория", actorLabel: actor, actorUserId: s.id, seatId: seat.id, at: ago(addedAgo - 26) });
+      await db.statusEvent.createMany({ data: events });
+      await db.incidentService.update({ where: { id: own.id }, data: { status: events[events.length - 1].status, crewNumber: i === 1 ? "23" : null } });
+    }
   }
-  await db.attempt.create({
-    data: {
-      lessonId: "demo-lesson-live",
-      seatId: seats[4].id,
-      studentId: seats[4].studentId,
-      kind: "OP112",
-      scenarioId: fx.get("Б17-1")?.id,
-      criteria: simulate112(fx.get("Б17-1")!, PROFILES.student5, ctx).crits as unknown as Prisma.InputJsonValue,
-      reviewStatus: "PENDING",
-      createdAt: ago(200),
-    },
-  });
 }
 
 // ─── main ────────────────────────────────────────────────────────────────────
-const TICKETS = ["Б30-3", "Б2-1", "Б31-3", "Б5-1", "Б1-1", "Б26-1", "Б32-2", "Б4-1", "Б11-1", "Б29-1", "Б17-1"];
+const TICKETS = ["Б30-3", "Б2-1", "Б31-3", "Б5-1", "Б1-1", "Б4-1", "Б17-1", "Б29-1", "Б22-1", "Б20-1", "Б5-1-ош"];
 
 const HISTORY_IDS = ["demo-lesson-h1", "demo-lesson-h2", "demo-lesson-h3", "demo-lesson-h4"];
 const DEMO_IDS = [...HISTORY_IDS, "demo-lesson-1", "demo-lesson-2", "demo-lesson-3", "demo-lesson-live"];
@@ -846,36 +957,36 @@ const DEMO_IDS = [...HISTORY_IDS, "demo-lesson-1", "demo-lesson-2", "demo-lesson
 export async function seedDemo({ live = false }: { live?: boolean } = {}) {
   const teacher = await db.user.findUnique({ where: { login: "teacher" } });
   const group = await db.group.findFirst({ where: { name: "Учебная группа № 1" } });
-  const serviceRows = await db.service.findMany({ select: { id: true, shortName: true, delivery: true } });
-  // The listed tickets plus every other approved ticket scenario: the adaptive lesson draws from all of them. The tasks
-  // written from the operator's instruction (a silent line, a repeat call) have no ДДС card and stay out of the demo.
-  const scenarioRows = await db.scenario.findMany({
-    where: { OR: [{ ticketRef: { in: TICKETS } }, { status: "APPROVED", source: "ticket", ticketRef: { not: null } }] },
-  });
-  if (!teacher || !group || !serviceRows.some((s) => s.id === VORONOVSKOE) || !TICKETS.every((t) => scenarioRows.some((s) => s.ticketRef === t))) {
+  const serviceRows = await db.service.findMany();
+  const scenarioRows = await db.scenario.findMany({ where: { OR: [{ ticketRef: { in: TICKETS } }, { status: "APPROVED", source: "ticket", ticketRef: { not: null } }] } });
+  if (!teacher || !group || !serviceRows.some((s) => s.shortName === DEFAULT_DDS) || !TICKETS.every((t) => scenarioRows.some((s) => s.ticketRef === t))) {
     throw new Error("Сначала загрузите учётки и справочники: pnpm db:seed");
   }
   // Lessons deal only approved scenarios, as the teacher would have approved them in «Сценарии».
   const drafts = scenarioRows.filter((s) => s.status !== "APPROVED").map((s) => s.ticketRef);
   if (drafts.length) throw new Error(`Сценарии ${drafts.join(", ")} не утверждены — утвердите их в «Сценариях» или обновите справочники`);
-
-  const services = new Map(serviceRows.map((s) => [s.id, { shortName: s.shortName, delivery: s.delivery }]));
-  const known = new Set(services.keys());
-  const fx = new Map(scenarioRows.map((s) => [s.ticketRef!, toFx(s, known)]));
+  for (const s of scenarioRows) scenarios.set(s.id, s);
 
   const profile = await db.weightProfile.findFirst({ where: { isActive: true } });
-  const weights: Weights = normalizeWeights(profile?.weights);
-  const ctx: Ctx = { weights, teacherId: teacher.id, ackSec: 30, workSec: 180, typingSec: 65 };
+  const ctx: Ctx = {
+    weights: normalizeWeights(profile?.weights),
+    teacherId: teacher.id,
+    services: new Map(serviceRows.map((s) => [s.id, s])),
+    byRef: new Map(scenarioRows.map((s) => [s.ticketRef!, s])),
+  };
 
+  rare = prng(7);
+  criticalSpent.clear();
   const demoAttempts = await db.attempt.findMany({ where: { lessonId: { in: DEMO_IDS } }, select: { id: true } });
   await db.teacherCorrection.deleteMany({ where: { attemptId: { in: demoAttempts.map((a) => a.id) } } });
   await db.lesson.deleteMany({ where: { id: { in: DEMO_IDS } } });
 
   const base = { categories: [], tempoSec: 90, maxQueue: 3, ackSec: 30, workSec: 180, typingSec: 65, hints: false, brigadeReports: true };
-  const common = { groupId: group.id, ctx, fx, services };
-  const confirmedAll = (i: number): Review => (i % 9 === 4 ? "OVERRIDDEN" : "CONFIRMED");
+  const common = { groupId: group.id, ctx };
+  const reviewedAll = (): Review => "CONFIRMED";
 
-  // Two weeks of the course before the two lessons below: the history behind the levels and forecasts.
+  // Two weeks of the course before the two lessons below: the history behind the levels and forecasts. Who sits where:
+  // prisma/demo-plan.ts.
   const history = [
     await buildLesson({
       ...common,
@@ -886,14 +997,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
       start: new Date("2026-09-14T07:00:00Z"),
       durationMin: 40,
       settings: { ...base, cardSource: "generated", hints: true, sameCard: false },
-      plan: [
-        { login: "student1", role: "OP112", tasks: ["Б31-3", "Б22-1"] },
-        { login: "student2", role: "DDS", tasks: ["Б31-3", "Б20-1"] },
-        { login: "student3", role: "OP112", tasks: ["Б20-1", "Б31-3"] },
-        { login: "student4", role: "DDS", tasks: ["Б22-1", "Б17-1"] },
-        { login: "student5", role: "DDS", tasks: ["Б31-3", "Б2-1"] },
-      ],
-      review: confirmedAll,
+      plan: DEMO_PLANS["demo-lesson-h1"],
+      review: reviewedAll,
     }),
     await buildLesson({
       ...common,
@@ -904,14 +1009,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
       start: new Date("2026-09-16T07:00:00Z"),
       durationMin: 45,
       settings: { ...base, cardSource: "generated", sameCard: false },
-      plan: [
-        { login: "student1", role: "DDS", tasks: ["Б17-1", "Б30-3"] },
-        { login: "student2", role: "OP112", tasks: ["Б2-1", "Б17-1"] },
-        { login: "student3", role: "DDS", tasks: ["Б30-3", "Б22-1"] },
-        { login: "student4", role: "OP112", tasks: ["Б29-1", "Б31-3"] },
-        { login: "student5", role: "OP112", tasks: ["Б20-1", "Б2-1"] },
-      ],
-      review: confirmedAll,
+      plan: DEMO_PLANS["demo-lesson-h2"],
+      review: reviewedAll,
     }),
     await buildLesson({
       ...common,
@@ -922,14 +1021,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
       start: new Date("2026-09-18T07:00:00Z"),
       durationMin: 45,
       settings: { ...base, cardSource: "generated", sameCard: false, adaptive: true },
-      plan: [
-        { login: "student1", role: "OP112", tasks: [], cards: 3 },
-        { login: "student2", role: "DDS", tasks: [], cards: 3 },
-        { login: "student3", role: "DDS", tasks: [], cards: 3 },
-        { login: "student4", role: "OP112", tasks: [], cards: 3 },
-        { login: "student5", role: "DDS", tasks: [], cards: 3 },
-      ],
-      review: confirmedAll,
+      plan: DEMO_PLANS["demo-lesson-h3"],
+      review: reviewedAll,
     }),
     await buildLesson({
       ...common,
@@ -940,14 +1033,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
       start: new Date("2026-09-21T07:00:00Z"),
       durationMin: 45,
       settings: { ...base, cardSource: "mixed", sameCard: false },
-      plan: [
-        { login: "student1", role: "DDS", serviceId: VORONOVSKOE, tasks: ["Б5-1", "Б13-1"] },
-        { login: "student2", role: "DDS", serviceId: VORONOVSKOE, tasks: ["Б26-1", "Б1-1"] },
-        { login: "student3", role: "OP112", tasks: ["Б30-3", "Б29-1"] },
-        { login: "student4", role: "DDS", serviceId: HOROSHEVO, tasks: ["Б32-2", "Б7-1"] },
-        { login: "student5", role: "OP112", tasks: ["Б2-1", "Б17-1"] },
-      ],
-      review: confirmedAll,
+      plan: DEMO_PLANS["demo-lesson-h4"],
+      review: reviewedAll,
     }),
   ];
   const l1 = await buildLesson({
@@ -959,14 +1046,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
     start: new Date("2026-09-23T07:00:00Z"),
     durationMin: 45,
     settings: { ...base, cardSource: "generated", hints: true, sameCard: false },
-    plan: [
-      { login: "student1", role: "OP112", tasks: ["Б30-3", "Б2-1"] },
-      { login: "student2", role: "DDS", tasks: ["Б31-3", "Б5-1", "Б30-3"] },
-      { login: "student3", role: "DDS", tasks: ["Б1-1", "Б26-1", "Б32-2"] },
-      { login: "student4", role: "DDS", tasks: ["Б4-1", "Б11-1", "Б29-1"] },
-      { login: "student5", role: "OP112", tasks: ["Б17-1", "Б29-1"] },
-    ],
-    review: (i) => (i % 7 === 3 ? "OVERRIDDEN" : "CONFIRMED"),
+    plan: DEMO_PLANS["demo-lesson-1"],
+    review: () => "CONFIRMED",
   });
   const l2 = await buildLesson({
     ...common,
@@ -977,14 +1058,8 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
     start: new Date("2026-09-25T07:00:00Z"),
     durationMin: 40,
     settings: { ...base, cardSource: "mixed", sameCard: false },
-    plan: [
-      { login: "student1", role: "DDS", serviceId: VORONOVSKOE, tasks: ["Б31-3", "Б5-1"] },
-      { login: "student2", role: "OP112", tasks: ["Б30-3", "Б2-1"] },
-      { login: "student3", role: "OP112", tasks: ["Б17-1", "Б29-1"] },
-      { login: "student4", role: "DDS", serviceId: HOROSHEVO, tasks: ["Б26-1"] },
-      { login: "student5", role: "DDS", serviceId: MESHCHANSKY, tasks: ["Б11-1", "Б32-2"] },
-    ],
-    review: (i, total) => (i < Math.floor(total * 0.4) ? (i === 2 ? "OVERRIDDEN" : "CONFIRMED") : "PENDING"),
+    plan: DEMO_PLANS["demo-lesson-2"],
+    review: (i, total) => (i < Math.floor(total * 0.4) ? "CONFIRMED" : "PENDING"),
   });
   await buildLesson({
     ...common,
@@ -995,10 +1070,10 @@ export async function seedDemo({ live = false }: { live?: boolean } = {}) {
     start: new Date(),
     durationMin: 45,
     settings: { ...base, cardSource: "generated", sameCard: true },
-    plan: ["student1", "student2", "student3", "student4", "student5"].map((login) => ({ login, role: "DDS" as const, tasks: ["Б30-3"] })),
+    plan: ["student1", "student2", "student3", "student4", "student5"].map((login) => ({ login, role: "DDS" as const, service: DEFAULT_DDS, tasks: ["Б30-3"] })),
     review: () => "PENDING",
   });
-  if (live) await buildLive(ctx, group.id, fx);
+  if (live) await buildLive(ctx, group.id);
 
   // The forecast each lesson would have saved at its start: the same code, the attempts confirmed before it.
   let snapshots = 0;

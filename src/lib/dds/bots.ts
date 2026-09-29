@@ -2,13 +2,24 @@
  * Other services on the same card move by themselves, so the card looks alive: VIS services get
  * «Получена службой» from their server within seconds, others when «their» dispatcher opens it;
  * then Принята with a crew number, the trip and the end of works. Services notified by phone only
- * (grey plates) never get statuses. The plan is deterministic per plate, so every poll agrees.
+ * (grey plates) never get statuses. The plan is deterministic per plate, so every poll agrees. The closing line
+ * follows the scenario: the service's own report from the reference when there is one, and never «пострадавших нет»
+ * on a card with someone hurt on site.
  */
 import type { ServiceDelivery, ServiceStatus } from "@prisma/client";
 
 export type BotStep = { status: ServiceStatus; afterSec: number; comment?: string; crewNumber?: string };
 
-export type BotPlate = { id: string; serviceId: number; shortName: string; delivery: ServiceDelivery };
+export type BotPlate = {
+  id: string;
+  serviceId: number;
+  shortName: string;
+  delivery: ServiceDelivery;
+  /** What this service reported at the end of its work in the scenario's reference (dds/scenario.ts serviceReport). */
+  report?: string | null;
+  /** Someone is hurt on site: the card says so, or the crews find it there (an error in the card). */
+  victims?: boolean;
+};
 
 /** Small stable hash, enough to spread timings. */
 export function hash(text: string): number {
@@ -33,14 +44,15 @@ export function botActor(plate: Pick<BotPlate, "id" | "shortName">): string {
 
 type Lines = { accept: string; start: string; arrive: string; work: string; finish: string; crew: string };
 
-function linesFor(shortName: string, seed: number): Lines {
+function linesFor(shortName: string, seed: number, victims: boolean): Lines {
   if (shortName === "Служба 101") {
     return {
       accept: "Принято, высылаем ПСЧ",
       start: "Выезд ПСЧ",
       arrive: "Прибытие ПСЧ, ведётся разведка",
       work: "Ведутся работы по тушению",
-      finish: "Работы на месте завершены, пострадавших нет",
+      // Never «пострадавших нет» on a card with someone hurt on site.
+      finish: victims ? "Работы на месте завершены, пострадавший передан бригаде скорой помощи" : "Работы на месте завершены, пострадавших нет",
       crew: `ПСЧ-${10 + (seed % 80)}`,
     };
   }
@@ -88,7 +100,7 @@ export function botPlan(plate: BotPlate): BotStep[] {
   if (plate.delivery === "PHONE") return [];
   const seed = hash(plate.id);
   const r = (min: number, max: number, salt: number) => min + (hash(`${plate.id}:${salt}`) % (max - min + 1));
-  const lines = linesFor(plate.shortName, seed);
+  const lines = linesFor(plate.shortName, seed, plate.victims === true);
 
   const received = isVisService(plate.shortName) ? r(2, 8, 1) : r(6, 20, 1);
   const accepted = received + r(4, 14, 2);
@@ -105,7 +117,8 @@ export function botPlan(plate: BotPlate): BotStep[] {
   ];
   // Some services skip «Проведение работ», as the memo allows.
   if (seed % 3 !== 0) steps.push({ status: "WORKING", afterSec: working, comment: lines.work });
-  steps.push({ status: "FINISHED", afterSec: finished, comment: lines.finish });
+  // The service's own report of the scenario, when the reference has one: the card's outcome as the scenario tells it.
+  steps.push({ status: "FINISHED", afterSec: finished, comment: plate.report?.trim() || lines.finish });
   return steps;
 }
 

@@ -72,16 +72,52 @@ export function crewNumberOf(value: string): string {
   return value.trim().replace(/^наряд\s*№?\s*/i, "").trim();
 }
 
-/** A crew typed by hand in «Номер наряда» that is not in the book still answers. */
+/** Leaders of crews typed by hand: never one of the book's leaders, so one person never leads two crews. */
+const OTHER_LEADERS = [
+  "Тихонов Роман Сергеевич",
+  "Мельникова Ольга Викторовна",
+  "Широков Артём Андреевич",
+  "Гусев Павел Ильич",
+  "Лосева Татьяна Николаевна",
+  "Ершов Константин Юрьевич",
+  "Носков Григорий Петрович",
+  "Карпова Юлия Александровна",
+  "Власов Кирилл Олегович",
+  "Дроздов Никита Евгеньевич",
+  "Савина Марина Павловна",
+  "Беляков Степан Игоревич",
+  "Королёв Андрей Михайлович",
+  "Фролова Анна Сергеевна",
+  "Медведев Илья Романович",
+  "Горбунов Алексей Витальевич",
+  "Абрамова Вера Дмитриевна",
+  "Субботин Олег Валерьевич",
+  "Жуков Максим Андреевич",
+  "Климова Светлана Юрьевна",
+  "Орехов Денис Сергеевич",
+  "Трофимов Егор Павлович",
+  "Щербакова Нина Олеговна",
+  "Пахомов Вадим Игоревич",
+];
+
+/**
+ * A crew typed by hand in «Номер наряда» that is not in the book still answers. Its leader comes from its own list:
+ * a book crew and a typed one never share a leader, and any two typed numbers up to 24 apart get different people.
+ */
 export function crewByNumber(service: { id: number; shortName: string }, crew: string): CrewMember {
   const number = crewNumberOf(crew);
   const known = crewRoster(service).find((c) => c.crew === number);
   if (known) return known;
-  const leader = LEADERS[hash(`crew:${service.id}:${number}`) % LEADERS.length];
+  const n = /^\d+$/.test(number) ? Number(number) : hash(number);
+  const leader = OTHER_LEADERS[(n + (hash(`crews:${service.id}`) % OTHER_LEADERS.length)) % OTHER_LEADERS.length];
   return { crew: number, title: "Наряд", leader, phone: "", voice: voiceOf(leader) };
 }
 
 const surname = (fullName: string) => fullName.split(/\s+/)[0];
+/** «на улицу Грина», but «в село Вороново», «в посёлок ЛМС»: where the crew is going, as it is said. */
+export function toward(address: string): string {
+  return /^(село|деревн|дер\.|пос[её]лок|пос\.|город|г\.\s|микрорайон|мкр)/i.test(address.trim()) ? `в ${address}` : `на ${address}`;
+}
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 const clean = (s: string) => s.trim().replace(/[.\s]+$/, "");
 
@@ -136,7 +172,7 @@ function stageNews(stage: ServiceStatus | null, ctx: CrewContext): string {
   switch (stage) {
     case "STARTED":
       // The training crew is fast: minutes would not match its pace (crew.ts), so no «минут через десять».
-      return `выехали на ${ctx.address}, скоро будем.`;
+      return `выехали ${toward(ctx.address)}, скоро будем.`;
     case "ARRIVED":
       return `прибыли на место, ${ctx.address}.${errorNote(stage, ctx) || " Осматриваемся."}`;
     case "WORKING":
@@ -146,7 +182,7 @@ function stageNews(stage: ServiceStatus | null, ctx: CrewContext): string {
     case "REFUSED":
       return `на месте выяснили — ${clean(ctx.plan.refuse ?? "работы не по нашей части")}. Работы проводить не будем.${errorNote(stage, ctx)}`;
     default:
-      return `вызов приняли, собираемся, скоро выезжаем на ${ctx.address}.`;
+      return `вызов приняли, собираемся, скоро выезжаем ${toward(ctx.address)}.`;
   }
 }
 
@@ -212,7 +248,7 @@ export type CrewReply = { text: string; reported: ServiceStatus | "DISPATCHED" |
 export function crewMockReply(ctx: CrewContext, said: string, turn: number): CrewReply {
   if (!ctx.dispatched) {
     if (isDispatchOrder(said)) {
-      return { text: `Принял, наряд ${ctx.crew} выезжает на ${ctx.address}.`, reported: "DISPATCHED", dispatch: true };
+      return { text: `Принял, наряд ${ctx.crew} выезжает ${toward(ctx.address)}.`, reported: "DISPATCHED", dispatch: true };
     }
     return { text: "Мы на базе, ждём указаний. Скажите адрес и что случилось — выедем.", reported: null, dispatch: false };
   }

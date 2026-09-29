@@ -871,6 +871,41 @@ export function supportedAiDiscrepancies(input: EvalInput, rules: CriterionResul
   }).slice(0, 6);
 }
 
+/** What the model answers about a card (op112AiMessages). */
+export type Op112AiReply = z.infer<typeof aiSchema>;
+
+/**
+ * The model's answer as the two checks. A claimed discrepancy counts only with a real caller quote and the card's
+ * actual value; one the rules already judge, or a name without the patronymic, is dropped.
+ */
+export function op112AiFromReply(input: EvalInput, rules: CriterionResult[], res: Op112AiReply, guidance?: Op112Guidance): CriterionResult[] {
+  const candidates = res.discrepancies.filter((d) => !nameWithoutPatronymic(d) && !judgedByRules(d.field, rules));
+  const list = supportedAiDiscrepancies(input, rules, candidates);
+  const unverified = candidates.length - list.length;
+  return [
+    {
+      code: "op112.ai.said",
+      group: "completeness",
+      title: "ИИ: всё сказанное заявителем попало в карточку",
+      ok: list.length ? false : unverified ? null : true,
+      evidence: list.length
+        ? list.map((d) => `${d.field}: заявитель ${quote(d.said, 100)} → в карточке ${quote(d.filled || "пусто", 60)}`).join("; ")
+        : unverified ? "ИИ указал расхождение без проверяемой цитаты или значения поля — требуется преподаватель" : "Расхождений не найдено",
+      source: "ai",
+      learned: guidance?.said.map((g) => g.id) ?? [],
+    },
+    {
+      code: "op112.ai.description",
+      group: "literacy",
+      title: "ИИ: описание понятно следующему диспетчеру",
+      ok: res.descriptionClear,
+      evidence: res.descriptionComment || undefined,
+      source: "ai",
+      learned: guidance?.description.map((g) => g.id) ?? [],
+    },
+  ];
+}
+
 /** Transcript vs card by the model. Returns «не применимо» when no model is configured or it fails. */
 export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance): Promise<CriterionResult[]> {
   if (!aiEnabled()) return aiUnavailable(`ИИ-проверка не выполнялась: ${aiOffNote()}`);
@@ -879,31 +914,7 @@ export async function evaluateOp112Ai(input: EvalInput, guidance?: Op112Guidance
     // The rules have already compared the card with the reference; the model looks only at what they cannot see.
     const rules = evaluateOp112Rules(input);
     const res = await chatJson(op112AiMessages(input, guidance, rules), aiSchema, { temperature: 0, maxTokens: 700 });
-    const candidates = res.discrepancies.filter((d) => !nameWithoutPatronymic(d) && !judgedByRules(d.field, rules));
-    const list = supportedAiDiscrepancies(input, rules, candidates);
-    const unverified = candidates.length - list.length;
-    return [
-      {
-        code: "op112.ai.said",
-        group: "completeness",
-        title: "ИИ: всё сказанное заявителем попало в карточку",
-        ok: list.length ? false : unverified ? null : true,
-        evidence: list.length
-          ? list.map((d) => `${d.field}: заявитель ${quote(d.said, 100)} → в карточке ${quote(d.filled || "пусто", 60)}`).join("; ")
-          : unverified ? "ИИ указал расхождение без проверяемой цитаты или значения поля — требуется преподаватель" : "Расхождений не найдено",
-        source: "ai",
-        learned: guidance?.said.map((g) => g.id) ?? [],
-      },
-      {
-        code: "op112.ai.description",
-        group: "literacy",
-        title: "ИИ: описание понятно следующему диспетчеру",
-        ok: res.descriptionClear,
-        evidence: res.descriptionComment || undefined,
-        source: "ai",
-        learned: guidance?.description.map((g) => g.id) ?? [],
-      },
-    ];
+    return op112AiFromReply(input, rules, res, guidance);
   } catch (err) {
     return aiUnavailable(`ИИ-проверка не удалась: ${err instanceof Error ? err.message.slice(0, 120) : "ошибка"}`);
   }

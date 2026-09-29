@@ -7,8 +7,10 @@
  * house of the ticket goes to a street of the place's district from the offline gazetteer (op112/gazetteer.ts; for a
  * prefecture — to a district of its okrug); the entrance, floor and flat stay, the object and the descriptive address of
  * the old place go, and the district and prefecture plates follow the new address. Only an ordinary house moves: a
- * station, a park, the ring road, a description that names its place never do. The move is a pure function of the
- * scenario and the place's service, so every poll, the crew and the applicant on the phone meet the same address.
+ * station, a park, the ring road, a description that names its place never do. A high house (a fire on the 13th floor,
+ * «дом 17 этажей») moves only into a city street, never into a village or a settlement of low houses. The move is a pure
+ * function of the scenario and the place's service, so every poll, the crew and the applicant on the phone meet the
+ * same address.
  *
  * A card whose address is not on the place's territory — a task the teacher marked by hand that cannot move, a card
  * typed at a 112 place with another district's plate — is judged as the memo says: «Не принята», whose territory it is
@@ -21,7 +23,7 @@ import { normalizeDistrict, normalizeOkrug } from "@/lib/routing/engine";
 import type { ScenarioPlace } from "@/lib/scenarios/location";
 import { scenarioPlace } from "@/lib/scenarios/place";
 import { hash } from "./bots";
-import { platesForPlace, referenceFor, territorialLevel, type DdsCardSpec, type DdsReferenceEntry } from "./scenario";
+import { ddsCardOf, personaOf, platesForPlace, referenceFor, territorialLevel, type DdsCardSpec, type DdsReferenceEntry, type ScenarioLike } from "./scenario";
 
 export type Territory = { level: "district" | "prefecture"; okrug: string; district: string | null };
 
@@ -153,6 +155,64 @@ export function movable(spec: Pick<DdsCardSpec, "address" | "description">): boo
   return !LANDMARK.test(` ${text}`) && !LANDMARK.test(` ${low(a.object)}`) && !namesPlace(text, a);
 }
 
+// ─── How high the house is ──────────────────────────────────────────────────
+
+/** Houses of a village or a settlement have up to this many floors; a card from a higher house moves only into a city street. */
+export const LOW_RISE_FLOORS = 5;
+
+const VILLAGE_STREET = /^(село|деревня|пос[её]лок|пос\.|дер\.|с\.|д\.)\s/i;
+
+/** A street of a village or a settlement («село Вороново», «посёлок ЛМС, микрорайон Солнечный»): low houses only. */
+export function lowRise(street: string): boolean {
+  return VILLAGE_STREET.test(street.trim());
+}
+
+/** «семнадцатиэтажный», «на тринадцатом этаже»: the number the words say. */
+const FLOOR_WORDS: [RegExp, number][] = (
+  [
+    ["двадцат", 20],
+    ["девятнадцат", 19],
+    ["восемнадцат", 18],
+    ["семнадцат", 17],
+    ["шестнадцат", 16],
+    ["пятнадцат", 15],
+    ["четырнадцат", 14],
+    ["тринадцат", 13],
+    ["двенадцат", 12],
+    ["одиннадцат", 11],
+    ["десят[иоы]", 10],
+    ["девят[иоы]", 9],
+    ["восьм[иоы]", 8],
+    ["сем[иь]|седьм", 7],
+    ["шест[иоы]", 6],
+  ] as [string, number][]
+).map(([stem, n]) => [new RegExp(`(^|[^а-я])(${stem})[а-я]*\\s*этаж`), n]);
+
+/**
+ * How high the house of a card is, as far as the card and the applicant's words tell: its floor, «на 13-м этаже»,
+ * «дом 17 этажей», «семнадцатиэтажный», «многоэтажка». 0 when nothing says.
+ */
+export function storeysOf(spec: Pick<DdsCardSpec, "address" | "description">, words: string[] = []): number {
+  const floor = Number.parseInt(spec.address.floor ?? "", 10);
+  let most = Number.isFinite(floor) && floor > 0 ? floor : 0;
+  for (const text of [spec.description ?? "", ...words]) {
+    const t = low(text);
+    for (const m of t.matchAll(/(^|[^\d-])(\d{1,2})\s*(-?\s*[а-я]{1,3})?\s*этаж/g)) most = Math.max(most, Number(m[2]));
+    for (const [re, n] of FLOOR_WORDS) if (re.test(t.replace(/(\S)этаж/g, "$1 этаж"))) most = Math.max(most, n);
+    if (/многоэтаж|высотк|высотн[а-я]* дом/.test(t)) most = Math.max(most, LOW_RISE_FLOORS + 4);
+  }
+  return most;
+}
+
+/** The storeys of a scenario's card, the applicant's story and facts included. */
+export function scenarioStoreys(s: Pick<ScenarioLike, "caller" | "truth" | "ddsCard" | "title" | "id" | "category">): number {
+  const persona = personaOf(s);
+  return storeysOf(ddsCardOf(s), persona ? [persona.situation, ...persona.facts] : []);
+}
+
+/** A street a house of this height can stand on. */
+const fitsStreet = (storeys: number) => (p: GazetteerPlace) => storeys <= LOW_RISE_FLOORS || !lowRise(p.street);
+
 const isMoscowStreet = (p: GazetteerPlace) => !!p.district && !!p.okrug && p.okrug !== "МО" && (!p.subject || p.subject === "Москва") && !NOT_A_HOUSE_STREET.test(p.street);
 
 const streetsCache = new Map<string, GazetteerPlace[]>();
@@ -174,9 +234,12 @@ export function streetsOf(district: string): GazetteerPlace[] {
   return found;
 }
 
-/** Whether a card can be moved onto this territory at all: the gazetteer has a street there. */
-export function hasStreets(t: Territory): boolean {
-  return t.level === "district" ? streetsOf(t.district!).length > 0 : districtsOf(t.okrug).length > 0;
+/**
+ * Whether a card can be moved onto this territory at all: the gazetteer has a street there — for a house higher than
+ * LOW_RISE_FLOORS, a city street.
+ */
+export function hasStreets(t: Territory, storeys = 0): boolean {
+  return t.level === "district" ? streetsOf(t.district!).some(fitsStreet(storeys)) : districtsOf(t.okrug).some((d) => streetsOf(d).some(fitsStreet(storeys)));
 }
 
 /** Districts of an okrug that have streets in the gazetteer, in a stable order. */
@@ -196,15 +259,16 @@ export const houseKey = (street: string | null | undefined, house: string | null
 /**
  * The house a card moves to: a street of the place's district (for a prefecture — of one of its districts), a house
  * near the one the tickets know there, or a small number that exists on almost any street; never a ticket's own house,
- * nor a house already in the place's feed (`avoid`, houseKey). Null when the gazetteer has no street there.
+ * nor a house already in the place's feed (`avoid`, houseKey). A house of more than LOW_RISE_FLOORS floors (`storeys`)
+ * goes only to a city street. Null when the gazetteer has no such street there.
  */
-export function moveTarget(t: Territory, seed: string, avoid: ReadonlySet<string> = new Set()): Move | null {
+export function moveTarget(t: Territory, seed: string, avoid: ReadonlySet<string> = new Set(), storeys = 0): Move | null {
   const h = hash(seed);
   const districts = t.level === "district" ? [t.district!] : districtsOf(t.okrug);
-  const withStreets = districts.filter((d) => streetsOf(d).length);
+  const withStreets = districts.filter((d) => streetsOf(d).some(fitsStreet(storeys)));
   if (!withStreets.length) return null;
   const district = withStreets[h % withStreets.length];
-  const all = streetsOf(district);
+  const all = streetsOf(district).filter(fitsStreet(storeys));
   const tickets = (street: string) => ticketHouses(street).filter((x) => normalizeDistrict(x.district) === normalizeDistrict(district));
   // A through road only near a house the tickets place in this district.
   const calm = all.filter((p) => !THROUGH_ROAD.test(p.street) || tickets(p.street).length);
@@ -237,19 +301,21 @@ export const moveSeed = (scenarioId: string, serviceId: number) => `${scenarioId
 
 /**
  * Where the card of a scenario goes for a place: `move` — the house it moves to (null: it stays where it is); `foreign`
- * — it stays off the place's territory (a task marked by hand that cannot move).
+ * — it stays off the place's territory (a task marked by hand that cannot move: a station, a park, a high house for a
+ * territory of villages). `storeys` — how high the house is (scenarioStoreys: the applicant's words count too).
  */
 export function moveFor(
   spec: DdsCardSpec,
   scenarioId: string,
   own: ServiceLike & { id: number },
   avoid: ReadonlySet<string> = new Set(),
+  storeys = storeysOf(spec),
 ): { move: Move | null; foreign: boolean } {
   const t = territoryOf(own);
   if (!t) return { move: null, foreign: false };
   const match = territoryMatch(placeOfAddress(spec.address), t);
   if (match === "in") return { move: null, foreign: false };
-  const move = movable(spec) ? moveTarget(t, moveSeed(scenarioId, own.id), avoid) : null;
+  const move = movable(spec) ? moveTarget(t, moveSeed(scenarioId, own.id), avoid, storeys) : null;
   return { move, foreign: !move && match === "out" };
 }
 

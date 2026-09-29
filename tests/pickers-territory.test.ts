@@ -60,6 +60,23 @@ describe("a district ДДС gets the cards of its territory", () => {
     expect([none.scenario, none.pool, none.left]).toEqual([null, 2, 0]);
   });
 
+  it("a settlement of villages never draws a fire on the 13th floor, only what can stand there", async () => {
+    const voronovo = { id: 191, shortName: "Поселение Вороновское", okrug: "ТиНАО", district: "Вороновское" };
+    const high = S("high", { ...address("ЮЗАО", "Северное Бутово", "ул. Грина", "11"), floor: "13" }, "Горит балкон и два окна рядом на 13-м этаже");
+    const tower = S("tower", address("СЗАО", "Щукино", "ул. Берзарина", "21"), "Задымление мусоропровода, в доме 17 этажей");
+    const low = S("low", { ...address("ЮЗАО", "Академический", "ул. Вавилова", "81"), floor: "2" }, "Свист от газовой трубы в квартире");
+    for (const adaptive of [true, false]) {
+      for (const r of [0, 0.5, 0.99]) {
+        vi.spyOn(Math, "random").mockReturnValue(r);
+        const w = { pool: [high, tower, low], own: voronovo };
+        expect((await pickScenario(ddsTx(w), seat(191), settings(), adaptive))?.id).toBe("low");
+        expect(await pickScenario(ddsTx({ ...w, feed: [{ scenarioId: "low" }] }), seat(191), settings(), adaptive)).toBeNull();
+      }
+    }
+    // A city district takes the same high house: it has streets of high houses.
+    expect((await pickScenario(ddsTx({ pool: [high], own: horoshevo }), seat(87), settings(), false))?.id).toBe("high");
+  });
+
   it("deals a task marked by hand as it is, even off the territory (it is judged as a refusal)", async () => {
     expect((await pickScenario(tx(), seat(87, ["station"]), settings(), true))?.id).toBe("station");
     expect(await pickScenario(tx({ feed: ["station"] }), seat(87, ["station"]), settings(), true)).toBeNull();

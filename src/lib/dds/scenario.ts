@@ -394,6 +394,22 @@ export function referenceFor(raw: unknown, service: { id: number; shortName: str
   return entry && cardError ? { ...entry, cardError, crew: { ...entry.crew, cardError: cardError.report, cardErrorSay: cardError.mustSay } } : entry;
 }
 
+/**
+ * What another service on the card reported at the end of its work, by the reference: its own entry (by id or name —
+ * not a territorial role, not a default) with «Принята». Null when the reference has none.
+ */
+export function serviceReport(raw: unknown, service: { id: number; shortName: string }): string | null {
+  const list: unknown[] = Array.isArray(raw) ? raw : isObj(raw) && Array.isArray(raw.services) ? raw.services : [];
+  const entry = entryOf(list.find((e) => isObj(e) && (Number(e.serviceId) === service.id || str(e.service) === service.shortName)));
+  return entry?.decision === "accept" ? (entry.crew.result ?? null) : null;
+}
+
+/** Someone is hurt on site: the card's flag, or the error in the card the crews find there (a victim the card missed). */
+export function victimsOnSite(flags: unknown, raw: unknown): boolean {
+  if (isObj(flags) && flags.victims === true) return true;
+  return cardErrorFrom(raw)?.fix?.flags.victims === true;
+}
+
 /** Whether the reference has its own entry for the place: by service, by its territorial level, or a default one. */
 export function hasOwnReference(raw: unknown, service: { id: number; shortName: string }): boolean {
   return ownReference(raw, service) !== null;

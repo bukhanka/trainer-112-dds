@@ -18,7 +18,7 @@ import { abbreviationsIn, judgedComments } from "./clarity";
 import { endHold, readHolds } from "./hold";
 import { CLARITY_AI_CODE, clarityAiUnavailable, clarityBasis, evaluateDdsClarityAi } from "./clarity-ai";
 import { dispatchOf } from "./crew";
-import { evaluateDdsPlate, scoreOf, summarize } from "./evaluate";
+import { evaluateDdsPlate, scoreOf, summarize, type PlateFacts } from "./evaluate";
 import { mentionsCardNumber } from "./personas";
 import { cardErrorFrom, saysCardErrorRight } from "./scenario";
 import { cardReference } from "./territory";
@@ -41,8 +41,8 @@ export async function activeWeights(): Promise<Weights> {
 
 const cp = (call: Pick<Call, "counterpart">) => (call.counterpart ?? {}) as Counterpart;
 
-/** Marks the reviews written here, so other tools' attempts (demo lessons) are never rewritten. */
-const PLACE_REVIEW = "dds-place";
+/** Marks the reviews written here (the demo lessons write theirs the same way), so other tools' attempts are never rewritten. */
+export const PLACE_REVIEW = "dds-place";
 /** aiCheck — the model's clarity check asked for this text and not answered yet. */
 type Draft = { by?: string; final?: boolean; aiCheck?: { basis: string; at: string } } | null;
 const madeByPlace = (draft: unknown) => (draft as Draft)?.by === PLACE_REVIEW;
@@ -78,10 +78,10 @@ function clarityPart(basis: string | null, existing: { criteria: unknown; aiDraf
 }
 
 /**
- * Review one plate of a ДДС place and store it. Returns the score, or null when nothing was stored.
- * `final` marks the review made at the end of the lesson, so it runs once per plate.
+ * The place that worked on a plate and the facts of its work, read from the database — what evaluateDdsPlate judges.
+ * Null when the plate is not in a lesson or no ДДС place of its service is there.
  */
-export async function evaluatePlate(plateId: string, now = new Date(), opts: { final?: boolean } = {}): Promise<number | null> {
+export async function plateReviewInput(plateId: string, now = new Date()) {
   const plate = await db.incidentService.findUnique({
     where: { id: plateId },
     include: {
@@ -138,7 +138,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     .map(({ at, lines }) => ({ at, lines }));
 
   const end = lesson.status === "FINISHED" && lesson.finishedAt ? lesson.finishedAt : now;
-  const rules: CriterionResult[] = evaluateDdsPlate({
+  const facts: PlateFacts = {
     addedAt: plate.addedAt,
     status: plate.status,
     events: plate.events.map((e) => ({ status: e.status, comment: e.comment, crewNumber: e.crewNumber, at: e.at, late: e.late })),
@@ -155,8 +155,21 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     now: end,
     knownAbbreviations: await knownAbbreviations(),
     commentTemplate: settings.commentTemplate,
-  });
+  };
   const judged = judgedComments(plate.events.filter((e) => !awaitsAnswer(e.status)));
+  return { plate, incident, lesson, seat, facts, judged };
+}
+
+/**
+ * Review one plate of a ДДС place and store it. Returns the score, or null when nothing was stored.
+ * `final` marks the review made at the end of the lesson, so it runs once per plate.
+ */
+export async function evaluatePlate(plateId: string, now = new Date(), opts: { final?: boolean } = {}): Promise<number | null> {
+  const input = await plateReviewInput(plateId, now);
+  if (!input) return null;
+  const { plate, incident, lesson, seat, judged } = input;
+  const seatId = seat.id;
+  const rules: CriterionResult[] = evaluateDdsPlate(input.facts);
   const basis = judged.length ? clarityBasis(judged) : null;
   const weights = await weightsForAttempt(db, lesson.id, seat.studentId);
 
@@ -165,7 +178,7 @@ export async function evaluatePlate(plateId: string, now = new Date(), opts: { f
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`dds-review:${plate.id}`}))`;
     const existing = await tx.attempt.findFirst({ where: { incidentServiceId: plate.id, seatId, kind: "DDS" } });
     if (existing && existing.reviewStatus !== "PENDING") return { score: existing.score, ask: null }; // the teacher has checked it
-    if (existing && !madeByPlace(existing.aiDraft)) return { score: existing.score, ask: null }; // someone else's review (demo lessons): leave it
+    if (existing && !madeByPlace(existing.aiDraft)) return { score: existing.score, ask: null }; // a review written by another tool: leave it
     const ai = clarityPart(basis, existing);
     const criteria = ai.check ? [...rules, ai.check] : rules;
     const score = scoreOf(criteria, weights);
