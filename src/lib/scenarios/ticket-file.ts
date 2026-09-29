@@ -5,13 +5,16 @@
  *
  * How a file is cut, in the order of the customer's tickets («БИЛЕТ 1 · Отработайте вызовы · № | Ситуация | Адрес»):
  *   1. a short line «Билет N» starts a ticket;
- *   2. a table row numbered «1», «2», … is a situation; its cells are named by the header («Адрес: …»);
- *   3. without such rows, lines numbered «1.», «2.», … in order split the ticket into situations;
+ *   2. a table row numbered «1», «2», … is a situation; its cells are named by the header («Адрес: …»). A table is a
+ *      Word table, a table of a PDF (read by the positions of its words, files/pdf.ts) or lines of a text with «|»
+ *      between the cells («1 | Возгорание… | Москва, …»; a line starting with «|» goes on with the row above);
+ *   3. without such rows, lines numbered «1.», «2.», «№ 3», … in order split the ticket into situations;
  *   4. otherwise the ticket (or the whole file) is one text.
  */
 import { blocksToText, docxBlocks, DocxError, type DocBlock } from "@/lib/files/docx";
 import { extensionOf } from "@/lib/files/detect";
 import { pdfText, PdfError } from "@/lib/files/pdf";
+import { pdfBlocks, pdfLines } from "@/lib/files/pdf-table";
 import { decodeText } from "@/lib/files/text";
 
 /** The draft generator reads this much of a text; a longer situation is flagged. */
@@ -24,8 +27,11 @@ export type TicketFragment = { label: string; text: string; long: boolean };
 export type TicketFileResult = { fileName: string; kind: "docx" | "txt" | "pdf"; tickets: number; fragments: TicketFragment[]; notes: string[] };
 
 const TICKET = /^билет\s*(?:№\s*)?(\d{1,3})(?!\d)/i;
-const ITEM = /^(\d{1,2})\s*[.)]\s+([\s\S]+)$/;
-const ROW_NUMBER = /^(\d{1,2})\s*[.)]?$/;
+/** «1. Горит…», «2) …», and «№ 3» on its own line or before the text, as the tickets print the rows. */
+const ITEM = /^(?:(\d{1,2})\s*[.)]\s+([\s\S]+)|№\s*(\d{1,2})\s*[.):]?(?:\s+([\s\S]*))?)$/;
+const ROW_NUMBER = /^(?:№\s*)?(\d{1,2})\s*[.)]?$/;
+/** «Ситуация: …», «Адрес: …» inside a cell or a row: the name of the column written into the text. */
+const CELL_LABEL = /^(ситуация|описание|текст|вызов|адрес)\s*[:—-]\s*/i;
 
 /** One line of text: tabs and runs of spaces become one space. */
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -45,14 +51,66 @@ const sentences = (parts: string[]) =>
 /** A situation from a numbered table row, the cells named by the header row when there is one. */
 function rowText(cells: string[], header: string[] | null): string {
   const parts: string[] = [];
-  cells.forEach((cell, i) => {
+  cells.forEach((raw, i) => {
+    // «Адрес: Москва…» in a cell under «Адрес» is named once, and «Ситуация: …» is just the situation.
+    const own = CELL_LABEL.exec(raw)?.[1]?.toLowerCase();
+    const cell = raw.replace(CELL_LABEL, "").trim();
     if (!cell) return;
-    const name = header?.[i] ?? "";
+    const name = own ?? header?.[i] ?? "";
     if (/адрес/i.test(name)) parts.push(`Адрес: ${cell}`);
     else if (!name || /ситуац|описан|текст|вызов|что случ/i.test(name)) parts.push(cell);
     else parts.push(`${name}: ${cell}`);
   });
   return sentences(parts);
+}
+
+/** Cells of a text line with «|» between them; a Markdown row («| a | b |») keeps its inner cells. */
+function pipeCells(line: string): string[] {
+  const cells = line.split("|").map(oneLine);
+  if (cells.length > 1 && !cells[0] && /^\s*\|/.test(line) && /\|\s*$/.test(line)) return cells.slice(1, -1);
+  return cells;
+}
+
+const isPipeRow = (line: string) => line.includes("|") && pipeCells(line).filter(Boolean).length >= 1 && !/^[\s|:—-]+$/.test(line);
+
+/**
+ * Lines of a text file (or a PDF read as text) with «|» between the cells become a table: «№ | Ситуация | Адрес» and
+ * «1 | Горит… | Москва, …». A line that starts with «|» goes on with the row above («  | Адрес: …»); blank lines
+ * inside the table and Markdown rules («|---|---|») are skipped.
+ */
+export function pipeTables(blocks: DocBlock[]): DocBlock[] {
+  const out: DocBlock[] = [];
+  let rows: string[][] | null = null;
+  const flush = () => {
+    if (rows && rows.length) out.push({ kind: "table", rows });
+    rows = null;
+  };
+  for (const block of blocks) {
+    if (block.kind !== "p") {
+      flush();
+      out.push(block);
+      continue;
+    }
+    for (const line of block.text.split("\n")) {
+      if (!line.trim()) {
+        if (!rows) out.push({ kind: "p", text: line });
+        continue;
+      }
+      if (/^[\s|:—-]+$/.test(line) && line.includes("|")) continue; // «|---|---|»
+      if (!isPipeRow(line)) {
+        flush();
+        out.push({ kind: "p", text: line });
+        continue;
+      }
+      const cells = pipeCells(line);
+      const current: string[][] = rows ?? (rows = []);
+      // «  | Адрес: …» — no number, no first cell: the rest of the row above.
+      if (/^\s*\|/.test(line) && !cells[0] && current.length) current[current.length - 1].push(...cells.slice(1).filter(Boolean));
+      else current.push(cells);
+    }
+  }
+  flush();
+  return out;
 }
 
 const isHeader = (cells: string[]) => cells.every((c) => c.length <= 60) && cells.some((c) => /ситуац|адрес|заявител|описан/i.test(c));
@@ -75,17 +133,30 @@ function tableSituations(rows: string[][]): { n: number; text: string }[] | null
   return data.length ? data.map((cells, i) => ({ n: i + 1, text: rowText(cells, header) })) : null;
 }
 
-/** Numbered lines «1.», «2.», … in order split a text into situations; fewer than two — one text. */
+/** Numbered lines «1.», «2.», «№ 3», … in order split a text into situations; fewer than two — one text. */
 function numberedSituations(lines: string[]): string[] {
   const items: string[][] = [];
   for (const line of lines) {
+    if (/^\[[^\]]*\]$/.test(line.trim())) continue; // «[примечание: …]» — a note of whoever typed the ticket
     const m = ITEM.exec(line);
-    if (m && Number(m[1]) === items.length + 1) items.push([m[2]]);
+    const n = m ? Number(m[1] ?? m[3]) : 0;
+    if (m && n === items.length + 1) items.push([m[2] ?? m[4] ?? ""]);
     else if (items.length) items[items.length - 1].push(line);
     // Lines before «1.» are the wording of the task: they stay only when the text is not split.
   }
-  // Lines of a PDF or a text file break inside sentences: a situation becomes one line again.
-  if (items.length >= 2) return items.map((item) => oneLine(item.join(" ")));
+  // Lines of a PDF or a text file break inside sentences: a situation becomes one line again, and a row printed as
+  // «Ситуация: … / Адрес: …» reads as «… Адрес: …».
+  if (items.length >= 2) {
+    return items.map((item) => {
+      const parts: string[] = [];
+      for (const raw of item.map(oneLine).filter(Boolean)) {
+        if (/^адрес\s*[:—-]/i.test(raw)) parts.push(raw.replace(CELL_LABEL, "Адрес: "));
+        else if (parts.length) parts[parts.length - 1] += ` ${raw.replace(CELL_LABEL, "")}`;
+        else parts.push(raw.replace(CELL_LABEL, ""));
+      }
+      return sentences(parts);
+    });
+  }
   const all = oneLine(lines.join(" "));
   return all ? [all] : [];
 }
@@ -97,10 +168,11 @@ function fragment(label: string, text: string): TicketFragment {
 /** Blocks of a document → situations with labels «Билет 3, ситуация 2». */
 export function splitTickets(blocks: DocBlock[]): { tickets: number; fragments: TicketFragment[] } {
   const sections: Section[] = [{ ticket: null, lines: [], rows: [] }];
-  for (const block of blocks) {
+  for (const block of pipeTables(blocks)) {
     const section = sections[sections.length - 1];
     if (block.kind === "p") {
-      const text = block.text.split("\n").map(oneLine);
+      // Rules «=====» and page marks «p-12» of a typed-up scan are not text of a ticket.
+      const text = block.text.split("\n").map(oneLine).filter((l) => !/^[=_*~—–-]{5,}$/.test(l) && !/^p-\d{1,3}$/i.test(l));
       for (const line of text) {
         const heading = TICKET.exec(line);
         if (heading && line.length <= 80) sections.push({ ticket: `Билет ${heading[1]}`, lines: [], rows: [] });
@@ -110,7 +182,9 @@ export function splitTickets(blocks: DocBlock[]): { tickets: number; fragments: 
     }
     const situations = tableSituations(block.rows);
     if (situations) {
-      for (const s of situations) section.rows.push(fragment(`${section.ticket ? `${section.ticket}, ` : ""}ситуация ${s.n}`, s.text));
+      // A heading row of a table («БИЛЕТ 2» typed into it) is not a situation.
+      const cur = sections[sections.length - 1];
+      for (const s of situations) cur.rows.push(fragment(`${cur.ticket ? `${cur.ticket}, ` : ""}ситуация ${s.n}`, s.text));
     } else {
       section.lines.push(...block.rows.map((r) => r.map(oneLine).filter(Boolean).join(" · ")));
     }
@@ -118,7 +192,10 @@ export function splitTickets(blocks: DocBlock[]): { tickets: number; fragments: 
 
   const fragments: TicketFragment[] = [];
   let tickets = 0;
+  const withTickets = sections.some((s) => s.ticket);
   for (const s of sections) {
+    // Before the first «Билет N» of a file with tickets: the file's own heading, not a situation.
+    if (withTickets && !s.ticket && !s.rows.length && numberedSituations(s.lines).length < 2) continue;
     // A ticket laid out as a table: the loose lines around it are its heading and the task wording.
     const found = s.rows.length
       ? s.rows
@@ -163,7 +240,9 @@ export async function ticketsFromFile(fileName: string, bytes: Uint8Array): Prom
       if (oneLine(pdf.text).length < 20) {
         return { ok: false, error: "В PDF нет текста — похоже, это скан. Сохраните билет из Word в DOCX или TXT, или наберите ситуацию в поле" };
       }
-      blocks = lines(pdf.text);
+      // A table of situations is rebuilt from the positions of the words; without one the text is read as a text file,
+      // its lines wrapped at the right margin joined back (pdf-table.ts).
+      blocks = pdfBlocks(pdf.items) ?? pdfLines(pdf.items);
     } catch (err) {
       return { ok: false, error: err instanceof PdfError ? err.message : "Не удалось прочитать PDF" };
     }
